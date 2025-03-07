@@ -9,6 +9,12 @@ def PbLi(li6_enrichment, density):
       maximum values). Then, of the remaining material, we take Li at 0.62 weight %
       and Pb at 99.38 weight % [10.1016/j.nme.2022.101146, page 2].
 
+      We assume that this material is not depletable, since it will be flowing on
+      a timescale much faster than depletion.
+
+      TODO: non-metallic impurities (O, C, N, H) are not included, even though
+      some will remain when ingots are melted. Do we need to include these?
+
       Keyword arguments:
       li6_enrichment -- the Li6 enrichment in Li [atomic percent]
       density -- the overall density of the material [g/cc]
@@ -60,7 +66,98 @@ def PbLi(li6_enrichment, density):
 
   # total Pb concentration taken as 99.38% by weight of whatever remains after impurities
   PbLi.add_element('Pb', 0.9938 * (1 - weight_sum), 'wo')
-  print('\tLithium (weight %):    ', (1 - weight_sum) * 100)
+  print('\tLead (weight %):    ', (1 - weight_sum) * 100)
 
   PbLi.set_density('g/cc', density)
+  PbLi.depletable = False
+  return PbLi
 
+def eurofer97(density):
+  """ Return an OpenMC material for Eurofer97 RAFM steel
+      (10.1016/j.fusengdes.2018.06.027). This paper gives min, max, and target values
+      for the main alloying elements, and maximum values for impurities (radiologically
+      undesirable quantities, which may or may not be the same as other impurities
+      which are not undesirable, per se). Composition is given in weight %.
+
+      The table in the reference includes min weight %, max weight %, and target
+      weight %, but not all elements have all three numbers provided. We make the
+      following assumption:
+        - if a target % is given, we use it
+        - if only a range, between min and max is given, we take the average
+        - if only one numeric value is given, we use it
+        - if the minimum is as-low-as-possible, we take the maximum given
+        - for the As, Sn, Sb, and Zr (these are lumped together), we assume the 0.05 weight % is evenly split among these
+  """
+  eurofer97 = openmc.Material()
+  eurofer97.add_element('C', 0.11, 'wo')
+  eurofer97.add_element('Cr', 9.0, 'wo')
+  eurofer97.add_element('W', 1.1, 'wo')
+  eurofer97.add_element('Mn', 0.4, 'wo')
+  eurofer97.add_element('V', (0.25 + 0.15)/2, 'wo')
+  eurofer97.add_element('Ta', 0.12, 'wo')
+  eurofer97.add_element('N', 0.03, 'wo')
+  eurofer97.add_element('P', 0.005, 'wo')
+  eurofer97.add_element('S', 0.005, 'wo')
+  eurofer97.add_element('B', 0.002, 'wo')
+  eurofer97.add_element('O', 0.01, 'wo')
+
+  alloy_weight_sum = 0
+  for nuclide in eurofer97.nuclides:
+    alloy_weight_sum += nuclide.percent
+
+  print('\tAlloying elements (weight %): ', alloy_weight_sum)
+
+  # impurities
+  eurofer97.add_element('Nb', 0.005, 'wo')
+  eurofer97.add_element('Mo', 0.005, 'wo')
+  eurofer97.add_element('Ni', 0.01, 'wo')
+  eurofer97.add_element('Cu', 0.01, 'wo')
+  eurofer97.add_element('Al', 0.01, 'wo')
+  eurofer97.add_element('Ti', 0.02, 'wo')
+  eurofer97.add_element('Si', 0.05, 'wo')
+  eurofer97.add_element('Co', 0.01, 'wo')
+  eurofer97.add_element('As', 0.05/4, 'wo')
+  eurofer97.add_element('Sn', 0.05/4, 'wo')
+  eurofer97.add_element('Sb', 0.05/4, 'wo')
+  eurofer97.add_element('Zr', 0.05/4, 'wo')
+
+  weight_sum = 0
+  for nuclide in eurofer97.nuclides:
+    weight_sum += nuclide.percent
+
+  print('\tImpurity elements (weight %): ', weight_sum - alloy_weight_sum)
+
+  eurofer97.add_element('Fe', 100 - weight_sum, 'wo')
+
+  print('\tIron (weight %):             ', 100 - weight_sum)
+
+  eurofer97.set_density('g/cc', density)
+  return eurofer97
+
+def water(density):
+  """ Return an OpenMC material for water. TODO: add impurities
+  """
+
+  water = openmc.Material()
+  water.add_element('H', 2.0)
+  water.add_element('O', 1.0)
+  water.set_density('g/cc', density)
+  return water
+
+def helium(density):
+  """ Return an OpenMC material for helium. TODO: add impurities
+  """
+
+  helium = openmc.Material()
+  helium.add_element('He', 1.0)
+  helium.set_density('g/cc', density)
+  return helium
+
+def W(density):
+  """ Return an OpenMC material for pure tungsten.
+  """
+
+  tungsten = openmc.Material()
+  tungsten.add_element('W', 1.0)
+  tungsten.set_density('g/cc', density)
+  return tungsten
