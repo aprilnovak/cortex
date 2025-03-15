@@ -2,7 +2,6 @@ import openmc
 import openmc.stats
 import numpy as np
 import matplotlib.pyplot as plt
-import re
 
 import sys
 import os
@@ -15,6 +14,7 @@ model = openmc.Model()
 # OpenMC model of a bare tile with dimensions as given in the ARPA-E FOA.
 # This is the simplest model possible, and will be both (i) a lower bound
 # on our runtime and (ii) the baseline case we compare all materials against.
+
 thickness = 5                      # [cm] thickness of the region
 frontal_side = 50                  # [cm] side length of the tile facing the plasma
 ncells = 10                        # number of cells in the radial direction
@@ -33,16 +33,9 @@ neutron_source_rate *= frontal_side**2 # neutrons/s
 # get materials; also fetch the number of each element's atom in the cell
 # for later DPA normalization
 t = materials.W(19.254)
-
-atoms_of_element = {}
-for n in t.nuclides:
-  nuclide_mass = t.get_mass(nuclide=n.name, volume=cell_volume)
-  element = re.sub(r'[0-9]+', '', n.name)
-  n_atoms = nuclide_mass / openmc.data.atomic_mass(n.name) * 6.022e23
-  if (element in atoms_of_element):
-    atoms_of_element[element] += n_atoms
-  else:
-    atoms_of_element[element] = n_atoms
+t.volume = cell_volume
+atoms_of_each_element = materials.atoms_of_each_element(t)
+nuclides_of_each_element = materials.nuclides_for_each_element(t)
 
 model.materials = openmc.Materials([t])
 
@@ -100,17 +93,28 @@ model.settings.photon_transport = True
 model.settings.batches = 100
 model.settings.run_mode = 'fixed source'
 
-# add tallies for solution quantities
-scores = ['flux', 'heating', 'damage-energy']
+# create general filters to be re-used across the tallies
 cell_filter = openmc.CellFilter(tile_cells)
 particle_filter = openmc.ParticleFilter(bins=['neutron', 'photon'])
 
+# add tallies for solution quantities
+model.tallies = openmc.Tallies()
+
 cell_tally = openmc.Tally()
 cell_tally.filters = [cell_filter, particle_filter]
-cell_tally.scores = scores
-
-model.tallies = openmc.Tallies()
+cell_tally.scores = ['flux', 'heating']
 model.tallies.append(cell_tally)
+
+# for the dpa tally, we tally on a per-element basis, because each may have a different
+# value of Ed. So, we need to create one dpa tally for each element in the material
+dpa_tallies = []
+for key in nuclides_of_each_element:
+  dpa_tally = openmc.Tally()
+  dpa_tally.scores = ['damage-energy']
+  dpa_tally.filter = cell_filter
+  dpa_tally.nuclides = nuclides_of_each_element[key]
+  dpa_tallies.append(dpa_tally)
+  model.tallies.append(dpa_tally)
 
 statepoint = model.run()
 with openmc.StatePoint(statepoint) as sp:

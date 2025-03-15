@@ -1,5 +1,6 @@
 import openmc
 import openmc.data
+import re
 
 # This file defines default materials to populate into existing models
 
@@ -161,3 +162,63 @@ def W(density):
   tungsten.add_element('W', 1.0)
   tungsten.set_density('g/cc', density)
   return tungsten
+
+def atoms_of_each_element(material):
+  Na = 6.023e23
+
+  atoms_of_element = {}
+  for n in material.nuclides:
+    nuclide_mass = material.get_mass(nuclide=n.name)
+    element = re.sub(r'[0-9]+', '', n.name)
+    n_atoms = nuclide_mass / openmc.data.atomic_mass(n.name) * Na
+    if (element in atoms_of_element):
+      atoms_of_element[element] += n_atoms
+    else:
+      atoms_of_element[element] = n_atoms
+
+  return atoms_of_element
+
+def nuclides_for_each_element(material):
+  nuclides = {}
+  # get the nuclide names corresponding to each element in a material
+  for n in material.nuclides:
+    element = re.sub(r'[0-9]+', '', n.name)
+    if (element in nuclides):
+      nuclides[element].append(n.name)
+    else:
+      nuclides[element] = []
+      nuclides[element].append(n.name)
+
+  return nuclides
+
+def Ed(element):
+  ed = {}
+  ed['Be'] = 31
+  ed['C'] = 31
+  ed['Mg'] = 25
+  ed['Al'] = 27
+  ed['Si'] = 25
+  ed['Ca'] = 40
+  ed['Ti'] = 40
+  ed['V'] = 40
+  ed['Cr'] = 40
+  ed['Mn'] = 40
+  ed['Fe'] = 40
+  ed['Co'] = 40
+  ed['Ni'] = 40
+  ed['Cu'] = 40
+  ed['Zr'] = 40
+  ed['Nb'] = 40
+  ed['Mo'] = 60
+  ed['Ag'] = 60
+  ed['Ta'] = 90
+  ed['W'] = 90
+  ed['Au'] = 30
+  ed['Pb'] = 25
+
+  default = 25
+  if element in ed:
+    return ed[element]
+  else:
+    return default
+
