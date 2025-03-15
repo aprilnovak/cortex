@@ -101,6 +101,7 @@ n_particle_filter = openmc.ParticleFilter(bins=['neutron'])
 p_particle_filter = openmc.ParticleFilter(bins=['photon'])
 energies = openmc.mgxs.GROUP_STRUCTURES['CCFE-709']
 energy_filter = openmc.EnergyFilter(energies)
+unit_lethargy = [np.log(energies[i+1]/energies[i]) for i in range(len(energies)-1)]
 
 # add tallies for solution quantities
 model.tallies = openmc.Tallies()
@@ -134,13 +135,13 @@ with openmc.StatePoint(statepoint) as sp:
 
   for c in range(ncells):
     scaling = 1 / cell_volume * neutron_source_rate
-    plt.semilogy(energies[:-1], neutron_flux[c].flatten() * scaling, label='Cell {}'.format(c))
+    plt.loglog(energies[:-1], neutron_flux[c].flatten() * scaling / unit_lethargy, label='Cell {}'.format(c))
 
   plt.legend()
   plt.grid()
-  plt.ylabel('Neutron Flux [1/cm$^2$/s/eV]')
+  plt.ylabel('Neutron Flux Per Unit Lethargy [1/cm$^2$/s]')
   plt.xlabel('Energy [eV]')
-  plt.xlim([0, 20e6])
+  plt.xlim([1e-2, 20e6])
   plt.savefig('n_flux_spectrum.png')
   plt.close()
 
@@ -149,13 +150,13 @@ with openmc.StatePoint(statepoint) as sp:
 
   for c in range(ncells):
     scaling = 1 / cell_volume * neutron_source_rate
-    plt.semilogy(energies[:-1], photon_flux[c].flatten() * scaling, label='Cell {}'.format(c))
+    plt.loglog(energies[:-1], photon_flux[c].flatten() * scaling / unit_lethargy, label='Cell {}'.format(c))
 
   plt.legend()
   plt.grid()
   plt.ylabel('Photon Flux [1/cm$^2$/s/eV]')
   plt.xlabel('Energy [eV]')
-  plt.xlim([0, 20e6])
+  plt.xlim([1e-2, 20e6])
   plt.savefig('p_flux_spectrum.png')
   plt.close()
 
