@@ -111,7 +111,7 @@ dpa_tallies = []
 for key in nuclides_of_each_element:
   dpa_tally = openmc.Tally()
   dpa_tally.scores = ['damage-energy']
-  dpa_tally.filter = cell_filter
+  dpa_tally.filters = [cell_filter, particle_filter]
   dpa_tally.nuclides = nuclides_of_each_element[key]
   dpa_tallies.append(dpa_tally)
   model.tallies.append(dpa_tally)
@@ -131,22 +131,35 @@ with openmc.StatePoint(statepoint) as sp:
   plt.grid()
   plt.ylabel('Flux [1/cm$^2$/s]')
   plt.xlabel('Radial Position [cm]')
-  plt.savefig('scores.png')
+  plt.savefig('flux.png')
   plt.close()
 
-  # create radial plots of the dpa
-  # TODO: damage-energy is only for neutrons, right?
-  dpa = tally.get_slice(scores=['damage-energy'], filters=[type(particle_filter)], filter_bins=[('neutron',)])
+  # create radial plots of the dpa; each of the tallies is for a particular element
+  dpa_per_y = np.zeros(ncells)
+  for tally in dpa_tallies:
+    dpa_tally = sp.get_tally(id=tally.id)
 
-  # TODO: get actual Ed for each nuclide, will need to generalize this for alloys.
-  Ed = 90
-  displacements_per_source = 0.8 * dpa.mean.flatten() / (2 * Ed)
-  displacements_per_s = displacements_per_source * neutron_source_rate
-  displacements_per_y = displacements_per_s * (365 * 24 * 60 * 60)
-  displacements_per_atom_per_y = displacements_per_y / atoms_of_element['W']
-  print(displacements_per_atom_per_y)
+    # TODO: damage-energy is only for neutrons, right? Believe so, the photon
+    # bins return nothing
+    dpa = np.zeros(ncells)
+    for n in tally.nuclides:
+      d = dpa_tally.get_slice(filters=[type(particle_filter)], filter_bins=[('neutron',)], nuclides=[n]).mean.flatten()
 
-  plt.semilogy(xcentroids, displacements_per_atom_per_y)
+      for i in range(ncells):
+        dpa[i] += d[i]
+
+    # get the Ed for this element
+    Ed = materials.Ed(materials.element(dpa_tally.nuclides))
+
+    displacements_per_source = 0.8 * dpa / (2 * Ed)
+    displacements_per_s = displacements_per_source * neutron_source_rate
+    displacements_per_y = displacements_per_s * (365 * 24 * 60 * 60)
+    displacements_per_y_per_all_atoms = displacements_per_y / materials.atoms(t)
+
+    for i in range(ncells):
+      dpa_per_y[i] += displacements_per_y_per_all_atoms[i]
+
+  plt.semilogy(xcentroids, dpa_per_y)
   plt.grid()
   plt.ylabel('DPA/y')
   plt.xlabel('Radial Position [cm]')
