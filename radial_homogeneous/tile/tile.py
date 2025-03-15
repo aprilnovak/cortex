@@ -15,6 +15,8 @@ model = openmc.Model()
 # This is the simplest model possible, and will be both (i) a lower bound
 # on our runtime and (ii) the baseline case we compare all materials against.
 
+# TODO: numbers are about 5x lower than expected. Is my source rate wrong?
+
 thickness = 5                      # [cm] thickness of the region
 frontal_side = 50                  # [cm] side length of the tile facing the plasma
 ncells = 10                        # number of cells in the radial direction
@@ -88,22 +90,31 @@ model.settings = openmc.Settings()
 model.settings.source = openmc.IndependentSource(space=space_distribution, energy=energy_distribution, angle=angle_distribution)
 
 # set other model settings
-model.settings.particles = 1000
+model.settings.particles = 500
 model.settings.photon_transport = True
 model.settings.batches = 100
 model.settings.run_mode = 'fixed source'
 
 # create general filters to be re-used across the tallies
 cell_filter = openmc.CellFilter(tile_cells)
-particle_filter = openmc.ParticleFilter(bins=['neutron', 'photon'])
+n_particle_filter = openmc.ParticleFilter(bins=['neutron'])
+p_particle_filter = openmc.ParticleFilter(bins=['photon'])
+energies = openmc.mgxs.GROUP_STRUCTURES['CCFE-709']
+energy_filter = openmc.EnergyFilter(energies)
 
 # add tallies for solution quantities
 model.tallies = openmc.Tallies()
 
-cell_tally = openmc.Tally()
-cell_tally.filters = [cell_filter, particle_filter]
-cell_tally.scores = ['flux', 'heating']
-model.tallies.append(cell_tally)
+# flux score, with an energy filter
+n_flux_tally = openmc.Tally()
+n_flux_tally.filters = [cell_filter, n_particle_filter, energy_filter]
+n_flux_tally.scores = ['flux']
+model.tallies.append(n_flux_tally)
+
+p_flux_tally = openmc.Tally()
+p_flux_tally.filters = [cell_filter, p_particle_filter, energy_filter]
+p_flux_tally.scores = ['flux']
+model.tallies.append(p_flux_tally)
 
 # for the dpa tally, we tally on a per-element basis, because each may have a different
 # value of Ed. So, we need to create one dpa tally for each element in the material
@@ -111,22 +122,55 @@ dpa_tallies = []
 for key in nuclides_of_each_element:
   dpa_tally = openmc.Tally()
   dpa_tally.scores = ['damage-energy']
-  dpa_tally.filters = [cell_filter, particle_filter]
+  dpa_tally.filters = [cell_filter]
   dpa_tally.nuclides = nuclides_of_each_element[key]
   dpa_tallies.append(dpa_tally)
   model.tallies.append(dpa_tally)
 
 statepoint = model.run()
 with openmc.StatePoint(statepoint) as sp:
-  tally = sp.get_tally(id=cell_tally.id)
-  neutron_flux = tally.get_slice(scores=['flux'], filters=[type(particle_filter)], filter_bins=[('neutron',)])
-  photon_flux = tally.get_slice(scores=['flux'], filters=[type(particle_filter)], filter_bins=[('photon',)])
-  neutron_flux = neutron_flux.mean.flatten() / cell_volume * neutron_source_rate
-  photon_flux = photon_flux.mean.flatten() / cell_volume * neutron_source_rate
+  n_tally = sp.get_tally(id=n_flux_tally.id)
+  neutron_flux = n_tally.get_reshaped_data()
 
-  # create radial plots of the flux
-  plt.semilogy(xcentroids, neutron_flux, label='Neutron flux')
-  plt.semilogy(xcentroids, photon_flux, label='Photon flux')
+  for c in range(ncells):
+    scaling = 1 / cell_volume * neutron_source_rate
+    plt.semilogy(energies[:-1], neutron_flux[c].flatten() * scaling, label='Cell {}'.format(c))
+
+  plt.legend()
+  plt.grid()
+  plt.ylabel('Neutron Flux [1/cm$^2$/s/eV]')
+  plt.xlabel('Energy [eV]')
+  plt.xlim([0, 20e6])
+  plt.savefig('n_flux_spectrum.png')
+  plt.close()
+
+  p_tally = sp.get_tally(id=p_flux_tally.id)
+  photon_flux = p_tally.get_reshaped_data()
+
+  for c in range(ncells):
+    scaling = 1 / cell_volume * neutron_source_rate
+    plt.semilogy(energies[:-1], photon_flux[c].flatten() * scaling, label='Cell {}'.format(c))
+
+  plt.legend()
+  plt.grid()
+  plt.ylabel('Photon Flux [1/cm$^2$/s/eV]')
+  plt.xlabel('Energy [eV]')
+  plt.xlim([0, 20e6])
+  plt.savefig('p_flux_spectrum.png')
+  plt.close()
+
+  # now, just plot the total fluxes by integrating over energy
+  total_neutron_flux = np.zeros(ncells)
+  for c in range(ncells):
+    total_neutron_flux[c] += np.sum(neutron_flux[c].flatten()) * scaling
+
+  plt.semilogy(xcentroids, total_neutron_flux, label='Neutron flux')
+
+  total_photon_flux = np.zeros(ncells)
+  for c in range(ncells):
+    total_photon_flux[c] += np.sum(photon_flux[c].flatten()) * scaling
+
+  plt.semilogy(xcentroids, total_photon_flux, label='Photon flux')
   plt.legend()
   plt.grid()
   plt.ylabel('Flux [1/cm$^2$/s]')
@@ -141,12 +185,7 @@ with openmc.StatePoint(statepoint) as sp:
 
     # TODO: damage-energy is only for neutrons, right? Believe so, the photon
     # bins return nothing
-    dpa = np.zeros(ncells)
-    for n in tally.nuclides:
-      d = dpa_tally.get_slice(filters=[type(particle_filter)], filter_bins=[('neutron',)], nuclides=[n]).mean.flatten()
-
-      for i in range(ncells):
-        dpa[i] += d[i]
+    dpa = dpa_tally.summation(nuclides=dpa_tally.nuclides).mean.flatten()
 
     # get the Ed for this element
     Ed = materials.Ed(materials.element(dpa_tally.nuclides))
