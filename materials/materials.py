@@ -163,6 +163,16 @@ def W(density):
   tungsten.set_density('g/cc', density)
   return tungsten
 
+def atoms(material):
+  Na = 6.023e23
+
+  atoms = 0
+  for n in material.nuclides:
+    nuclide_mass = material.get_mass(nuclide=n.name)
+    atoms += nuclide_mass / openmc.data.atomic_mass(n.name) * Na
+
+  return atoms
+
 def atoms_of_each_element(material):
   Na = 6.023e23
 
@@ -221,4 +231,14 @@ def Ed(element):
     return ed[element]
   else:
     return default
+
+def element(nuclides):
+  elem = 'UNKNOWN'
+  for n in nuclides:
+    result = re.sub(r'\d+', '', n)
+    if (elem == 'UNKNOWN'):
+      elem = result
+    elif (result != elem):
+      raise ValueError("Nuclide list not a single nuclide!")
+  return elem
 

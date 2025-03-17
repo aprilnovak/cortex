@@ -19,7 +19,7 @@ model = openmc.Model()
 
 thickness = 5                      # [cm] thickness of the region
 frontal_side = 50                  # [cm] side length of the tile facing the plasma
-ncells = 10                        # number of cells in the radial direction
+ncells = 5                         # number of cells in the radial direction
 nwl = 1e6                          # [W/m2] neutron wall loading
 e_per_neutron = 14.07e6            # [eV] energy carried by each neutron
 
@@ -53,8 +53,10 @@ shift = 1e-6
 xplanes[0].x0 = -shift
 
 # TODO: need to think about the boundary condition on the incident face, it
-# is not actually going to be vacuum
-xplanes[0].boundary_type = 'vacuum'
+# is not actually going to be reflective, but this is an approximation to the
+# fact that any neutrons which scattered backward would just traverse the plasma
+# and enter the opposite side of the tokamak wall
+xplanes[0].boundary_type = 'reflective'
 
 xplanes[-1].boundary_type = 'vacuum'
 
@@ -92,7 +94,7 @@ model.settings.source = openmc.IndependentSource(space=space_distribution, energ
 # set other model settings
 model.settings.particles = 500
 model.settings.photon_transport = True
-model.settings.batches = 100
+model.settings.batches = 50
 model.settings.run_mode = 'fixed source'
 
 # create general filters to be re-used across the tallies
@@ -128,10 +130,22 @@ for key in nuclides_of_each_element:
   dpa_tallies.append(dpa_tally)
   model.tallies.append(dpa_tally)
 
+# helium production tallies
+he3_tally = openmc.Tally()
+he3_tally.filters = [cell_filter]
+he3_tally.scores = ['He3-production']
+model.tallies.append(he3_tally)
+
+he4_tally = openmc.Tally()
+he4_tally.filters = [cell_filter]
+he4_tally.scores = ['He4-production']
+model.tallies.append(he4_tally)
+
 statepoint = model.run()
 with openmc.StatePoint(statepoint) as sp:
   n_tally = sp.get_tally(id=n_flux_tally.id)
   neutron_flux = n_tally.get_reshaped_data()
+  neutron_flux_std_dev = n_tally.get_reshaped_data(value='std_dev')
 
   for c in range(ncells):
     scaling = 1 / cell_volume * neutron_source_rate
@@ -199,9 +213,33 @@ with openmc.StatePoint(statepoint) as sp:
     for i in range(ncells):
       dpa_per_y[i] += displacements_per_y_per_all_atoms[i]
 
+  print('Maximum dpa: ', np.max(dpa_per_y))
+
   plt.semilogy(xcentroids, dpa_per_y)
   plt.grid()
   plt.ylabel('DPA/y')
   plt.xlabel('Radial Position [cm]')
   plt.savefig('dpa.png')
+  plt.close()
+
+  # create plot of the helium production
+  helium3_tally = sp.get_tally(id=he3_tally.id)
+  he3 = helium3_tally.get_values().flatten()
+  helium4_tally = sp.get_tally(id=he4_tally.id)
+  he4 = helium4_tally.get_values().flatten()
+
+  he = []
+  for i in range(len(he3)):
+    he_per_s = (he3[i] + he4[i]) * neutron_source_rate
+    he_per_y = he_per_s * (365 * 24 * 60 * 60)
+    he_appm_per_y = he_per_y / materials.atoms(t) * 1e6
+    he.append(he_appm_per_y)
+
+  print('Maximum helium appm/y: ', np.max(he_appm_per_y))
+
+  plt.semilogy(xcentroids, he)
+  plt.grid()
+  plt.ylabel('Helium [appm/y]')
+  plt.xlabel('Radial Position [cm]')
+  plt.savefig('he.png')
   plt.close()
