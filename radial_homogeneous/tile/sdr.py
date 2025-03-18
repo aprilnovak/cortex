@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from matplotlib import pyplot as plt
 
 import openmc
@@ -34,6 +36,12 @@ cooling_times = [1e6, 2e7, 1e8] # s
 timesteps = [irradiation_time] + cooling_times
 source_rates = [neutron_source_rate] + [0.0] * len(cooling_times)
 
+# Tallies
+
+# save the current set of tallies to be re-applied
+# during R2S calculations
+orig_tallies = [t for t in model.tallies]
+
 energies, pSv_cm2 = openmc.data.dose_coefficients(
     particle='photon', geometry='AP'
 )
@@ -43,13 +51,12 @@ dose_filter = openmc.EnergyFunctionFilter(
     energies, pSv_cm2, interpolation='cubic'
 )
 
-particle_filter = openmc.ParticleFilter('photon')
+photon_filter = openmc.ParticleFilter('photon')
 
 dose_tally = openmc.Tally(name='dose tally')
-dose_tally.filters = [dose_filter, particle_filter, cell_filter]
+dose_tally.filters = [dose_filter, photon_filter, cell_filter]
 dose_tally.scores = ['flux']
 
-model.tallies = [dose_tally]
 # adding a mesh tally for visualization
 mesh = openmc.RegularMesh.from_domain(model.geometry.root_universe,
                                       dimension=(5, 5, 5))
@@ -61,11 +68,13 @@ mesh_tally = openmc.Tally()
 mesh_tally.filters = [mesh_filter, neutron_filter]
 mesh_tally.scores = ['flux']
 
-model.tallies.append(mesh_tally)
-
 model.settings.photon_transport = True
 model.settings.use_decay_photons = True
 
+model.tallies = [dose_tally, mesh_tally]
+
+# this should only modify the dose tally b/c
+# it has a particle filter with one 'photon' bin
 nuclides = d1s.prepare_tallies(model)
 factors = d1s.time_correction_factors(nuclides,
                                       timesteps,
@@ -116,7 +125,9 @@ for m in model.geometry.get_all_materials().values():
 
 model.materials = []
 
-model.export_to_model_xml()
+# include original tallies during
+# activation and cooling
+model.tallies = orig_tallies
 
 # load the depletion chain
 chain = openmc.deplete.Chain.from_xml(openmc.config['chain_file'])
@@ -124,13 +135,16 @@ initial_nuclides = model.geometry.get_all_nuclides()
 reduced_chain = chain.reduce(initial_nuclides, level=5)
 reduced_chain.export_to_xml('tungsten_chain.xml')
 
+tungsten_chain = Path('tungsten_chain.xml').resolve()
+
+
 cells = list(model.geometry.get_all_cells().values())
 cell_volume = cells[0].volume
 
 # compute nuclide fluxes and microscopic cross-sections
 fluxes, micros = openmc.deplete.get_microxs_and_flux(model,
                                                      cells,
-                                                     chain_file='tungsten_chain.xml',
+                                                     chain_file=tungsten_chain,
                                                      run_kwargs={'output': False})
 
 # perform neutron activation and produces a depletion_results.h5 file
@@ -138,45 +152,46 @@ activation_materials = list(model.geometry.get_all_materials().values())
 operator = openmc.deplete.IndependentOperator(activation_materials,
                                               fluxes,
                                               micros,
-                                              chain_file='tungsten_chain.xml',
+                                              chain_file=tungsten_chain,
                                               normalization_mode='source-rate')
+operator.output_dir = 'r2s/activation'
 
-integrator = openmc.deplete.PredictorIntegrator(operator,
-                                                timesteps,
-                                                source_rates=source_rates)
-integrator.integrate(final_step=False, output=False)
+# integrator = openmc.deplete.PredictorIntegrator(operator,
+#                                                 timesteps,
+#                                                 source_rates=source_rates)
+# integrator.integrate(final_step=False, output=False)
 
 
 ###########################################################
-# could also do this. It's more simple, but less efficient
+# could also do this. It's simpler, but less efficient
 # since it involves additional transport steps
 ###########################################################
-# model.deplete(
-#     timesteps,
-#     source_rates=source_rates,
-#     output=False,
-#     # method="predictor",  # predictor is a simple but quick method
-#     method="cf4",  # CF4Integrator is an accurate but slower method
-#     # directory="r2s/neutron",
-#     final_step=False,
-#     operator_kwargs={
-#         "normalization_mode": "source-rate",  # needed as this is a fixed source simulation
-#         "chain_file": 'tungsten_chain.xml',
-#         "reduce_chain_level": 5,
-#         "reduce_chain": True,
-#     },
-# )
+model.deplete(
+    timesteps,
+    source_rates=source_rates,
+    output=False,
+    # method="predictor",  # predictor is a simple but quick method
+    method="cf4",  # CF4Integrator is an accurate but slower method
+    directory="r2s/activation",
+    final_step=False,
+    operator_kwargs={
+        "normalization_mode": "source-rate",  # needed as this is a fixed source simulation
+        "chain_file": tungsten_chain,
+        "reduce_chain_level": 5,
+        "reduce_chain": True,
+    },
+)
 
 # load depletion/activation results
-results = openmc.deplete.Results("depletion_results.h5")
+results = openmc.deplete.Results("r2s/activation/depletion_results.h5")
 
 print('--------------------------------')
 print(f'Performing R2S Decay Gamma run')
 print('--------------------------------')
 
-dose_tally.filters = [dose_filter, particle_filter, cell_filter]
+# update the dose filter
+dose_tally.filters = [dose_filter, photon_filter, cell_filter]
 model.tallies = [dose_tally]
-
 model.settings.photon_transport = True
 
 # generate decay photon sources for each cooling time
@@ -216,7 +231,7 @@ for i_cool, (t_cool, src_rate) in enumerate(zip(timesteps, source_rates)):
     # TODO: should technically also use activated material compositions in transport here
     model.settings.source = step_photon_sources
 
-    statepoint = model.run(cwd=f'r2s/cooling_{t_cool}_s', output=False)
+    statepoint = model.run(cwd=f'r2s/cooling_{t_cool:.3e}_s', output=False)
 
     with openmc.StatePoint(statepoint) as sp:
         sp_dose = sp.get_tally(name=dose_tally.name)
@@ -231,14 +246,13 @@ for i_cool, (t_cool, src_rate) in enumerate(zip(timesteps, source_rates)):
     r2s_df['centers'] = xcentroids
     print(r2s_df)
 
-
 # plot the D1S and R2S results on the same plot
 
-plt.plot(d1s_df['centers'], d1s_df['μSv/h'], label='D1S')
-plt.plot(r2s_df['centers'], r2s_df['μSv/h'], label='R2S')
+plt.plot(d1s_df['centers'], d1s_df['μSv/h'], label='Direct One-Step')
+plt.plot(r2s_df['centers'], r2s_df['μSv/h'], label='Rigorous Two-Step')
 plt.grid()
 plt.ylabel('Shutdown Dose (μSv/h)')
 plt.xlabel('Radial Position [cm]')
 plt.legend()
-plt.savefig('dpa.png')
+plt.savefig('sdr.png')
 plt.show()
