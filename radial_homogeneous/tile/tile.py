@@ -215,7 +215,7 @@ with openmc.StatePoint(statepoint) as sp:
 
   print('Maximum dpa: ', np.max(dpa_per_y))
 
-  plt.semilogy(xcentroids, dpa_per_y)
+  plt.semilogy(xcentroids, dpa_per_y, marker='o', color='k')
   plt.grid()
   plt.ylabel('DPA/y')
   plt.xlabel('Radial Position [cm]')
@@ -235,9 +235,9 @@ with openmc.StatePoint(statepoint) as sp:
     he_appm_per_y = he_per_y / materials.atoms(t) * 1e6
     he.append(he_appm_per_y)
 
-  print('Maximum helium appm/y: ', np.max(he_appm_per_y))
+  print('Maximum helium appm/y: ', np.max(he))
 
-  plt.semilogy(xcentroids, he)
+  plt.semilogy(xcentroids, he, marker='o', color='k')
   plt.grid()
   plt.ylabel('Helium [appm/y]')
   plt.xlabel('Radial Position [cm]')
