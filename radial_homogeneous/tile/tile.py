@@ -1,7 +1,9 @@
 import openmc
 import openmc.stats
+import openmc.mgxs as mgxs
 import numpy as np
 import matplotlib.pyplot as plt
+import math
 
 import sys
 import os
@@ -19,9 +21,12 @@ model = openmc.Model()
 
 thickness = 5                      # [cm] thickness of the region
 frontal_side = 50                  # [cm] side length of the tile facing the plasma
-ncells = 5                         # number of cells in the radial direction
-nwl = 1e6                          # [W/m2] neutron wall loading
+ncells = 10                        # number of cells in the radial direction
+nwl = 3e6                          # [W/m2] neutron wall loading
 e_per_neutron = 14.07e6            # [eV] energy carried by each neutron
+n_spectrum_plots = 5               # number of energy spectrum plots to make at each time step (we take this number and determine cell indices to render)
+
+to_plot = np.arange(0, ncells + 1, n_spectrum_plots)
 
 dx = thickness / ncells
 cell_volume = frontal_side**2 * dx
@@ -92,7 +97,7 @@ model.settings = openmc.Settings()
 model.settings.source = openmc.IndependentSource(space=space_distribution, energy=energy_distribution, angle=angle_distribution)
 
 # set other model settings
-model.settings.particles = 500
+model.settings.particles = 1000
 model.settings.photon_transport = True
 model.settings.batches = 50
 model.settings.run_mode = 'fixed source'
@@ -143,19 +148,21 @@ model.tallies.append(he4_tally)
 
 statepoint = model.run()
 with openmc.StatePoint(statepoint) as sp:
+
   n_tally = sp.get_tally(id=n_flux_tally.id)
   neutron_flux = n_tally.get_reshaped_data()
   neutron_flux_std_dev = n_tally.get_reshaped_data(value='std_dev')
 
   for c in range(ncells):
-    scaling = 1 / cell_volume * neutron_source_rate
-    plt.loglog(energies[:-1], neutron_flux[c].flatten() * scaling / unit_lethargy, label='Cell {}'.format(c))
+    if (c in to_plot):
+      scaling = 1 / cell_volume * neutron_source_rate
+      plt.loglog(energies[:-1], neutron_flux[c].flatten() * scaling / unit_lethargy, label='Depth = {:.2f} cm'.format(c * dx + dx/2))
 
   plt.legend()
   plt.grid()
   plt.ylabel('Neutron Flux Per Unit Lethargy [1/cm$^2$/s]')
   plt.xlabel('Energy [eV]')
-  plt.xlim([1e-2, 20e6])
+  plt.xlim([1, 100e6])
   plt.savefig('n_flux_spectrum.png')
   plt.close()
 
@@ -163,27 +170,28 @@ with openmc.StatePoint(statepoint) as sp:
   photon_flux = p_tally.get_reshaped_data()
 
   for c in range(ncells):
-    scaling = 1 / cell_volume * neutron_source_rate
-    plt.loglog(energies[:-1], photon_flux[c].flatten() * scaling / unit_lethargy, label='Cell {}'.format(c))
+    if (c in to_plot):
+      scaling = 1 / cell_volume * neutron_source_rate
+      plt.loglog(energies[:-1], photon_flux[c].flatten() * scaling / unit_lethargy, label='Depth = {:.2f} cm'.format(c * dx + dx/2))
 
   plt.legend()
   plt.grid()
   plt.ylabel('Photon Flux [1/cm$^2$/s/eV]')
   plt.xlabel('Energy [eV]')
-  plt.xlim([1e-2, 20e6])
+  plt.xlim([1, 100e6])
   plt.savefig('p_flux_spectrum.png')
   plt.close()
 
   # now, just plot the total fluxes by integrating over energy
   total_neutron_flux = np.zeros(ncells)
   for c in range(ncells):
-    total_neutron_flux[c] += np.sum(neutron_flux[c].flatten()) * scaling
+    total_neutron_flux[c] = np.sum(neutron_flux[c].flatten()) * scaling
 
   plt.semilogy(xcentroids, total_neutron_flux, label='Neutron flux')
 
   total_photon_flux = np.zeros(ncells)
   for c in range(ncells):
-    total_photon_flux[c] += np.sum(photon_flux[c].flatten()) * scaling
+    total_photon_flux[c] = np.sum(photon_flux[c].flatten()) * scaling
 
   plt.semilogy(xcentroids, total_photon_flux, label='Photon flux')
   plt.legend()
@@ -215,7 +223,7 @@ with openmc.StatePoint(statepoint) as sp:
 
   print('Maximum dpa: ', np.max(dpa_per_y))
 
-  plt.semilogy(xcentroids, dpa_per_y, marker='o', color='k')
+  plt.semilogy(xcentroids, dpa_per_y, marker='o', color='k', markersize=1.5)
   plt.grid()
   plt.ylabel('DPA/y')
   plt.xlabel('Radial Position [cm]')
@@ -237,7 +245,7 @@ with openmc.StatePoint(statepoint) as sp:
 
   print('Maximum helium appm/y: ', np.max(he))
 
-  plt.semilogy(xcentroids, he, marker='o', color='k')
+  plt.semilogy(xcentroids, he, marker='o', color='k', markersize=1.5)
   plt.grid()
   plt.ylabel('Helium [appm/y]')
   plt.xlabel('Radial Position [cm]')
