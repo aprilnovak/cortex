@@ -112,7 +112,7 @@ model.tallies = tallies
 
 model.export_to_xml()
 ```
-[brick_1_dagmc.py`](./python_files/brick_1_dagmc.py)
+[brick_1_dagmc.py](./python_files/brick_1_dagmc.py)
 
 For comparison, we also generate the same physical system with Constructive Solid Geometry (CSG).
 
@@ -134,7 +134,7 @@ universe = openmc.Universe(cells=[cell])
 geometry = openmc.Geometry(universe)
 model.geometry= geometry
 ```
-[brick_1_csg.py`](./python_files/brick_1_csg.py)
+[brick_1_csg.py](./python_files/brick_1_csg.py)
 
 The tally outcomes for both simulations match exactly, as shown in Table 1.
 	
@@ -317,5 +317,6 @@ The flux solution obtained for both DAGMC (coarse and fine meshes) and CSG is sh
 It is visible that the DAGMC finer mesh displayed a closer solution to the CSG (being within statistical variance). As expected, a finer mesh can better represent the smooth surface and therefore obtain a more accurate neutron flux simulation.
 
 ---
+
 
 
