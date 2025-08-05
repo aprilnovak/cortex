@@ -1,0 +1,41 @@
+#!python
+cubit.cmd( "reset" )
+
+# Create test sphere
+cubit.cmd("create sphere radius 0.5")
+
+# Create material tag to be assign to the volume
+cubit.cmd("create material 1 name 'mat1'")
+
+# Add volume to block and give name
+cubit.cmd("block 1 add volume 1")
+cubit.cmd("block 1 name 'sphere'")
+
+# Assign the material tags to the corresponding blocks
+cubit.cmd("block 1 material 'mat1'")
+
+# Meshing
+cubit.cmd("volume all scheme tetmesh")
+cubit.cmd("volume all size 0.02")
+cubit.cmd("mesh volume all")
+
+# Create a graveyard enclosing the domain to apply the vacuum boundary condition
+cubit.cmd("create brick x 2.0 y 2.0 z 2.0")
+cubit.cmd("create brick x 2.5 y 2.5 z 2.5")
+cubit.cmd("subtract body 2 from body 3")
+cubit.cmd("block 2 add volume 4")
+cubit.cmd("block 2 name 'graveyard'")
+cubit.cmd("create material 2 name 'graveyard'")
+cubit.cmd("block 2 material 'graveyard'")
+
+# Mesh the enclosing volumes using surface meshes
+cubit.cmd("set trimesher coarse on ratio 100 angle 5")
+cubit.cmd("surface all scheme trimesh")
+cubit.cmd("volume 4 scheme tetmesh")
+cubit.cmd("volume 4 size auto factor 10")
+cubit.cmd("mesh volume 4")
+
+# Export as a DAGMC file
+cubit.cmd("export dagmc 'sphere_fine.h5m' overwrite")
+
+
