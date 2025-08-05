@@ -62,7 +62,7 @@ cubit.cmd("export dagmc 'brick_1.h5m' overwrite")
 [brick_1.jou](./journal_files/brick_1.jou)
 
 This will generate a cube with an enclosing graveyard:
-!:[Cube geometry in Cubit with enclosing graveyard.](./figures/cubit_cube.jpg)
+![Cube geometry in Cubit with enclosing graveyard.](./figures/cubit_cube.jpg)
 
 This geometry will be saved in Cubit’s workspace with the name `brick_1.h5m`. This can be directly imported into the OpenMC’s Python API.
 
@@ -192,7 +192,7 @@ cubit.cmd("export dagmc 'brick_2.h5m' overwrite")
 
 Which results in:
 
-!:[Two cubes geometry in Cubit.](./figures/cubit_cube_2.jpg)
+![Two cubes geometry in Cubit.](./figures/cubit_cube_2.jpg)
 
 In this example, we skipped the construction of the graveyard. This is possible because there are other ways to define a graveyard directly in OpenMC. For example, using (<code>bounded_universe()</code>).
 
@@ -293,7 +293,7 @@ However, we test two different meshing schemes:
 # Meshing
 cubit.cmd("volume all size 0.1")
 ```
-!:[Sphere geometry in Cubit with coarse mesh.](./figures/sphere_coarse.jpg)
+![Sphere geometry in Cubit with coarse mesh.](./figures/sphere_coarse.jpg)
 
 - Fine mesh
 ```python
@@ -301,7 +301,7 @@ cubit.cmd("volume all size 0.1")
 cubit.cmd("volume all size 0.02")
 ```
 
-!:[Sphere geometry in Cubit with fine mesh.](./figures/sphere_fine.jpg)
+![Sphere geometry in Cubit with fine mesh.](./figures/sphere_fine.jpg)
 
 The flux solution obtained for both DAGMC (coarse and fine meshes) and CSG is shown in Table 3:
 
@@ -317,4 +317,5 @@ The flux solution obtained for both DAGMC (coarse and fine meshes) and CSG is sh
 It is visible that the DAGMC finer mesh displayed a closer solution to the CSG (being within statistical variance). As expected, a finer mesh can better represent the smooth surface and therefore obtain a more accurate neutron flux simulation.
 
 ---
+
 
