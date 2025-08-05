@@ -9,7 +9,7 @@ In this tutorial, you will learn how to:
 ## Simple Cube Geometry
 For this first case, we will introduce the basic concepts for building a simple geometry in Cubit and exporting it as a DAGMC (.h5m) file.
 
-In Cubit, we can build geometry using the GUI, write on a terminal, or load a journal file. All of them will follow the same procedure. In this tutorial, we show how to set up a journal file (.jou) to be run in Cubit to generate a 1 (cm^3) cube centered at the origin.
+In Cubit, we can build geometry using the GUI, write on a terminal, or load a journal file (`.jou`). All of them will follow the same procedure. In this tutorial, we show how to set up a journal file to be run in Cubit to generate a 1 (cm^3) cube centered at the origin.
 
 ```python
 cubit.cmd( "reset" )
@@ -275,7 +275,7 @@ The flux tally outcome is presented in Table 2:
 One can see that these values differ, but are within statistical variance.
 
 ## Sphere (Smooth Surfaces)
-Some complications may arise from using a polygonal surface mesh to approximate complex smooth surfaces. Depending on the mesh refinement, the solution of the DAGMC model can vary significantly from the CSG counterpart. For simplicity, we opted to just show the difference between .jou file inputs. The complete .jou and .py files are available in the repository.
+Some complications may arise from using a polygonal surface mesh to approximate complex smooth surfaces. Depending on the mesh refinement, the solution of the DAGMC model can vary significantly from the CSG counterpart. For simplicity, we opted to just show the difference between `.jou` file inputs. The complete `.jou` and `.py` files are available in the repository.
 
 For the case of a simple sphere of radius 0.5. We introduce the following command on Coreform Cubit:
 ```python
@@ -283,7 +283,6 @@ For the case of a simple sphere of radius 0.5. We introduce the following comman
 cubit.cmd("create sphere radius 0.5")
 ```
 However, we test two different meshing schemes:
-
 - Coarse mesh
 ```python
 # Meshing
@@ -296,7 +295,6 @@ cubit.cmd("volume all size 0.1")
 # Meshing
 cubit.cmd("volume all size 0.02")
 ```
-
 ![Sphere geometry in Cubit with fine mesh.](./figures/sphere_fine.jpg)
 
 The flux solution obtained for both DAGMC (coarse and fine meshes) and CSG is shown in Table 3:
@@ -313,6 +311,7 @@ The flux solution obtained for both DAGMC (coarse and fine meshes) and CSG is sh
 It is visible that the DAGMC finer mesh displayed a closer solution to the CSG (being within statistical variance). As expected, a finer mesh can better represent the smooth surface and therefore obtain a more accurate neutron flux simulation.
 
 ---
+
 
 
 
