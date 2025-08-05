@@ -65,7 +65,6 @@ This will generate a cube with an enclosing graveyard:
 ![Cube geometry in Cubit with enclosing graveyard.](./figures/cubit_cube.jpg)
 
 This geometry will be saved in Cubit’s workspace with the name `brick_1.h5m`. This can be directly imported into the OpenMC’s Python API.
-
 ```python
 import openmc
 
@@ -147,9 +146,9 @@ The tally outcomes for both simulations match exactly, as shown in Table 1.
 
 ## Two materials  (Cubes)
 
-In this example, we explore the construction of two concentric cubes with different materials. Cube 1 (side 1 cm) has material 1, and it is surrounded by a larger cube (side of 2 cm) which has material 2.
+In this example, we explore the construction of two concentric cubes with different materials. Cube 1 (side 1 cm) has material 1, and it is surrounded by a larger cube (side of 2 cm), which has material 2.
 
-The construction of this geometry is available in the .jou file below. Some additional steps are used to ensure that the surfaces between volumes are correctly merged.
+The construction of this geometry is available in the `.jou` file below. Additional steps were introduced to ensure that the surfaces between volumes are correctly merged.
 
 ```python
 cubit.cmd( "reset" )
@@ -190,12 +189,10 @@ cubit.cmd("export dagmc 'brick_2.h5m' overwrite")
 ``` 
 [brick_2.jou](./journal_files/brick_2.jou)
 
-Which results in:
-
+This will result in the following geometry:
 ![Two cubes geometry in Cubit.](./figures/cubit_cube_2.jpg)
 
-In this example, we skipped the construction of the graveyard. This is possible because there are other ways to define a graveyard directly in OpenMC. For example, using (<code>bounded_universe()</code>).
-
+In this example, we skipped the construction of the graveyard in Cubit. This is possible because there are other ways to define a graveyard directly in OpenMC. For example, using (<code>bounded_universe()</code>).
 ```python
 # import geometry
 dagmc_univ_bounded = openmc.DAGMCUniverse(filename='brick_2.h5m').bounded_universe()
@@ -203,8 +200,7 @@ model.geometry = openmc.Geometry(root=dagmc_univ_bounded)
 ```
 [brick_2_dagmc.py](./python_files/brick_2_dagmc.py)
 
-Now, we define the materials in each volume:
-
+The two materials are introduced in OpenMC with the appropriate names used in the DAGMC file (mat1, mat2):
 ```python
 # Attribute nuclides/elements to dagmc materials
 # brick 1 (inside material) - water
@@ -317,6 +313,7 @@ The flux solution obtained for both DAGMC (coarse and fine meshes) and CSG is sh
 It is visible that the DAGMC finer mesh displayed a closer solution to the CSG (being within statistical variance). As expected, a finer mesh can better represent the smooth surface and therefore obtain a more accurate neutron flux simulation.
 
 ---
+
 
 
 
