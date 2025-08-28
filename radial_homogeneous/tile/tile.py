@@ -1,8 +1,9 @@
 import openmc
 import openmc.stats
+import openmc.mgxs as mgxs
 import numpy as np
 import matplotlib.pyplot as plt
-import re
+import math
 
 import sys
 import os
@@ -15,11 +16,17 @@ model = openmc.Model()
 # OpenMC model of a bare tile with dimensions as given in the ARPA-E FOA.
 # This is the simplest model possible, and will be both (i) a lower bound
 # on our runtime and (ii) the baseline case we compare all materials against.
+
+# TODO: numbers are about 5x lower than expected. Is my source rate wrong?
+
 thickness = 5                      # [cm] thickness of the region
 frontal_side = 50                  # [cm] side length of the tile facing the plasma
 ncells = 10                        # number of cells in the radial direction
-nwl = 1e6                          # [W/m2] neutron wall loading
+nwl = 3e6                          # [W/m2] neutron wall loading
 e_per_neutron = 14.07e6            # [eV] energy carried by each neutron
+n_spectrum_plots = 5               # number of energy spectrum plots to make at each time step (we take this number and determine cell indices to render)
+
+to_plot = np.arange(0, ncells + 1, n_spectrum_plots)
 
 dx = thickness / ncells
 cell_volume = frontal_side**2 * dx
@@ -33,16 +40,9 @@ neutron_source_rate *= frontal_side**2 # neutrons/s
 # get materials; also fetch the number of each element's atom in the cell
 # for later DPA normalization
 t = materials.W(19.254)
-
-atoms_of_element = {}
-for n in t.nuclides:
-  nuclide_mass = t.get_mass(nuclide=n.name, volume=cell_volume)
-  element = re.sub(r'[0-9]+', '', n.name)
-  n_atoms = nuclide_mass / openmc.data.atomic_mass(n.name) * 6.022e23
-  if (element in atoms_of_element):
-    atoms_of_element[element] += n_atoms
-  else:
-    atoms_of_element[element] = n_atoms
+t.volume = cell_volume
+atoms_of_each_element = materials.atoms_of_each_element(t)
+nuclides_of_each_element = materials.nuclides_for_each_element(t)
 
 model.materials = openmc.Materials([t])
 
@@ -58,8 +58,10 @@ shift = 1e-6
 xplanes[0].x0 = -shift
 
 # TODO: need to think about the boundary condition on the incident face, it
-# is not actually going to be vacuum
-xplanes[0].boundary_type = 'vacuum'
+# is not actually going to be reflective, but this is an approximation to the
+# fact that any neutrons which scattered backward would just traverse the plasma
+# and enter the opposite side of the tokamak wall
+xplanes[0].boundary_type = 'reflective'
 
 xplanes[-1].boundary_type = 'vacuum'
 
@@ -97,54 +99,155 @@ model.settings.source = openmc.IndependentSource(space=space_distribution, energ
 # set other model settings
 model.settings.particles = 1000
 model.settings.photon_transport = True
-model.settings.batches = 100
+model.settings.batches = 50
 model.settings.run_mode = 'fixed source'
 
-# add tallies for solution quantities
-scores = ['flux', 'heating', 'damage-energy']
+# create general filters to be re-used across the tallies
 cell_filter = openmc.CellFilter(tile_cells)
-particle_filter = openmc.ParticleFilter(bins=['neutron', 'photon'])
+n_particle_filter = openmc.ParticleFilter(bins=['neutron'])
+p_particle_filter = openmc.ParticleFilter(bins=['photon'])
+energies = openmc.mgxs.GROUP_STRUCTURES['CCFE-709']
+energy_filter = openmc.EnergyFilter(energies)
+unit_lethargy = [np.log(energies[i+1]/energies[i]) for i in range(len(energies)-1)]
 
-cell_tally = openmc.Tally()
-cell_tally.filters = [cell_filter, particle_filter]
-cell_tally.scores = scores
-
+# add tallies for solution quantities
 model.tallies = openmc.Tallies()
-model.tallies.append(cell_tally)
+
+# flux score, with an energy filter
+n_flux_tally = openmc.Tally()
+n_flux_tally.filters = [cell_filter, n_particle_filter, energy_filter]
+n_flux_tally.scores = ['flux']
+model.tallies.append(n_flux_tally)
+
+p_flux_tally = openmc.Tally()
+p_flux_tally.filters = [cell_filter, p_particle_filter, energy_filter]
+p_flux_tally.scores = ['flux']
+model.tallies.append(p_flux_tally)
+
+# for the dpa tally, we tally on a per-element basis, because each may have a different
+# value of Ed. So, we need to create one dpa tally for each element in the material
+dpa_tallies = []
+for key in nuclides_of_each_element:
+  dpa_tally = openmc.Tally()
+  dpa_tally.scores = ['damage-energy']
+  dpa_tally.filters = [cell_filter]
+  dpa_tally.nuclides = nuclides_of_each_element[key]
+  dpa_tallies.append(dpa_tally)
+  model.tallies.append(dpa_tally)
+
+# helium production tallies
+he3_tally = openmc.Tally()
+he3_tally.filters = [cell_filter]
+he3_tally.scores = ['He3-production']
+model.tallies.append(he3_tally)
+
+he4_tally = openmc.Tally()
+he4_tally.filters = [cell_filter]
+he4_tally.scores = ['He4-production']
+model.tallies.append(he4_tally)
 
 statepoint = model.run()
 with openmc.StatePoint(statepoint) as sp:
-  tally = sp.get_tally(id=cell_tally.id)
-  neutron_flux = tally.get_slice(scores=['flux'], filters=[type(particle_filter)], filter_bins=[('neutron',)])
-  photon_flux = tally.get_slice(scores=['flux'], filters=[type(particle_filter)], filter_bins=[('photon',)])
-  neutron_flux = neutron_flux.mean.flatten() / cell_volume * neutron_source_rate
-  photon_flux = photon_flux.mean.flatten() / cell_volume * neutron_source_rate
 
-  # create radial plots of the flux
-  plt.semilogy(xcentroids, neutron_flux, label='Neutron flux')
-  plt.semilogy(xcentroids, photon_flux, label='Photon flux')
+  n_tally = sp.get_tally(id=n_flux_tally.id)
+  neutron_flux = n_tally.get_reshaped_data()
+  neutron_flux_std_dev = n_tally.get_reshaped_data(value='std_dev')
+
+  for c in range(ncells):
+    if (c in to_plot):
+      scaling = 1 / cell_volume * neutron_source_rate
+      plt.loglog(energies[:-1], neutron_flux[c].flatten() * scaling / unit_lethargy, label='Depth = {:.2f} cm'.format(c * dx + dx/2))
+
+  plt.legend()
+  plt.grid()
+  plt.ylabel('Neutron Flux Per Unit Lethargy [1/cm$^2$/s]')
+  plt.xlabel('Energy [eV]')
+  plt.xlim([1, 100e6])
+  plt.savefig('n_flux_spectrum.png')
+  plt.close()
+
+  p_tally = sp.get_tally(id=p_flux_tally.id)
+  photon_flux = p_tally.get_reshaped_data()
+
+  for c in range(ncells):
+    if (c in to_plot):
+      scaling = 1 / cell_volume * neutron_source_rate
+      plt.loglog(energies[:-1], photon_flux[c].flatten() * scaling / unit_lethargy, label='Depth = {:.2f} cm'.format(c * dx + dx/2))
+
+  plt.legend()
+  plt.grid()
+  plt.ylabel('Photon Flux [1/cm$^2$/s/eV]')
+  plt.xlabel('Energy [eV]')
+  plt.xlim([1, 100e6])
+  plt.savefig('p_flux_spectrum.png')
+  plt.close()
+
+  # now, just plot the total fluxes by integrating over energy
+  total_neutron_flux = np.zeros(ncells)
+  for c in range(ncells):
+    total_neutron_flux[c] = np.sum(neutron_flux[c].flatten()) * scaling
+
+  plt.semilogy(xcentroids, total_neutron_flux, label='Neutron flux')
+
+  total_photon_flux = np.zeros(ncells)
+  for c in range(ncells):
+    total_photon_flux[c] = np.sum(photon_flux[c].flatten()) * scaling
+
+  plt.semilogy(xcentroids, total_photon_flux, label='Photon flux')
   plt.legend()
   plt.grid()
   plt.ylabel('Flux [1/cm$^2$/s]')
   plt.xlabel('Radial Position [cm]')
-  plt.savefig('scores.png')
+  plt.savefig('flux.png')
   plt.close()
 
-  # create radial plots of the dpa
-  # TODO: damage-energy is only for neutrons, right?
-  dpa = tally.get_slice(scores=['damage-energy'], filters=[type(particle_filter)], filter_bins=[('neutron',)])
+  # create radial plots of the dpa; each of the tallies is for a particular element
+  dpa_per_y = np.zeros(ncells)
+  for tally in dpa_tallies:
+    dpa_tally = sp.get_tally(id=tally.id)
 
-  # TODO: get actual Ed for each nuclide, will need to generalize this for alloys.
-  Ed = 90
-  displacements_per_source = 0.8 * dpa.mean.flatten() / (2 * Ed)
-  displacements_per_s = displacements_per_source * neutron_source_rate
-  displacements_per_y = displacements_per_s * (365 * 24 * 60 * 60)
-  displacements_per_atom_per_y = displacements_per_y / atoms_of_element['W']
-  print(displacements_per_atom_per_y)
+    # TODO: damage-energy is only for neutrons, right? Believe so, the photon
+    # bins return nothing
+    dpa = dpa_tally.summation(nuclides=dpa_tally.nuclides).mean.flatten()
 
-  plt.semilogy(xcentroids, displacements_per_atom_per_y)
+    # get the Ed for this element
+    Ed = materials.Ed(materials.element(dpa_tally.nuclides))
+
+    displacements_per_source = 0.8 * dpa / (2 * Ed)
+    displacements_per_s = displacements_per_source * neutron_source_rate
+    displacements_per_y = displacements_per_s * (365 * 24 * 60 * 60)
+    displacements_per_y_per_all_atoms = displacements_per_y / materials.atoms(t)
+
+    for i in range(ncells):
+      dpa_per_y[i] += displacements_per_y_per_all_atoms[i]
+
+  print('Maximum dpa: ', np.max(dpa_per_y))
+
+  plt.semilogy(xcentroids, dpa_per_y, marker='o', color='k', markersize=1.5)
   plt.grid()
   plt.ylabel('DPA/y')
   plt.xlabel('Radial Position [cm]')
   plt.savefig('dpa.png')
+  plt.close()
+
+  # create plot of the helium production
+  helium3_tally = sp.get_tally(id=he3_tally.id)
+  he3 = helium3_tally.get_values().flatten()
+  helium4_tally = sp.get_tally(id=he4_tally.id)
+  he4 = helium4_tally.get_values().flatten()
+
+  he = []
+  for i in range(len(he3)):
+    he_per_s = (he3[i] + he4[i]) * neutron_source_rate
+    he_per_y = he_per_s * (365 * 24 * 60 * 60)
+    he_appm_per_y = he_per_y / materials.atoms(t) * 1e6
+    he.append(he_appm_per_y)
+
+  print('Maximum helium appm/y: ', np.max(he))
+
+  plt.semilogy(xcentroids, he, marker='o', color='k', markersize=1.5)
+  plt.grid()
+  plt.ylabel('Helium [appm/y]')
+  plt.xlabel('Radial Position [cm]')
+  plt.savefig('he.png')
   plt.close()
