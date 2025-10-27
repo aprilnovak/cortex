@@ -1,0 +1,37 @@
+#!python
+cubit.cmd( "reset" )
+
+# Create cubes
+cubit.cmd("create brick x 1.0 y 1.0 z 1.0") # Initial cube 1 
+cubit.cmd("create brick x 1.0 y 1.0 z 1.0") 
+cubit.cmd("create brick x 2.0 y 2.0 z 2.0") 
+cubit.cmd("subtract volume 2 from volume 3") # creating shell cube 2
+cubit.cmd("remove overlap volume 1 4 modify volume 4")
+
+# Ensure proper connection between inner and outer bricks and compress IDS
+cubit.cmd("imprint volume all")
+cubit.cmd("merge volume all")
+cubit.cmd("compress all")
+
+# Create material tag to be assign to the volume
+cubit.cmd("create material 1 name 'mat1'")
+cubit.cmd("create material 2 name 'mat2'")
+
+# Add volume to block and give name
+cubit.cmd("block 1 add volume 1")
+cubit.cmd("block 1 name 'mat1'")
+cubit.cmd("block 2 add volume 2")
+cubit.cmd("block 2 name 'mat2'")
+
+# Assign the material tags to the corresponding blocks
+cubit.cmd("block 1 material 'mat1'")
+cubit.cmd("block 2 material 'mat2'")
+
+# Meshing
+cubit.cmd("surface all scheme trimesh")
+cubit.cmd("surface all size 0.2")
+cubit.cmd("mesh surface all")
+
+# Export as a DAGMC file
+cubit.cmd("export dagmc 'brick_2.h5m' overwrite")
+
