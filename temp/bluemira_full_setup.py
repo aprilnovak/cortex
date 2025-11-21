@@ -148,10 +148,19 @@ model.settings.source = my_source
 # VOLUME CALCULATION
 # --------------------------------
 
+# reset the OpenMC ID space for cells and surfaces
+openmc.Cell.reset_ids()
+openmc.Surface.reset_ids()
+
 # apply volumes from PyDAGMC to the OpenMC model cells
 model.init_lib()
 model.sync_dagmc_universes()
 model.finalize_lib()
+
+# reclaim the ID space for all cells and surfaces currently in the model
+# to avoid clashes later in the model
+openmc.reserve_ids([c_id for c_id in model.geometry.get_all_cells()], cls=openmc.Cell)
+openmc.reserve_ids([s_id for s_id in model.geometry.get_all_surfaces()], cls=openmc.Surface)
 
 dagmc_universe_cells = dagmc_universe.get_all_cells()
 for volume in pydagmc_model.volumes:
