@@ -80,29 +80,40 @@ model.geometry = openmc.Geometry(root=[sector_cell])
 # --------------------------------
 #  Materials 
 # --------------------------------
-# This list will change depending on the materials/mixtures
-# Rough estimate of density
-ss316 = materials.ss316(8.0) # ss316 (for mixing materials)
-ccz = materials.CuCrZr(8.9) #CuCrZr
-c = materials.Cu(8.92) #Cu
-t = materials.W(19.3) #Tungsten
-water = materials.Water(0.866) #H20
+# This list will change depending on the BREEDER MODEL
+ss316 = materials.ss316(7.93) # SS316-LN DOI 10.1088/1741-4326/ac2a6b
+ccz = materials.CuCrZr(8.9) #CuCrZr DOI 10.1088/1741-4326/ac2a6b
+eurofer = materials.eurofer97(7.87) # EUROFER97 DOI 10.1088/1741-4326/ac2a6b
+t = materials.W(19.3) #Tungsten DOI 10.1088/1741-4326/ac2a6b
+water = materials.Water(0.866) #H20 https://doi.org/10.1016/j.fusengdes.2020.111833
+h = materials.Helium(0.0001785) # Helium PNNL COMPENDIUM
+# Still missing definition
 nb3sn = materials.Nb3Sn(5.7) #Nb3Sn
 epoxy = materials.Epoxy(1.207) #Epoxy resin
 bronze = materials.Bronze(8.8775) #Bronze
-h = materials.Helium(0.1785) #Helium
-be = materials.Be(1.85) #Beryllium
+be = materials.Be(1.85) # Beryllium PNNL COMPENDIUM
 nbti = materials.NbTi(6.538) #NbTi
-eurofer = materials.eurofer97(7.87)
+c = materials.Cu(8.96) #Cu PNNL COMPENDIUM
+# check function
 PbLi = materials.PbLi(0.60, 9.8)
 
 # ATRIBUTE MATERIALS TO DAGMC geometry
 # Several references use Void as a substitute for He cooling elements
 # Armor
-Armor = materials.W(19.3)
+Armor = materials.W(19.3) #Tungsten DOI 10.1088/1741-4326/ac2a6b
 Armor.name = 'Armor'
-# Divertor
+# Cryostat (From Bluemira Model)
+CS = materials.ss316(7.93) # SS316-LN DOI 10.1088/1741-4326/ac2a6b
+CS.name = 'CS'
+# Radiation shielding # where did they use concrete? (find reference)
+RS = materials.concrete(2.3) # PNNL COMPENDIUM
+RS.name = 'RS'
+# Divertor (From Bluemira Model)
 divertor = openmc.Material.mix_materials([ccz, c, eurofer, t, water], [0.00552, 0.00438, 0.5238,  0.01026, 0.45604], 'vo',name="Divertor")
+
+# --------------------------------------------------------------------
+# homogenization from https://doi.org/10.1016/j.fusengdes.2020.111833
+# Breeder Design WCLL
 # First Wall
 pf = openmc.Material.mix_materials([t, water, eurofer],[0.0027, 0.14268, 0.85468],'vo',name='FW')
 # Inner Breeder Blanket
@@ -111,6 +122,7 @@ matIB2 = openmc.Material.mix_materials([PbLi, water, eurofer], [0.858, 0.018, 0.
 matIB3 = openmc.Material.mix_materials([PbLi, water, eurofer], [0.8132, 0.0158, 0.171], 'vo',name="IB3")
 matIB4 = openmc.Material.mix_materials([PbLi, water, eurofer], [0.427, 0.016, 0.558], 'vo',name="IB4")
 matIB5 = openmc.Material.mix_materials([water, eurofer], [0.486, 0.514], 'vo',name="IB5")
+
 # Outer Breeder Blanket
 matOB1 = openmc.Material.mix_materials([PbLi, water, eurofer], [0.833, 0.025, 0.139], 'vo',name="OB1")
 matOB2 = openmc.Material.mix_materials([PbLi, water, eurofer], [0.858, 0.018, 0.124], 'vo',name="OB2")
@@ -120,34 +132,25 @@ matOB5 = openmc.Material.mix_materials([PbLi, water, eurofer], [0.8132, 0.0158, 
 matOB6 = openmc.Material.mix_materials([PbLi, water, eurofer], [0.8132, 0.0158, 0.171], 'vo',name="OB6")
 matOB7 = openmc.Material.mix_materials([PbLi, water, eurofer], [0.427, 0.016, 0.558], 'vo',name="OB7")
 matOB8 = openmc.Material.mix_materials([water, eurofer], [0.486, 0.514], 'vo',name="OB8")
-#matOB1 = openmc.Material.mix_materials([be12ti, kalos, eurofer], [0.39, 0.09, 0.20], 'vo',name="OB1")
+# --------------------------------------------------------------------
+
 # Vacuum Vessel
 VV = openmc.Material.mix_materials([ss316, water],[0.6, 0.4],'vo',name='VV')
-# Poloidal coils
-PC = openmc.Material.mix_materials([nbti, c, epoxy, bronze, h, ss316], [0.02895, 0.1169, 0.18, 0.0735, 0.1682, 0.4319], 'vo',name="PC")
-# Toroidal Coils
-TFcoil = openmc.Material.mix_materials([nb3sn, c, epoxy, bronze, h, ss316], [0.02895, 0.1169, 0.18,  0.0735, 0.1682, 0.4319], 'vo',name="TFC")
-# Port fillings
+
+# Port fillings 
 portf = openmc.Material.mix_materials([ss316, water], [0.6, 0.4], 'vo', name='PF')
-# Cryostat
-CS = materials.ss316(8.0)
-CS.name = 'CS'
-# Radiation shielding
-concrete = openmc.Material(name='RS')
-concrete.add_element('O', 52.9, 'wo')
-concrete.add_element('Si', 33.7, 'wo')
-concrete.add_element('Ca', 6.1, 'wo')
-concrete.add_element('Al', 3.4, 'wo')
-concrete.add_element('Fe', 1.7, 'wo')
-concrete.add_element('H', 0.9, 'wo')
-concrete.add_element('Na', 1.4, 'wo')
-concrete.set_density('g/cm3', 2.3)
+
+# Poloidal coils (From Bluemira Model)
+PC = openmc.Material.mix_materials([nbti, c, epoxy, bronze, h, ss316], [0.02895, 0.1169, 0.18, 0.0735, 0.1682, 0.4319], 'vo',name="PC")
+
+# Toroidal Coils (From Bluemira Model)
+TFcoil = openmc.Material.mix_materials([nb3sn, c, epoxy, bronze, h, ss316], [0.02895, 0.1169, 0.18,  0.0735, 0.1682, 0.4319], 'vo',name="TFC")
 
 # Build materials model
 model.materials = openmc.Materials([Armor, pf, portf, VV, divertor, TFcoil,
                                     matIB1, matIB2, matIB3, matIB4, matIB5,
                                     matOB1, matOB2, matOB3, matOB4, matOB5,
-                                    matOB6, matOB7, matOB8 , PC, CS, concrete])
+                                    matOB6, matOB7, matOB8 , PC, CS, RS])
 
 # --------------------------------
 #  SOURCE
@@ -195,7 +198,6 @@ openmc.Cell.reset_ids()
 openmc.Surface.reset_ids()
 
 # apply volumes from PyDAGMC to the OpenMC model cells
-
 model.init_lib(output=False)
 model.sync_dagmc_universes()
 model.finalize_lib()
@@ -339,7 +341,7 @@ model.tallies.append(flux_tally)
 
 # Current
 # Total current
-t_current_tally = openmc.Tally(name="total_surface_current")
+t_current_tally = openmc.Tally()
 t_current_tally.filters = [t_surf_filter, n_particle_filter] # just do for neutrons
 t_current_tally.scores  = ['current']
 model.tallies.append(t_current_tally)
@@ -361,7 +363,7 @@ for cid in cell_ids:
     cell_from_filter = openmc.CellFromFilter([ocell])
     surf_filter = openmc.SurfaceFilter(surf_ids_for_cell)
 
-    current_tally = openmc.Tally(name=f"partial_current_cell_{cid}")
+    current_tally = openmc.Tally()
     current_tally.filters = [cell_from_filter, surf_filter, n_particle_filter]
     current_tally.scores  = ["current"]
 
@@ -457,8 +459,6 @@ for cid in cell_ids:
         el_to_isos[el].add(nuc)
 
     for el, iso_set in el_to_isos.items():
-        if not iso_set:
-            continue
         dpa_tally = openmc.Tally()
         dpa_tally.scores   = ["damage-energy"]
         dpa_tally.filters  = [cell_filters_by_cid[cid]]
@@ -526,7 +526,7 @@ with openmc.StatePoint(statepoint) as sp:
     # Neutron flux csv file for students
     df_flux = pd.DataFrame(flux_data)
     # Just the flux on the first cell (Armor)
-    df_first = df_flux.iloc[[0]]
+    df_first = df_flux.iloc[:, [0]] 
     df_first.to_csv('neutron_flux_spectrum.csv', index=False)
 
     # Photon Spectrum

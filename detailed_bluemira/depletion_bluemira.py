@@ -64,6 +64,7 @@ photon_filter = openmc.ParticleFilter('photon')
 #dose_cell_filter = openmc.CellFilter(cell_ids)
 #print("cell_filter bins:", dose_cell_filter.bins)
 
+# Is the cell_filter(cell_ids) correct for dose_tally?
 dose_tally = openmc.Tally(name='dose tally')
 dose_tally.filters = [dose_filter, photon_filter, cell_filter]
 dose_tally.scores = ['flux']
@@ -90,7 +91,7 @@ with openmc.StatePoint(statepoint) as sp:
 
 corrected_tallies = []
 for i, t in enumerate(timesteps):
-    corrected_tally = d1s.apply_time_correction(tally, factors, i)
+    corrected_tally = d1s.apply_time_correction(tally, factors, i+1)
     corrected_tallies.append(corrected_tally)
 
 x_by_cell = dict(zip(cell_ids, xcentroids_ob))
