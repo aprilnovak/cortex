@@ -216,7 +216,7 @@ cell_list_ob_1 = [49, 45, 79, 66, 82, 94, 103, 112, 124, 132, 2]
 cell_ids = cell_list_ob_1
 
 # centroids of layers
-# if outer blanket (FW, breeder1, breeder2, breeder3, breeder4, VV)
+# if outer blanket (Armor, FW, OB1, OB2, OB3, OB4, OB5, OB6, OB7, OB8, VV)
 xcentroids_ob = (0.1, 1.1, 6.0, 15.0, 25.0, 35.0, 45.0, 55.0, 70.0, 90.0, 157.2)
 
 # INSERT ROUTINE TO DETERMINE THE CENTROIDS AUTOMATICALLY
@@ -225,6 +225,7 @@ xcentroids_ob = (0.1, 1.1, 6.0, 15.0, 25.0, 35.0, 45.0, 55.0, 70.0, 90.0, 157.2)
 
 
 # -------------
+# Updates on Patrick's version of dagmc_surface functions
 # SURFACES
 class Orientation(Enum):
     FORWARD = 1 # indicates normal vector points outwards from the volume
@@ -375,9 +376,9 @@ model.tallies.append(heating_tally)
 
 # H1, He3, and He4 production
 # Create a list of nuclide for the EUROFER, tungstein, SS316 for He3,He4 and H1 production
-# Avoid using most of the elements in the breeder and water for gas generation
+# Avoid using most of the elements in the breeder material and water for gas generation
 # However, there are still some Oxygen and other elements that are common with other materials 
-# Current estimations are better than before)
+# (Current estimations are better than before)
 material_list = [eurofer, t, ss316]
 solid_nuclides = set()
 for mat in material_list:
@@ -390,7 +391,7 @@ solid_nuclides = sorted(solid_nuclides)
 
 # proton(hydrogen) production tallies
 h1_tally = openmc.Tally()
-h1_tally.filters = [cell_filter] #solid_nuclide_filter] 
+h1_tally.filters = [cell_filter] 
 h1_tally.scores = ['H1-production']
 h1_tally.nuclides = solid_nuclides
 model.tallies.append(h1_tally)
@@ -474,8 +475,7 @@ model.tallies.export_to_xml()
 statepoint = model.run()
 with openmc.StatePoint(statepoint) as sp:
 
-    # Separate 
-    # OB cells are first
+    # OB cells 
     # Current model doesn't have IB (it was simplified to run with depletion)
     idx_ob_start = 0
     idx_ob_end   = len(cell_ids)        # slice [0 : N_ob]
@@ -525,7 +525,9 @@ with openmc.StatePoint(statepoint) as sp:
 
     # Neutron flux csv file for students
     df_flux = pd.DataFrame(flux_data)
-    df_flux.to_csv('neutron_flux_spectrum.csv', index=False)
+    # Just the flux on the first cell (Armor)
+    df_first = df_flux.iloc[[0]]
+    df_first.to_csv('neutron_flux_spectrum.csv', index=False)
 
     # Photon Spectrum
     photon_flux     = flux_mean[:, 1, :]   
@@ -555,9 +557,12 @@ with openmc.StatePoint(statepoint) as sp:
     # Total fluxes by integrating over energy (OB)
     # ------------------------------------------------------
     
+    # some left over from previous model with IB (will work on monday for the clean-up)
     ncells_ob = len(cell_ids)
     n_cells = len(cell_ids)
 
+    # I would like to talk briefly about the total flux in our meeting
+    # I did some testing with the total flux tally (no energy tally) and obtained the same results
     def integrate_over_energy(flux_E, std_E, cell_ids_group):
         """Integrate over energy for each cell group (OB)."""
         n_cells = flux_E.shape[0]
@@ -626,10 +631,9 @@ with openmc.StatePoint(statepoint) as sp:
     t_surf_filter = next(f for f in t_tot.filters if isinstance(f, openmc.SurfaceFilter))
     surf_ids = list(t_surf_filter.bins)
 
-    J_total = t_tot.mean.squeeze()  # shape (n_surfaces,)
+    J_total = t_tot.mean.squeeze()  
 
     # Obtain Partial Currents
-    # {(cell_id, surface_id): J_partial}
     partial_currents = {}
 
     for cid in cell_ids:
@@ -665,6 +669,7 @@ with openmc.StatePoint(statepoint) as sp:
         J_out_mag = abs(J_out)
 
         # what happens if J_in > J_out?
+        # Would like feedback on this one
         A = J_out_mag / J_in_mag
 
         albedo_by_surface[sid] = {
@@ -675,7 +680,6 @@ with openmc.StatePoint(statepoint) as sp:
             "albedo": A,
         }
 
-        
     rows = []
 
     for sid, data in albedo_by_surface.items():
@@ -692,7 +696,7 @@ with openmc.StatePoint(statepoint) as sp:
     # Heating (OB)
     # ------------------------------------------------------
     h_tally = sp.get_tally(id=heating_tally.id)
-    heating     = h_tally.get_values().flatten()                 # length = ncells_ob 
+    heating     = h_tally.get_values().flatten()                 
     heating_std = h_tally.get_values(value='std_dev').flatten()
 
     # OB (in case introduced IB later)
@@ -749,7 +753,6 @@ with openmc.StatePoint(statepoint) as sp:
     # OB 
     h1_ob = h1_per_cell[:ncells_ob]
 
-    # OB
     h_ob = []
     for i, cid in enumerate(cell_ids):
         h_per_s = h1_ob[i] * neutron_source_rate
@@ -780,11 +783,12 @@ with openmc.StatePoint(statepoint) as sp:
     he4_mean = helium4_tally.mean.squeeze().reshape(n_cells, n_nuclides)
 
     # sum over parent nuclides -> per-cell He3/He4 production per source neutron
-    he3_per_cell = he3_mean.sum(axis=1)   # shape (ncells,)
-    he4_per_cell = he4_mean.sum(axis=1)   # shape (ncells,)
+    he3_per_cell = he3_mean.sum(axis=1)   
+    he4_per_cell = he4_mean.sum(axis=1)   
 
     # total helium production (He3 + He4) per source neutron, per cell
     he_per_cell = he3_per_cell + he4_per_cell
+
     # OB 
     he_ob_src = he_per_cell[:ncells_ob]   # per source neutron, OB cells
 
@@ -847,7 +851,7 @@ with openmc.StatePoint(statepoint) as sp:
         dpa_y_std_cell  = scale_factor * dpa_std
 
         # Normalize by atoms in this cell (or solid_materials_atoms )
-        atoms = cell_total_atoms[cid]  # or cell_total_atoms_solid[cid]
+        atoms = cell_total_atoms_solid[cid]  # or cell_total_atoms[cid]
 
         dpa_per_y_ob_mean[idx] += dpa_y_mean_cell / atoms
         dpa_per_y_ob_std[idx]  += dpa_y_std_cell  / atoms
@@ -856,9 +860,6 @@ with openmc.StatePoint(statepoint) as sp:
     dpa_per_y_ob_std  = np.asarray(dpa_per_y_ob_std)
 
     print("Maximum DPA/y (OB): ", np.max(dpa_per_y_ob_mean))
-    # ------------------------------------------------------
-    # Plot OB
-    # ------------------------------------------------------
 
     plt.figure()
     plt.yscale('log')
@@ -866,7 +867,7 @@ with openmc.StatePoint(statepoint) as sp:
     plt.step(
         x_ob,
         dpa_per_y_ob_mean,
-        where='mid',           # <--- add this
+        where='mid',           
         color='k',
         marker='o',
         markersize=1.5,
@@ -877,7 +878,7 @@ with openmc.StatePoint(statepoint) as sp:
         x_ob,
         np.maximum(dpa_per_y_ob_mean - dpa_per_y_ob_std, 1e-30),
         dpa_per_y_ob_mean + dpa_per_y_ob_std,
-        step='mid',            # matches the line
+        step='mid',            
         alpha=0.3,
         color='gray',
         label='Std. Dev.'

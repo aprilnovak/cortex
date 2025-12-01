@@ -259,8 +259,8 @@ def get_cell_decay_heat_profile(results,
 
     for i, cid in enumerate(cell_ids):
         cell = all_cells[cid]
-        mat = cell.fill        # 
-        vol = cell.volume      # cm^3
+        mat = cell.fill         
+        vol = cell.volume      
 
         times, heat_t = results.get_decay_heat(
             mat=mat,           
