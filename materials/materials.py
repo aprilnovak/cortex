@@ -209,14 +209,14 @@ def ss316(density):
   ss316.add_element('Nb', 0.0001, 'wo')
   ss316.add_element('Mo', 0.025, 'wo')
   ss316.add_element('Ta', 0.0001, 'wo')
-  ss316.set_density('g/cc', density)
+  
 
   weight_sum = 0
-  for nuclide in eurofer97.nuclides:
+  for nuclide in ss316.nuclides:
     weight_sum += nuclide.percent
   
-  print('SS316 =', weight_sum)
   ss316.add_element('Fe', 1-weight_sum, 'wo')
+  ss316.set_density('g/cc', density)
 
   return ss316
 
@@ -226,7 +226,6 @@ def concrete(density):
   """
   concrete = openmc.Material()
   concrete.add_element('H',   0.36418/100, 'wo')
-  concrete.add_element('Li',  0.00090/100, 'wo')
   concrete.add_element('B',   0.00748/100, 'wo')
   concrete.add_element('C',   5.88681/100, 'wo')
   concrete.add_element('N',   0.049489/100, 'wo')
@@ -240,7 +239,6 @@ def concrete(density):
   concrete.add_element('Cl',  0.01247/100, 'wo')
   concrete.add_element('K',   0.42156/100, 'wo')
   concrete.add_element('Ca',  24.69467/100,'wo')
-  concrete.add_element('Sc',  0.00020/100, 'wo')
   concrete.add_element('Ti',  0.07483/100, 'wo')
   concrete.add_element('V',   0.00210/100, 'wo')
   concrete.add_element('Cr',  0.00172/100, 'wo')
@@ -250,31 +248,25 @@ def concrete(density):
   concrete.add_element('Cu',  0.00087/100, 'wo')
   concrete.add_element('Zn',  0.00334/100, 'wo')
   concrete.add_element('Ga',  0.00277/100, 'wo')
-  concrete.add_element('Ge',  0.00040/100, 'wo')
-  concrete.add_element('Se',  0.00020/100, 'wo')
   concrete.add_element('Rb',  0.00534/100, 'wo')
   concrete.add_element('Sr',  0.05163/100, 'wo')
   concrete.add_element('Y',   0.00110/100, 'wo')
   concrete.add_element('Zr',  0.00127/100, 'wo')
-  concrete.add_element('Sb',  0.00020/100, 'wo')
   concrete.add_element('Cs',  0.00030/100, 'wo')
   concrete.add_element('Ba',  0.00728/100, 'wo')
   concrete.add_element('La',  0.00102/100, 'wo')
   concrete.add_element('Ce',  0.00162/100, 'wo')
   concrete.add_element('Pr',  0.00382/100, 'wo')
   concrete.add_element('Nd',  0.00170/100, 'wo')
-  concrete.add_element('Sm',  0.00020/100, 'wo')
   concrete.add_element('Eu',  0.00030/100, 'wo')
   concrete.add_element('Gd',  0.00040/100, 'wo')
   concrete.add_element('Tb',  0.00062/100, 'wo')
-  concrete.add_element('Dy',  0.00014/100, 'wo')
   concrete.add_element('Er',  0.00040/100, 'wo')
-  concrete.add_element('Yb',  0.00010/100, 'wo')
-  concrete.add_element('Lu',  0.00005/100, 'wo')
   concrete.add_element('Hf',  0.00020/100, 'wo')
   concrete.add_element('Ta',  0.00025/100, 'wo')
   concrete.add_element('Pb',  0.00130/100, 'wo')
   concrete.add_element('U',   0.00499/100, 'wo')
+
   concrete.set_density('g/cc', density)
 
   return concrete

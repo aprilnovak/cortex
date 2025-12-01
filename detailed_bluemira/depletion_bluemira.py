@@ -10,8 +10,9 @@ from openmc.deplete import d1s
 
 import sys
 import os
-module_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..', 'materials'))
+module_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'materials'))
 sys.path.append(module_path)
+import materials
 
 from bluemira_full_setup import neutron_source_rate
 from bluemira_full_setup import model, all_cells, xcentroids_ob, cell_ids, cell_filter

@@ -11,10 +11,10 @@ import matplotlib.pyplot as plt
 from openmc_plasma_source import tokamak_source
 import pandas as pd
 import pydagmc
+
 import os
 import sys
-
-module_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..', 'materials'))
+module_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'materials'))
 sys.path.append(module_path)
 import materials
 
@@ -115,22 +115,22 @@ divertor = openmc.Material.mix_materials([ccz, c, eurofer, t, water], [0.00552, 
 # homogenization from https://doi.org/10.1016/j.fusengdes.2020.111833
 # Breeder Design WCLL
 # First Wall
-pf = openmc.Material.mix_materials([t, water, eurofer],[0.0027, 0.14268, 0.85468],'vo',name='FW')
+pf = openmc.Material.mix_materials([t, water, eurofer],[0.0027, 0.14268, 0.85462],'vo',name='FW')
+
 # Inner Breeder Blanket
-matIB1 = openmc.Material.mix_materials([PbLi, water, eurofer], [0.833, 0.025, 0.139], 'vo',name="IB1")
+matIB1 = openmc.Material.mix_materials([PbLi, water, eurofer], [0.835509, 0.025075, 0.139416], 'vo',name="IB1")
 matIB2 = openmc.Material.mix_materials([PbLi, water, eurofer], [0.858, 0.018, 0.124], 'vo',name="IB2")
 matIB3 = openmc.Material.mix_materials([PbLi, water, eurofer], [0.8132, 0.0158, 0.171], 'vo',name="IB3")
-matIB4 = openmc.Material.mix_materials([PbLi, water, eurofer], [0.427, 0.016, 0.558], 'vo',name="IB4")
+matIB4 = openmc.Material.mix_materials([PbLi, water, eurofer], [0.426574, 0.015984, 0.557442], 'vo',name="IB4")
 matIB5 = openmc.Material.mix_materials([water, eurofer], [0.486, 0.514], 'vo',name="IB5")
-
 # Outer Breeder Blanket
-matOB1 = openmc.Material.mix_materials([PbLi, water, eurofer], [0.833, 0.025, 0.139], 'vo',name="OB1")
+matOB1 = openmc.Material.mix_materials([PbLi, water, eurofer], [0.835509, 0.025075, 0.139416], 'vo',name="OB1")
 matOB2 = openmc.Material.mix_materials([PbLi, water, eurofer], [0.858, 0.018, 0.124], 'vo',name="OB2")
 matOB3 = openmc.Material.mix_materials([PbLi, water, eurofer], [0.8132, 0.0158, 0.171], 'vo',name="OB3")
 matOB4 = openmc.Material.mix_materials([PbLi, water, eurofer], [0.8132, 0.0158, 0.171], 'vo',name="OB4")
 matOB5 = openmc.Material.mix_materials([PbLi, water, eurofer], [0.8132, 0.0158, 0.171], 'vo',name="OB5")
 matOB6 = openmc.Material.mix_materials([PbLi, water, eurofer], [0.8132, 0.0158, 0.171], 'vo',name="OB6")
-matOB7 = openmc.Material.mix_materials([PbLi, water, eurofer], [0.427, 0.016, 0.558], 'vo',name="OB7")
+matOB7 = openmc.Material.mix_materials([PbLi, water, eurofer], [0.426574, 0.015984, 0.557442], 'vo',name="OB7")
 matOB8 = openmc.Material.mix_materials([water, eurofer], [0.486, 0.514], 'vo',name="OB8")
 # --------------------------------------------------------------------
 
@@ -141,10 +141,10 @@ VV = openmc.Material.mix_materials([ss316, water],[0.6, 0.4],'vo',name='VV')
 portf = openmc.Material.mix_materials([ss316, water], [0.6, 0.4], 'vo', name='PF')
 
 # Poloidal coils (From Bluemira Model)
-PC = openmc.Material.mix_materials([nbti, c, epoxy, bronze, h, ss316], [0.02895, 0.1169, 0.18, 0.0735, 0.1682, 0.4319], 'vo',name="PC")
+PC = openmc.Material.mix_materials([nbti, c, epoxy, bronze, h, ss316], [0.02895, 0.1169, 0.18, 0.0735, 0.1682, 0.43245], 'vo',name="PC")
 
 # Toroidal Coils (From Bluemira Model)
-TFcoil = openmc.Material.mix_materials([nb3sn, c, epoxy, bronze, h, ss316], [0.02895, 0.1169, 0.18,  0.0735, 0.1682, 0.4319], 'vo',name="TFC")
+TFcoil = openmc.Material.mix_materials([nb3sn, c, epoxy, bronze, h, ss316], [0.02895, 0.1169, 0.18,  0.0735, 0.1682, 0.43245], 'vo',name="TFC")
 
 # Build materials model
 model.materials = openmc.Materials([Armor, pf, portf, VV, divertor, TFcoil,
