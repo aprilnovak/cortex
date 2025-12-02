@@ -218,6 +218,21 @@ def dagmc_surface_orientations(pydagmc_model, volume_id):
 
     return orientations
 
+def dagmc_bounding_box(pydagmc_model, volume_id):
+    """Returns the bounding box of a given volume in a PyDAGMC model.
+
+    Args:
+        pydagmc_model: PyDAGMC model object
+        volume_id: ID of the volume for which to find the bounding box
+
+    Returns:
+        openmc.BoundingBox: Bounding box of the volume
+    """
+    volume = pydagmc_model.volumes_by_id[volume_id]
+    triangle_coords = volume.triangle_coords
+    min_coords = np.min(triangle_coords, axis=0)
+    max_coords = np.max(triangle_coords, axis=0)
+    return openmc.BoundingBox(min_coords, max_coords)
 
 # --------------------------------
 # TALLY
