@@ -1,18 +1,33 @@
+# built-in modules
+from collections import defaultdict
+from enum import Enum
+import math
+import re
+
 import openmc
 import numpy as np
 import matplotlib.pyplot as plt
-import math
 import materials
 from openmc_plasma_source import tokamak_source
 import pandas as pd
-import re
-from collections import defaultdict
+import pydagmc
+
+_DAGMC_MODEL_FILE = 'bluemira_10_22.h5m'
 
 model = openmc.Model()
 
 # --------------------------------
 # GEOMETRY
-# -------------------------------- 
+# --------------------------------
+
+# Import DAGMC geometry
+dagmc_universe = openmc.DAGMCUniverse(filename='bluemira_10_22.h5m')
+
+pydagmc_model = pydagmc.Model(str(dagmc_universe.filename))
+
+# reserve volume and surface IDs in the DAGMC model to avoid overlaps
+openmc.reserve_ids([v.id for v in pydagmc_model.volumes], cls=openmc.Cell)
+openmc.reserve_ids([s.id for s in pydagmc_model.surfaces], cls=openmc.Surface)
 
 # Create planes for reflective BC
 def azimuthal_plane(theta_deg, boundary_type=None, name=None, surface_id=None):
@@ -33,22 +48,19 @@ cut_lo = azimuthal_plane(theta0, boundary_type='reflective', name='phi_lo')
 cut_hi = azimuthal_plane(theta1, boundary_type='reflective', name='phi_hi')
 
 # Outer BC graveyard (top/bottom)
-z_min = openmc.ZPlane(z0=-2500, boundary_type='vacuum', name='z_min') 
+z_min = openmc.ZPlane(z0=-2500, boundary_type='vacuum', name='z_min')
 z_max = openmc.ZPlane(z0=+1500, boundary_type='vacuum', name='z_max')
 
 # Outer BC graveyard (radial)
-r_out = openmc.ZCylinder(r=2500, boundary_type='vacuum', name='r_out') 
+r_out = openmc.ZCylinder(r=2500, boundary_type='vacuum', name='r_out')
 sector_region = (+cut_lo & -cut_hi) & (+z_min & -z_max) & (-r_out)
 
-# Import DAGMC geometry
-dagmc_universe = openmc.DAGMCUniverse(filename='bluemira_10_22.h5m',auto_geom_ids=True) 
-
 # Put the DAGMC universe inside the CSG cell
-sector_cell = openmc.Cell(region=sector_region, fill=dagmc_universe, name='sector_container')
+sector_cell = openmc.Cell(cell_id=10_000, region=sector_region, fill=dagmc_universe, name='sector_container')
 model.geometry = openmc.Geometry(root=[sector_cell])
 
 # --------------------------------
-#  Materials 
+#  Materials
 # --------------------------------
 # Defined these materials in materials.py (still missing DE)
 # This list will change depending on the materials/mixtures
@@ -71,7 +83,7 @@ eurofer = materials.eurofer97(7.87)
 
 # ATRIBUTE MATERIALS TO DAGMC geometry
 # Mateirals with simple structure(repetitive - simplify this ?)
-# Vacuum Vessel (VV) 
+# Vacuum Vessel (VV)
 VV = materials.ss316(8.0)
 VV.name = 'VV'
 # Radiation shielding
@@ -94,26 +106,6 @@ pf = openmc.Material.mix_materials([eurofer],[0.5730],'vo',name='FW')
 
 # Build materials model
 model.materials = openmc.Materials([pf, portf, VV,divertor, TFcoil, breeder1, breeder2, PC, CR, RS])
-
-# --------------------------------
-# VOLUME CALCULATION
-# --------------------------------
-
-# list of equatorial cells in Bluemira_10_22.h5m model. (will change with other model)
-# OB - outer blankets # IB - inner blankets 
-# Mostly focusing now on Cell_list_ob_1
-cell_list_ob_1 = [99, 47, 51, 49, 53, 3] 
-cell_list_ob_2 = [105, 62, 66, 64, 68]
-cell_list_ob_3 = [102, 55, 59, 57, 61, 5]
-cell_list_ib_4 = [101, 21, 25, 19, 23, 4]
-cell_list_ib_5 = [107, 29, 33, 27, 31, 6]
-
-cell_ids = cell_list_ob_1    
-domains = [openmc.Cell(cell_id=cid) for cid in cell_ids] # limits to the cells we want to tally
-lower_left=(1000.0, 0.0, -30.0)  # This should be fine for cell_list_ob_1 
-upper_right=(2250.0, 300.0, 30.0) # But needs update for all remaining cell_lists
-vc = openmc.VolumeCalculation(domains, 20000000,lower_left,upper_right) # 2e7 gave me okay values for the FW 
-ncells = len(cell_ids) # save number of cells for tallying later on.
 
 # --------------------------------
 #  SOURCE
@@ -145,7 +137,6 @@ my_source = tokamak_source(
 
 # Simulation Settings
 model.settings = openmc.Settings()
-model.settings.volume_calculations = [vc]
 model.settings.dagmc = True
 model.settings.photon_transport = True
 model.settings.batches = 10
@@ -154,9 +145,99 @@ model.settings.run_mode = "fixed source"
 model.settings.source = my_source
 
 # --------------------------------
+# VOLUME CALCULATION
+# --------------------------------
+
+# reset the OpenMC ID space for cells and surfaces
+openmc.Cell.reset_ids()
+openmc.Surface.reset_ids()
+
+# apply volumes from PyDAGMC to the OpenMC model cells
+model.init_lib()
+model.sync_dagmc_universes()
+model.finalize_lib()
+
+# reclaim the ID space for all cells and surfaces currently in the model
+# to avoid clashes later in the model
+openmc.reserve_ids([c_id for c_id in model.geometry.get_all_cells()], cls=openmc.Cell)
+openmc.reserve_ids([s_id for s_id in model.geometry.get_all_surfaces()], cls=openmc.Surface)
+
+dagmc_universe_cells = dagmc_universe.get_all_cells()
+for volume in pydagmc_model.volumes:
+    dagmc_universe_cells[volume.id].volume = volume.volume
+
+# list of equatorial cells in Bluemira_10_22.h5m model. (will change with other model)
+# OB - outer blankets # IB - inner blankets
+# Mostly focusing now on Cell_list_ob_1
+cell_list_ob_1 = [99, 47, 51, 49, 53, 3]
+cell_list_ob_2 = [105, 62, 66, 64, 68]
+cell_list_ob_3 = [102, 55, 59, 57, 61, 5]
+cell_list_ib_4 = [101, 21, 25, 19, 23, 4]
+cell_list_ib_5 = [107, 29, 33, 27, 31, 6]
+
+
+def dagmc_adjacent_cells(pydagmc_model, volume_id):
+    """Returns all volumes adjacent to a given volume in a PyDAGMC model.
+
+    Args:
+        pydagmc_model: PyDAGMC model object
+        volume_id: ID of the volume for which to find adjacent volumes
+    """
+    volume = pydagmc_model.volumes_by_id[volume_id]
+    adj_volumes = set()
+    for surface in volume.surfaces:
+        adj_volumes.update(surface.volumes)
+
+    return list(adj_volumes - {volume})
+
+
+class Orientation(Enum):
+    FORWARD = 1 # indicates normal vector points outwards from the volume
+    REVERSE = -1 # indicates normal vector points inwards to the volume
+
+
+def dagmc_surface_orientations(pydagmc_model, volume_id):
+    """Returns a dictionary mapping surface IDs to their orientations
+    with respect to a given volume in a PyDAGMC model.
+
+    Args:
+        pydagmc_model: PyDAGMC model object
+        volume_id: ID of the volume for which to find surface orientations
+
+    Returns:
+        dict: Mapping of surface IDs to Orientation enum values
+    """
+    volume = pydagmc_model.volumes_by_id[volume_id]
+    orientations = {}
+    for surface in volume.surfaces:
+        parent_volumes = surface.senses
+        if parent_volumes[0].id == volume_id:
+            orientations[surface.id] = Orientation.FORWARD
+        else:
+            orientations[surface.id] = Orientation.REVERSE
+
+    return orientations
+
+def dagmc_bounding_box(pydagmc_model, volume_id):
+    """Returns the bounding box of a given volume in a PyDAGMC model.
+
+    Args:
+        pydagmc_model: PyDAGMC model object
+        volume_id: ID of the volume for which to find the bounding box
+
+    Returns:
+        openmc.BoundingBox: Bounding box of the volume
+    """
+    volume = pydagmc_model.volumes_by_id[volume_id]
+    triangle_coords = volume.triangle_coords
+    min_coords = np.min(triangle_coords, axis=0)
+    max_coords = np.max(triangle_coords, axis=0)
+    return openmc.BoundingBox(min_coords, max_coords)
+
+# --------------------------------
 # TALLY
 # --------------------------------
-# Source intensity -> normalization 
+# Source intensity -> normalization
 total_power = 2e9 # 2000 MW
 section = 1/16
 section_power = total_power * section
@@ -168,13 +249,6 @@ neutron_source_rate = section_power / convert_e
 # centroids of layers
 # (FW, breeder1, breeder2, breeder3, breeder4, VV)
 xcentroids = (1.0, 12.0, 32.0, 50.375, 78.5, 150.0)
-
-# Run volume calculation.
-# I have been running these two lines to generate the volumes_1.h5
-# and commenting after.
-#  
-#model.export_to_xml()
-#openmc.calculate_volumes()
 
 # FILTERS
 cell_filter = openmc.CellFilter(cell_list_ob_1)
@@ -188,7 +262,7 @@ unit_lethargy = [np.log(energies[i+1]/energies[i]) for i in range(len(energies)-
 # Filter solid/fluid materials to account correctly gas production in solids.
 # Ideas:
 # Material filters  -> Works on MATERIALS (full mixture)
-#                   -> Don't work with specific elements inside mixtures 
+#                   -> Don't work with specific elements inside mixtures
 
 # Nuclide filters   -> Works with any nuclide inside materials/mixture
 #                   -> Be careful with overlapping nuclides from solid and fluid.
@@ -256,20 +330,13 @@ model.plots = plots
 # Load Information (save volumes/ num of atoms per cell inside DAGMC cells)
 # --------------------------------
 # Allocate volume calculations and atoms per cell
-model.init_lib()
-model.sync_dagmc_universes()
-
-# Load volume calculation results
-vc.load_results("volume_1.h5")
 all_cells = model.geometry.get_all_cells()
 
 # Collect all nuclides over selected cells
 all_nuclides = set()
-for cid in cell_list_ob_1:
-    atoms_for_cell = getattr(vc, "atoms", {}).get(cid, {})
-    all_nuclides.update(
-        n for n, var in atoms_for_cell.items() if getattr(var, "n", None) is not None and var.n > 0.0
-    )
+for c in cell_list_ob_1:
+    cell = all_cells[c]
+    all_nuclides.update(cell.fill.get_nuclides())
 
 # group nuclides per element
 nuclides_by_element = {}
@@ -297,23 +364,16 @@ cell_nuclide_atoms = {}   # {cell_id: {nuclide: mean_atoms}}
 cell_total_atoms   = {}   # {cell_id: mean_total_atoms}
 
 # VOLUME CELL UPDATE
-for cid in cell_list_ob_1:               
-    cell = all_cells.get(cid)              
-    cell.add_volume_information(vc)
-    # per-nuclide atoms (mean)
-    atoms_for_cell = getattr(vc, "atoms", {}).get(cid)
-    # Convert {nuclide: Variable} -> {nuclide: mean_atoms}
-    per_nuclide = {nuc: var.n for nuc, var in atoms_for_cell.items() if getattr(var, "n", None) is not None}
-    total_atoms = sum(per_nuclide.values())
+for cid in cell_list_ob_1:
+    cell = all_cells[cid]
+    print(cell)
     # Attach to the Cell object (for runtime only)
-    setattr(cell, "nuclide_atoms", per_nuclide)   # e.g., {"Fe56": 3.2e25, "Cr52": ...}
-    setattr(cell, "total_atoms", total_atoms)
-
+    cell.nuclide_atoms = cell.fill.get_nuclide_atoms(volume=cell.volume)
+    cell.total_atoms = sum(cell.nuclide_atoms.values())
     # save for scaling in post-processing
-    cell_nuclide_atoms[cid] = per_nuclide
-    cell_total_atoms[cid]   = total_atoms
+    cell_nuclide_atoms[cid] = cell.nuclide_atoms
+    cell_total_atoms[cid]   = cell.total_atoms
 
-    
 model.finalize_lib()
 
 # --------------------------------
@@ -328,7 +388,7 @@ with openmc.StatePoint(statepoint) as sp:
         cell_cid = all_cells[cid]
         vol = cell_cid.volume
         scaling = 1.0 / vol * neutron_source_rate
-        scaling_by_cell[cid] = scaling    
+        scaling_by_cell[cid] = scaling
 
     # Neutron Spectrum
     n_tally = sp.get_tally(name="n_flux_tally")
@@ -363,7 +423,7 @@ with openmc.StatePoint(statepoint) as sp:
 
     # Photon Spectrum
     p_tally = sp.get_tally(name='p_flux_tally')
-    photon_flux = p_tally.get_reshaped_data()    
+    photon_flux = p_tally.get_reshaped_data()
 
     for i, cid in enumerate(cell_list_ob_1):
         scaling = scaling_by_cell[cid]
@@ -383,14 +443,15 @@ with openmc.StatePoint(statepoint) as sp:
 
     # Total fluxes by integrating over energy
     # Neutron flux
-    total_neutron_flux = np.zeros(ncells)
+    n_cells = len(cell_list_ob_1)
+    total_neutron_flux = np.zeros(n_cells)
     for i, cid in enumerate(cell_list_ob_1):
         scaling = scaling_by_cell[cid]
         total_neutron_flux[i] = np.sum(neutron_flux[i].flatten()) * scaling
 
     plt.semilogy(xcentroids, total_neutron_flux, label='Neutron flux')
     # Gamma flux
-    total_photon_flux = np.zeros(ncells)
+    total_photon_flux = np.zeros(n_cells)
     for i, cid in enumerate(cell_list_ob_1):
         scaling = scaling_by_cell[cid]
         total_photon_flux[i] = np.sum(photon_flux[i].flatten()) * scaling
@@ -403,7 +464,7 @@ with openmc.StatePoint(statepoint) as sp:
     plt.savefig('flux.png')
     plt.close()
 
-    # heating 
+    # heating
     h_tally = sp.get_tally(name='heating_tally')
     heating = h_tally.get_values().flatten()
 
@@ -463,7 +524,7 @@ with openmc.StatePoint(statepoint) as sp:
     plt.close()
 
     # create radial plots of the dpa; each of the tallies is for a particular element
-    dpa_per_y = np.zeros(ncells)
+    dpa_per_y = np.zeros(n_cells)
     atoms_vec = np.array([cell_total_atoms[cid] for cid in cell_list_ob_1], dtype=float)
 
     for tally in dpa_tallies:
@@ -492,4 +553,4 @@ with openmc.StatePoint(statepoint) as sp:
     plt.xlabel('Radial Position [cm]')
     plt.savefig('dpa.png')
     plt.close()
-    
+
