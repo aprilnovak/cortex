@@ -38,3 +38,10 @@ git checkout 75307027c22364a3ee7710351f050c9d88b475ff
 cd eudemo
 ln -s $(pwd)/../data/materials config/materials_data
 ```
+## Instructions for Installing MOAB
+
+Provide CMake arguments during MOAB installation to enable HDF5 format and be able to load exodus files.
+
+...
+CMAKE_ARGS="-DENABLE_HDF5=ON -DENABLE_NETCDF=ON" python -m pip install .
+...
