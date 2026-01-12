@@ -42,6 +42,6 @@ ln -s $(pwd)/../data/materials config/materials_data
 
 Provide CMake arguments during MOAB installation to enable HDF5 format and be able to load exodus files.
 
-...
+```
 CMAKE_ARGS="-DENABLE_HDF5=ON -DENABLE_NETCDF=ON" python -m pip install .
-...
+```
