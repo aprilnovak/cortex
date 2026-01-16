@@ -163,6 +163,62 @@ def W(density):
   tungsten.set_density('g/cc', density)
   return tungsten
 
+def ss316Ln_ig(density):
+  """ Return an OpenMC material for SS316L(N)-IG, a special form of SS316L developed
+      specifically for ITER (ig = ITER-grade) in a nitrogen-controlled environment.
+
+      Several of the low-concentration constituents are specified with max ranges,
+      but it is not clear from the description if these are considered impurities
+      or not. No targets are given, only min/max (for some constituents) or simply
+      a max (for others). The paper does not explicitly state that iron is the
+      balance, but I think this is self explanatory (and the numbers in Table 1
+      don't sum to 100 anyways so the remaining is assumed iron). Values are given
+      in weight percent.
+
+      [https://conferences.iaea.org/event/392/papers/36393/files/13925-Manuscript_S.W.Kim%20FEC%202025_v1.1.pdf, page 2]
+
+      The procedure used is:
+        - if only a range, between min and max is given, we take the average
+        - if only the maximum is given, we use it
+
+      Not able to find density specifically for this alloy, but the UW fusion
+      materials database lists density as 7.93 kg/m3 (but the citation they list
+      does not actually include the density in it as far as I can see)
+      [https://fispact.ukaea.uk/wp-content/uploads/2016/10/CCFE-R1637.pdf]
+
+  """
+
+  ss316Ln_ig = openmc.Material()
+  ss316Ln_ig.add_element('C', 0.03, 'wo')
+  ss316Ln_ig.add_element('Mn', 0.5 * (1.6+2.0), 'wo')
+  ss316Ln_ig.add_element('Si', 0.5, 'wo')
+  ss316Ln_ig.add_element('P', 0.025, 'wo')
+  ss316Ln_ig.add_element('S', 0.01, 'wo')
+  ss316Ln_ig.add_element('Cr', 0.5*(17+18), 'wo')
+  ss316Ln_ig.add_element('Ni', 0.5*(12+12.5), 'wo')
+  ss316Ln_ig.add_element('Mo', 0.5*(2.3+2.7), 'wo')
+  ss316Ln_ig.add_element('N', 0.5*(0.06+0.08), 'wo')
+
+  # these five are referred to as trace elements, so it is possible that the
+  # low-concentration entities like C are still intentionally added and that only
+  # these are considered impurities.
+  ss316Ln_ig.add_element('Cu', 0.3, 'wo')
+  ss316Ln_ig.add_element('Ti', 0.1, 'wo')
+  ss316Ln_ig.add_element('Nb', 0.1, 'wo')
+  ss316Ln_ig.add_element('Ta', 0.01, 'wo')
+  ss316Ln_ig.add_element('Co', 0.05, 'wo')
+
+  weight_sum = 0
+  for nuclide in ss316Ln_ig.nuclides:
+    weight_sum += nuclide.percent
+
+  ss316Ln_ig.add_element('Fe', 100 - weight_sum, 'wo')
+
+  print('\tIron (weight %):             ', 100 - weight_sum)
+
+  ss316Ln_ig.set_density('g/cc', density)
+  return ss316Ln_ig
+
 def atoms(material):
   Na = 6.023e23
 
