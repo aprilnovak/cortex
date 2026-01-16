@@ -181,8 +181,10 @@ def ss316Ln_ig(density):
         - if only a range, between min and max is given, we take the average
         - if only the maximum is given, we use it
 
-      Not able to find density specifically for this alloy, but the density for
-      SS316L is 8 kg/m3 [https://www.azom.com/article.aspx?ArticleID=2382].
+      Not able to find density specifically for this alloy, but the UW fusion
+      materials database lists density as 7.93 kg/m3 (but the citation they list
+      does not actually include the density in it as far as I can see)
+      [https://fispact.ukaea.uk/wp-content/uploads/2016/10/CCFE-R1637.pdf]
 
   """
 
