@@ -163,6 +163,35 @@ def W(density):
   tungsten.set_density('g/cc', density)
   return tungsten
 
+def ss304_b4(density):
+  """ Return an OpenMC material for SS304-B4, a borated SS-304 steel used for
+      shielding applications in nuclear.
+
+      The density is listed as 7.8 g/cc.
+
+      From [https://www.vegasfastener.com/materials/stainless-steel-304b/].
+  """
+
+  ss304b4 = openmc.Material()
+  ss304b4.add_element('B', 1.1, 'wo')
+  ss304b4.add_element('C', 0.013, 'wo')
+  ss304b4.add_element('Cr', 18.5, 'wo')
+  ss304b4.add_element('Mn', 0.8, 'wo')
+  ss304b4.add_element('N', 0.1, 'wo')
+  ss304b4.add_element('Ni', 12.5, 'wo')
+  ss304b4.add_element('Si', 0.3, 'wo')
+
+  weight_sum = 0
+  for nuclide in ss304b4.nuclides:
+    weight_sum += nuclide.percent
+
+  ss304b4.add_element('Fe', 100 - weight_sum, 'wo')
+
+  print('\tIron (weight %):             ', 100 - weight_sum)
+  ss304b4.set_density('g/cc', density)
+  return ss304b4
+
+
 def ss316Ln_ig(density):
   """ Return an OpenMC material for SS316L(N)-IG, a special form of SS316L developed
       specifically for ITER (ig = ITER-grade) in a nitrogen-controlled environment.
