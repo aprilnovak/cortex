@@ -1,0 +1,57 @@
+{
+  "meta": {
+    "created": "2026-01-27 11:59:50",
+    "units": "cm"
+  },
+  "geometry": {
+    "step_file": "C:\\Users\\tpaga\\OneDrive\\Desktop\\UIUC\\EUDEMO_complete_test_23.step",
+    "armor_cm": 2.0,
+    "fw_cm": 1.8,
+    "ob_offsets_cm": [
+      -8.0,
+      -18.0,
+      -28.0,
+      -38.0,
+      -48.0,
+      -58.0,
+      -68.0
+    ],
+    "ib_offsets_cm": [
+      -8.0,
+      -18.0,
+      -28.0,
+      -38.0,
+      -48.0,
+      -58.0,
+      -68.0
+    ],
+    "fractions": [
+      0.1,
+      0.2,
+      0.30000000000000004,
+      0.4,
+      0.5,
+      0.6000000000000001,
+      0.7000000000000001,
+      0.8,
+      0.9
+    ],
+    "ob_n_layers": 8,
+    "ib_n_layers": 8,
+    "n_breeder": 10,
+    "ob_regions": 3,
+    "ib_regions": 2
+  },
+  "inventory": {
+    "BLANKET_FINAL": 550,
+    "Cryostat_mat_SS316_LN": 4,
+    "Divertor_mat_Homogenised_Divertor_2015": 3,
+    "Plasma_Region": 1,
+    "Poloidal_Coils_mat_Poloidal_Field_Coil": 23,
+    "PORT_FILLING": 1,
+    "RadiationShield": 3,
+    "RadiationShield_mat_SS316_LN": 1,
+    "TFCoil_mat_Toroidal_Field_Coil_2015": 1,
+    "VacuumVessel_mat_SS316_LN": 4
+  }
+}
