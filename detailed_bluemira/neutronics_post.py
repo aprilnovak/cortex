@@ -57,6 +57,7 @@ convert_e = ev_to_joule * ev_fusion
 neutron_source_rate = section_power / convert_e
 s_in_y = (365 * 24 * 60 * 60)
 
+
 energies = openmc.mgxs.GROUP_STRUCTURES["CCFE-709"]
 unit_lethargy = np.array(
     [np.log(energies[i + 1] / energies[i]) for i in range(len(energies) - 1)],
@@ -292,7 +293,7 @@ def write_struct_origin_csv(
 # ----------------------------
 _cells_chunk = bm.build_breeder_chunks(
     INPUT_JSON,
-    default_equatorial_ob_key="OB_1_b6", 
+    default_equatorial_ob_key="OB_1_b6",
     gap_cm=2.0,
     start_cm=0.0,
     )
@@ -305,6 +306,15 @@ cell_ids  = _cells_chunk["cell_ids_all"]
 ob_by_key = _cells_chunk["ob_by_key"]
 ib_by_key = _cells_chunk["ib_by_key"]
 n_breeder  = int(geom["n_breeder"])
+
+def generate_colors(n):
+    """Generates a smooth rainbow gradient of n RGB colors."""
+    nc = n + 1 # TODO: make the number a variable, I'm not sure on why we need this many colors
+    cmap = plt.get_cmap('rainbow')
+    color_range = cmap(np.linspace(1, 0, nc))
+    return color_range
+
+colors = generate_colors(n_breeder)
 
 cell_ids_for_key   = _cells_chunk["cell_ids_for_key"]      # key -> list[int]
 radial_bins_for_key = _cells_chunk["radial_bins_for_key"]  # key -> (centroids,widths,edges)
@@ -960,10 +970,10 @@ def process_chunk(
     plt.figure()
     for i, cid in enumerate(cell_ids):
         flux_scaled = neutron_flux_chunk[i].flatten() * scaling[int(cid)] / unit_lethargy
-        plt.loglog(energies[:-1], flux_scaled, label=f"{labels[i]} (x={xcent[i]:.2f} cm)")
-    plt.legend(fontsize=8)
+        plt.loglog(energies[:-1], flux_scaled, label=f"{labels[i]} (x = {xcent[i]:.2f} cm)", color=colors[i])
+    plt.legend(fontsize=8,ncol=2)
     plt.grid(True, which="both")
-    plt.ylabel("Neutron Flux per unit lethargy [1/cm$^2$/s]")
+    plt.ylabel("Neutron flux per unit lethargy [1/cm$^2$/s]")
     plt.xlabel("Energy [eV]")
     plt.xlim([1, 100e6])
     plt.savefig(outdir / f"n_flux_spectrum_{chunk_key}.png", dpi=300, bbox_inches="tight")
@@ -972,10 +982,10 @@ def process_chunk(
     plt.figure()
     for i, cid in enumerate(cell_ids):
         flux_scaled = photon_flux_chunk[i].flatten() * scaling[int(cid)] / unit_lethargy
-        plt.loglog(energies[:-1], flux_scaled, label=f"{labels[i]} (x={xcent[i]:.2f} cm)")
-    plt.legend(fontsize=8)
+        plt.loglog(energies[:-1], flux_scaled, label=f"{labels[i]} (x={xcent[i]:.2f} cm)", color=colors[i])
+    plt.legend(fontsize=8,loc='lower left')
     plt.grid(True, which="both")
-    plt.ylabel("Photon Flux per unit lethargy [1/cm$^2$/s]")
+    plt.ylabel("Photon flux per unit lethargy [1/cm$^2$/s]")
     plt.xlabel("Energy [eV]")
     plt.xlim([1, 100e6])
     plt.savefig(outdir / f"p_flux_spectrum_{chunk_key}.png", dpi=300, bbox_inches="tight")
@@ -1005,10 +1015,10 @@ def process_chunk(
     phot_lower = np.maximum(direct_total_phot - direct_total_phot_std, 1e-30)
     phot_upper = direct_total_phot + direct_total_phot_std
 
-    ax.step(xedges, np.r_[direct_total_neut, direct_total_neut[-1]], where="post", linestyle="--", label="Neutron")
+    ax.step(xedges, np.r_[direct_total_neut, direct_total_neut[-1]], where="post", label="neutron")
     ax.fill_between(xedges, np.r_[neut_lower, neut_lower[-1]], np.r_[neut_upper, neut_upper[-1]], step="post", alpha=0.15)
 
-    ax.step(xedges, np.r_[direct_total_phot, direct_total_phot[-1]], where="post", linestyle="--", label="Photon")
+    ax.step(xedges, np.r_[direct_total_phot, direct_total_phot[-1]], where="post", label="photon")
     ax.fill_between(xedges, np.r_[phot_lower, phot_lower[-1]], np.r_[phot_upper, phot_upper[-1]], step="post", alpha=0.15)
 
     ax.set_yscale("log")
@@ -1045,7 +1055,7 @@ def process_chunk(
     ax.grid(True, which="both", linestyle="--", linewidth=0.5)
     ax.set_ylabel("Heating [W/cm³]")
     ax.set_xlabel("Radial Position [cm]")
-    ax.legend()
+    #ax.legend()
     fig.savefig(outdir / f"heating_{chunk_key}.png", dpi=300, bbox_inches="tight")
     plt.close(fig)
 
@@ -1087,12 +1097,12 @@ def process_chunk(
 
     fig, ax = plt.subplots()
     ax.set_yscale("log")
-    ax.step(xedges, np.r_[h_appm_y, h_appm_y[-1]], where="post", label="H [appm/y] (struct-origin)")
+    ax.step(xedges, np.r_[h_appm_y, h_appm_y[-1]], where="post", label="H [appm/fpy] (struct-origin)")
     ax.fill_between(xedges, np.r_[lower, lower[-1]], np.r_[upper, upper[-1]], step="post", alpha=0.3)
     ax.grid(True, which="both", linestyle="--", linewidth=0.5)
-    ax.set_ylabel("H [appm/y]")
+    ax.set_ylabel("H [appm/fpy]")
     ax.set_xlabel("Radial Position [cm]")
-    ax.legend()
+    #ax.legend()
     fig.savefig(outdir / f"h1_{chunk_key}.png", dpi=300, bbox_inches="tight")
     plt.close(fig)
 
@@ -1142,12 +1152,12 @@ def process_chunk(
 
     fig, ax = plt.subplots()
     ax.set_yscale("log")
-    ax.step(xedges, np.r_[he_appm_y, he_appm_y[-1]], where="post", label="He [appm/y] (struct-origin)")
+    ax.step(xedges, np.r_[he_appm_y, he_appm_y[-1]], where="post", label="He [appm/fpy] (struct-origin)")
     ax.fill_between(xedges, np.r_[lower, lower[-1]], np.r_[upper, upper[-1]], step="post", alpha=0.3)
     ax.grid(True, which="both", linestyle="--", linewidth=0.5)
-    ax.set_ylabel("He [appm/y]")
+    ax.set_ylabel("He [appm/fpy]")
     ax.set_xlabel("Radial Position [cm]")
-    ax.legend()
+    #ax.legend()
     fig.savefig(outdir / f"he_{chunk_key}.png", dpi=300, bbox_inches="tight")
     plt.close(fig)
 
@@ -1185,12 +1195,12 @@ def process_chunk(
 
     fig, ax = plt.subplots()
     ax.set_yscale("log")
-    ax.step(xedges, np.r_[dpa_y, dpa_y[-1]], where="post", label="DPA/y (struct-origin)")
+    ax.step(xedges, np.r_[dpa_y, dpa_y[-1]], where="post", label="NRT-dpa/y (struct-origin)")
     ax.fill_between(xedges, np.r_[lower, lower[-1]], np.r_[upper, upper[-1]], step="post", alpha=0.3)
     ax.grid(True, which="both", linestyle="--", linewidth=0.5)
-    ax.set_ylabel("DPA/y")
+    ax.set_ylabel("NRT-dpa/fpy")
     ax.set_xlabel("Radial Position [cm]")
-    ax.legend()
+    #ax.legend()
     fig.savefig(outdir / f"dpa_{chunk_key}.png", dpi=300, bbox_inches="tight")
     plt.close(fig)
 
@@ -1460,20 +1470,20 @@ def process_layer_region1_only(
         ax.step(x, dpa_plot, where="mid", linewidth=2)
 
         ax.axvline(split, linestyle="--", linewidth=1)
-        ax.text(split, 0.95, "OB | IB", transform=ax.get_xaxis_transform(),
-                ha="center", va="top", fontsize=10)
+        #ax.text(split, 0.95, "OB | IB", transform=ax.get_xaxis_transform(),
+        #        ha="center", va="top", fontsize=10)
 
         ax.set_xticks(xticks)
         ax.set_xticklabels(xlabels, rotation=45, ha="right", fontsize=9)
-        ax.set_xlabel("Breeder regions", fontsize=11)
-        ax.set_ylabel("DPA / year", fontsize=11)
+        ax.set_xlabel("Poloidal regions", fontsize=11)
+        ax.set_ylabel("NRT-dpa / fpy", fontsize=11)
 
         set_ylim_and_ticks(ax, dpa_plot, ratio=ylim_ratio, scale="linear")
 
         ax.grid(True, which="major", linestyle="--", linewidth=0.6, alpha=0.8)
         ax.grid(True, which="minor", linestyle=":", linewidth=0.4, alpha=0.5)
         ax.minorticks_on()
-        ax.set_title(f"DPA/y — {layer_tag}", fontsize=12)
+        ax.set_title(f"NRT-dpa / fpy — {layer_tag}", fontsize=12)
 
         fig.tight_layout()
         fig.savefig(outdir / f"dpa_{layer_tag}.png", dpi=300, bbox_inches="tight")
@@ -1526,7 +1536,7 @@ def process_layer_region1_only(
         ax.set_xticks(xticks)
         ax.set_xticklabels(xlabels)
         ax.set_xlabel("Breeder chunks (region 1 only)")
-        ax.set_ylabel("H production [appm/y]")
+        ax.set_ylabel("H production [appm/fpy]")
         ax.set_title(f"H production — {layer_tag}")
         ax.grid(True, which="major", linestyle="--", linewidth=0.6)
         ax.grid(True, which="minor", linestyle=":", linewidth=0.4)
@@ -1590,7 +1600,7 @@ def process_layer_region1_only(
         ax.set_xticks(xticks)
         ax.set_xticklabels(xlabels)
         ax.set_xlabel("Breeder chunks (region 1 only)")
-        ax.set_ylabel("He production [appm/y]")
+        ax.set_ylabel("He production [appm/fpy]")
         ax.set_title(f"He production — {layer_tag}")
         ax.grid(True, which="major", linestyle="--", linewidth=0.6)
         ax.grid(True, which="minor", linestyle=":", linewidth=0.4)
