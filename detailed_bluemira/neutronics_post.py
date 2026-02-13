@@ -309,7 +309,7 @@ n_breeder  = int(geom["n_breeder"])
 
 def generate_colors(n):
     """Generates a smooth rainbow gradient of n RGB colors."""
-    nc = n + 1 # TODO: make the number a variable, I'm not sure on why we need this many colors
+    nc = n + 1
     cmap = plt.get_cmap('rainbow')
     color_range = cmap(np.linspace(1, 0, nc))
     return color_range
@@ -970,7 +970,7 @@ def process_chunk(
     plt.figure()
     for i, cid in enumerate(cell_ids):
         flux_scaled = neutron_flux_chunk[i].flatten() * scaling[int(cid)] / unit_lethargy
-        plt.loglog(energies[:-1], flux_scaled, label=f"{labels[i]} (x = {xcent[i]:.2f} cm)", color=colors[i])
+        plt.loglog(energies[:-1], flux_scaled, label=f"{labels[i]} (x = {xcent[i]:.1f} cm)", color=colors[i])
     plt.legend(fontsize=8,ncol=2)
     plt.grid(True, which="both")
     plt.ylabel("Neutron flux per unit lethargy [1/cm$^2$/s]")
@@ -982,7 +982,7 @@ def process_chunk(
     plt.figure()
     for i, cid in enumerate(cell_ids):
         flux_scaled = photon_flux_chunk[i].flatten() * scaling[int(cid)] / unit_lethargy
-        plt.loglog(energies[:-1], flux_scaled, label=f"{labels[i]} (x={xcent[i]:.2f} cm)", color=colors[i])
+        plt.loglog(energies[:-1], flux_scaled, label=f"{labels[i]} (x={xcent[i]:.1f} cm)", color=colors[i])
     plt.legend(fontsize=8,loc='lower left')
     plt.grid(True, which="both")
     plt.ylabel("Photon flux per unit lethargy [1/cm$^2$/s]")
