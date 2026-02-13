@@ -1195,7 +1195,7 @@ def process_chunk(
 
     fig, ax = plt.subplots()
     ax.set_yscale("log")
-    ax.step(xedges, np.r_[dpa_y, dpa_y[-1]], where="post", label="NRT-dpa/y (struct-origin)")
+    ax.step(xedges, np.r_[dpa_y, dpa_y[-1]], where="post", label="NRT-dpa/y")
     ax.fill_between(xedges, np.r_[lower, lower[-1]], np.r_[upper, upper[-1]], step="post", alpha=0.3)
     ax.grid(True, which="both", linestyle="--", linewidth=0.5)
     ax.set_ylabel("NRT-dpa/fpy")
@@ -1453,7 +1453,7 @@ def process_layer_region1_only(
     fig.savefig(outdir / f"heating_{layer_tag}.png", dpi=300, bbox_inches="tight")
     plt.close(fig)
 
-    # DPA/y 
+    # DPA/y, poloidal plot
     if dpa:
         dpa_y, dpa_y_std = compute_dpa_layer_region1_only(
             sp=sp,
@@ -1463,27 +1463,32 @@ def process_layer_region1_only(
             dpa_gas_map=dpa_gas_map,
         )
 
+        # TODO: would be nice to have the uncertainty plotted as shaded region
         fig, ax = plt.subplots(figsize=(12, 5.5))
         ax.set_yscale("linear")
 
         dpa_plot = np.asarray(dpa_y, dtype=float)
+        nx = len(x)
+        x = np.concatenate([[x[0] - 1], x, [x[-1] + 1]])
+        dpa_plot = np.concatenate(0, dpa_plot, 0)
         ax.step(x, dpa_plot, where="mid", linewidth=2)
+        ax.set_xlim([0, nx])
 
         ax.axvline(split, linestyle="--", linewidth=1)
-        #ax.text(split, 0.95, "OB | IB", transform=ax.get_xaxis_transform(),
-        #        ha="center", va="top", fontsize=10)
+        ax.text(split, 0.95, "outboard inboard", transform=ax.get_xaxis_transform(),
+                ha="center", va="top", fontsize=10)
 
         ax.set_xticks(xticks)
         ax.set_xticklabels(xlabels, rotation=45, ha="right", fontsize=9)
         ax.set_xlabel("Poloidal regions", fontsize=11)
-        ax.set_ylabel("NRT-dpa / fpy", fontsize=11)
+        ax.set_ylabel("NRT-dpa/fpy", fontsize=11)
 
         set_ylim_and_ticks(ax, dpa_plot, ratio=ylim_ratio, scale="linear")
 
         ax.grid(True, which="major", linestyle="--", linewidth=0.6, alpha=0.8)
         ax.grid(True, which="minor", linestyle=":", linewidth=0.4, alpha=0.5)
         ax.minorticks_on()
-        ax.set_title(f"NRT-dpa / fpy — {layer_tag}", fontsize=12)
+        ax.set_title(f"NRT-dpa/fpy — {layer_tag}", fontsize=12)
 
         fig.tight_layout()
         fig.savefig(outdir / f"dpa_{layer_tag}.png", dpi=300, bbox_inches="tight")
