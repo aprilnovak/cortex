@@ -1291,6 +1291,35 @@ def compute_dpa_layer_region1_only(
 
     return dpa_y, dpa_y_std
 
+def empty_poloidal_plot(x_data, num_pts):
+  fig, ax = plt.subplots(figsize=(8.5, 5.5))
+
+  split = n_breeder - 0.5
+  xticks = np.arange(num_pts)
+
+  ax.set_yscale("linear")
+
+  ax.set_xlim([-0.5, len(x_data) - 2.5])
+  ax.axvline(split, linestyle="--", linewidth=1, color='k')
+  ax.text(split - 0.15, 0.95, "$\\leftarrow$ outboard   inboard $\\rightarrow$", transform=ax.get_xaxis_transform(),
+          ha="center", va="top", fontsize=10)
+
+  ax.set_xticks(xticks)
+  xlabels = [f"OB{i+1}" if i < n_breeder else f"IB{i+1-n_breeder}" for i in range(num_pts)]
+  ax.set_xticklabels(xlabels, rotation=45, ha="right", fontsize=9)
+  ax.set_xlabel("Poloidal regions", fontsize=11)
+
+  ax.grid(True, which="major", linestyle="--", linewidth=0.6, alpha=0.8)
+  ax.yaxis.grid(True, which="minor", linestyle=":", linewidth=0.4, alpha=0.5)
+  ax.minorticks_on()
+  plt.gca().tick_params(axis='x', which='minor', bottom=False)
+  fig.tight_layout()
+
+  return fig, ax
+
+def pad_poloidal_data(data):
+  return np.concatenate([[data[0]], data, [data[-1]]])
+
 def process_layer_region1_only(
     sp: openmc.StatePoint,
     layer_index: int,
@@ -1322,11 +1351,11 @@ def process_layer_region1_only(
         return
 
     scaling = scaling_for_cells(cell_ids_layer)
-    x = np.arange(n)
 
-    split = n_breeder - 0.5
-    xticks = np.arange(n)
-    xlabels = [f"OB{i+1}" if i < n_breeder else f"IB{i+1-n_breeder}" for i in range(n)]
+    # array which will be used for plotting along the poloidal direction for the step plots.
+    # add extra dummy values so that the first and last step are same length as the other stair steps
+    x = np.arange(n)
+    x = np.concatenate([[x[0] - 1], x, [x[-1] + 1]])
 
     # Build struct-origin fractions for these cells (for gas correction below)
     cell_struct_origin_frac = build_cell_struct_origin_frac(bm, cell_ids_layer)
@@ -1380,45 +1409,39 @@ def process_layer_region1_only(
         phot[i] = tot_mean_layer[i, 1] * s
         phot_std[i] = tot_std_layer[i, 1] * s
 
-    fig, ax = plt.subplots(figsize=(11, 5.5))
+    fig, ax = empty_poloidal_plot(x, n)
 
     eps_flux = 1e-99
+    neut = pad_poloidal_data(neut)
+    phot = pad_poloidal_data(phot)
+    neut_std = pad_poloidal_data(neut_std)
+    phot_std = pad_poloidal_data(phot_std)
+
     neut_plot = np.clip(neut, eps_flux, None)
     phot_plot = np.clip(phot, eps_flux, None)
     neut_low = np.clip(neut - neut_std, eps_flux, None)
     phot_low = np.clip(phot - phot_std, eps_flux, None)
-    neut_yerr = np.vstack([neut_plot - neut_low, neut_std])
-    phot_yerr = np.vstack([phot_plot - phot_low, phot_std])
+    neut_high = np.clip(neut + neut_std, eps_flux, None)
+    phot_high = np.clip(phot + phot_std, eps_flux, None)
 
     _apply_scale(ax, np.r_[neut_plot, phot_plot], eps_for_log=eps_flux)
+    ax.step(x, neut_plot, where="mid", linewidth=2, label="neutron")
+    ax.step(x, phot_plot, where="mid", linewidth=2, label="photon")
+    ax.fill_between(x, neut_low, neut_high, step="mid", alpha=0.15)
+    ax.fill_between(x, phot_low, phot_high, step="mid", alpha=0.15)
 
-    ax.errorbar(x, neut_plot, yerr=neut_yerr, fmt="o", capsize=3, label="Neutron")
-    ax.errorbar(x, phot_plot, yerr=phot_yerr, fmt="o", capsize=3, label="Photon")
-
-    ax.axvline(split, linestyle="--", linewidth=1)
-    ax.text(split, 0.95, "OB | IB", transform=ax.get_xaxis_transform(),
-            ha="center", va="top", fontsize=10)
-
-    ax.set_xticks(xticks)
-    ax.set_xticklabels(xlabels)
-    ax.set_xlabel("Breeder chunks (region 1 only)")
     ax.set_ylabel("Total Flux [1/cm$^2$/s]")
     ax.set_title(f"Total Flux — {layer_tag}")
-    ax.grid(True, which="major", linestyle="--", linewidth=0.6)
-    ax.grid(True, which="minor", linestyle=":", linewidth=0.4)
-    ax.legend(loc="lower left")
-
-    fig.tight_layout()
+    plt.legend()
     fig.savefig(outdir / f"flux_total_{layer_tag}.png", dpi=300, bbox_inches="tight")
     plt.close(fig)
 
-    # HEATING 
+    # HEATING
     t_heat = sp.get_tally(id=int(heating_tally_id))
     cell_bins_heat = get_cell_bins_from_tally(t_heat)
 
     heat_mean = t_heat.get_values(value="mean").flatten()
     heat_std = t_heat.get_values(value="std_dev").flatten()
-
     heat_mean_layer = subset_by_cells(heat_mean, cell_bins_heat, cell_ids_layer)
     heat_std_layer = subset_by_cells(heat_std, cell_bins_heat, cell_ids_layer)
 
@@ -1429,31 +1452,26 @@ def process_layer_region1_only(
         heat_w[i] = heat_mean_layer[i] * s * ev_to_joule
         heat_w_std[i] = heat_std_layer[i] * s * ev_to_joule
 
-    fig, ax = plt.subplots(figsize=(11, 5.5))
+    heat_w = pad_poloidal_data(heat_w)
+    heat_w_std = pad_poloidal_data(heat_w_std)
+
+    fig, ax = empty_poloidal_plot(x, n)
 
     eps_heat = 1e-99
     heat_plot = np.clip(heat_w, eps_heat, None)
     heat_low = np.clip(heat_w - heat_w_std, eps_heat, None)
-    heat_yerr = np.vstack([heat_plot - heat_low, heat_w_std])
+    heat_high = np.clip(heat_w + heat_w_std, eps_heat, None)
 
     _apply_scale(ax, heat_plot, eps_for_log=eps_heat)
+    ax.step(x, heat_plot, where="mid", linewidth=2)
+    ax.fill_between(x, heat_low, heat_high, step="mid", alpha=0.15)
 
-    ax.errorbar(x, heat_plot, yerr=heat_yerr, fmt="o", capsize=3)
-
-    ax.axvline(split, linestyle="--", linewidth=1)
-    ax.set_xticks(xticks)
-    ax.set_xticklabels(xlabels)
-    ax.set_xlabel("Breeder chunks (region 1 only)")
     ax.set_ylabel("Heating [W/cm³]")
     ax.set_title(f"Heating — {layer_tag}")
-    ax.grid(True, which="major", linestyle="--", linewidth=0.6)
-    ax.grid(True, which="minor", linestyle=":", linewidth=0.4)
-
-    fig.tight_layout()
     fig.savefig(outdir / f"heating_{layer_tag}.png", dpi=300, bbox_inches="tight")
     plt.close(fig)
 
-    # DPA/y, poloidal plot
+    # DPA/y
     if dpa:
         dpa_y, dpa_y_std = compute_dpa_layer_region1_only(
             sp=sp,
@@ -1463,38 +1481,19 @@ def process_layer_region1_only(
             dpa_gas_map=dpa_gas_map,
         )
 
-        # TODO: would be nice to have the uncertainty plotted as shaded region
-        fig, ax = plt.subplots(figsize=(12, 5.5))
-        ax.set_yscale("linear")
-
-        dpa_plot = np.asarray(dpa_y, dtype=float)
-        nx = len(x)
-        x = np.concatenate([[x[0] - 1], x, [x[-1] + 1]])
-        dpa_plot = np.concatenate(0, dpa_plot, 0)
-        ax.step(x, dpa_plot, where="mid", linewidth=2)
-        ax.set_xlim([0, nx])
-
-        ax.axvline(split, linestyle="--", linewidth=1)
-        ax.text(split, 0.95, "outboard inboard", transform=ax.get_xaxis_transform(),
-                ha="center", va="top", fontsize=10)
-
-        ax.set_xticks(xticks)
-        ax.set_xticklabels(xlabels, rotation=45, ha="right", fontsize=9)
-        ax.set_xlabel("Poloidal regions", fontsize=11)
-        ax.set_ylabel("NRT-dpa/fpy", fontsize=11)
+        # TODO (optional): would be nice to have the uncertainty plotted as shaded region
+        fig, ax = empty_poloidal_plot(x, n)
+        dpa_plot = pad_poloidal_data(np.asarray(dpa_y, dtype=float))
 
         set_ylim_and_ticks(ax, dpa_plot, ratio=ylim_ratio, scale="linear")
-
-        ax.grid(True, which="major", linestyle="--", linewidth=0.6, alpha=0.8)
-        ax.grid(True, which="minor", linestyle=":", linewidth=0.4, alpha=0.5)
-        ax.minorticks_on()
+        ax.step(x, dpa_plot, where="mid", linewidth=2)
+        ax.set_ylabel("NRT-dpa/fpy", fontsize=11)
         ax.set_title(f"NRT-dpa/fpy — {layer_tag}", fontsize=12)
 
-        fig.tight_layout()
         fig.savefig(outdir / f"dpa_{layer_tag}.png", dpi=300, bbox_inches="tight")
         plt.close(fig)
 
-    # H production 
+    # H production
     if hprod:
         h_appm_y = np.zeros(n, dtype=float)
         h_appm_y_std = np.zeros(n, dtype=float)
@@ -1525,32 +1524,25 @@ def process_layer_region1_only(
                 h_appm_y[i] = h1_mean_corr * factor
                 h_appm_y_std[i] = h1_std_corr * factor
 
-        fig, ax = plt.subplots(figsize=(11, 5.5))
+        fig, ax = empty_poloidal_plot(x, n)
+        h_appm_y = pad_poloidal_data(h_appm_y)
+        h_appm_y_std = pad_poloidal_data(h_appm_y_std)
+
         eps_h = 1e-30
         h_plot = np.clip(h_appm_y, eps_h, None)
         h_low = np.clip(h_appm_y - h_appm_y_std, eps_h, None)
-        h_yerr = np.vstack([h_plot - h_low, h_appm_y_std])
+        h_high = np.clip(h_appm_y + h_appm_y_std, eps_h, None)
 
         _apply_scale(ax, h_plot, eps_for_log=eps_h)
+        ax.step(x, h_plot, where="mid", linewidth=2)
+        ax.fill_between(x, h_low, h_high, step="mid", alpha=0.15)
 
-        ax.errorbar(x, h_plot, yerr=h_yerr, fmt="o", capsize=3)
-        ax.axvline(split, linestyle="--", linewidth=1)
-        ax.text(split, 0.95, "OB | IB", transform=ax.get_xaxis_transform(),
-                ha="center", va="top", fontsize=10)
-
-        ax.set_xticks(xticks)
-        ax.set_xticklabels(xlabels)
-        ax.set_xlabel("Breeder chunks (region 1 only)")
         ax.set_ylabel("H production [appm/fpy]")
         ax.set_title(f"H production — {layer_tag}")
-        ax.grid(True, which="major", linestyle="--", linewidth=0.6)
-        ax.grid(True, which="minor", linestyle=":", linewidth=0.4)
-
-        fig.tight_layout()
         fig.savefig(outdir / f"h1_{layer_tag}.png", dpi=300, bbox_inches="tight")
         plt.close(fig)
 
-    # He production 
+    # He production
     if heprod:
         he_appm_y = np.zeros(n, dtype=float)
         he_appm_y_std = np.zeros(n, dtype=float)
@@ -1589,28 +1581,22 @@ def process_layer_region1_only(
                 he_appm_y[i] = he_mean_corr * factor
                 he_appm_y_std[i] = he_std_corr * factor
 
-        fig, ax = plt.subplots(figsize=(11, 5.5))
+        fig, ax = empty_poloidal_plot(x, n)
+        he_appm_y = pad_poloidal_data(he_appm_y)
+        he_appm_y_std = pad_poloidal_data(he_appm_y_std)
+
         eps_he = 1e-30
         he_plot = np.clip(he_appm_y, eps_he, None)
         he_low = np.clip(he_appm_y - he_appm_y_std, eps_he, None)
-        he_yerr = np.vstack([he_plot - he_low, he_appm_y_std])
+        he_high = np.clip(he_appm_y + he_appm_y_std, eps_h, None)
+
+        ax.step(x, he_plot, where="mid", linewidth=2)
+        ax.fill_between(x, he_low, he_high, step="mid", alpha=0.15)
 
         _apply_scale(ax, he_plot, eps_for_log=eps_he)
 
-        ax.errorbar(x, he_plot, yerr=he_yerr, fmt="o", capsize=3)
-        ax.axvline(split, linestyle="--", linewidth=1)
-        ax.text(split, 0.95, "OB | IB", transform=ax.get_xaxis_transform(),
-                ha="center", va="top", fontsize=10)
-
-        ax.set_xticks(xticks)
-        ax.set_xticklabels(xlabels)
-        ax.set_xlabel("Breeder chunks (region 1 only)")
         ax.set_ylabel("He production [appm/fpy]")
         ax.set_title(f"He production — {layer_tag}")
-        ax.grid(True, which="major", linestyle="--", linewidth=0.6)
-        ax.grid(True, which="minor", linestyle=":", linewidth=0.4)
-
-        fig.tight_layout()
         fig.savefig(outdir / f"he_{layer_tag}.png", dpi=300, bbox_inches="tight")
         plt.close(fig)
 
