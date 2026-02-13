@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Dict, List, Sequence, Tuple, Optional
 from itertools import cycle
 
+import math
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -45,7 +46,8 @@ def display_half_life(nuclide):
   elif (half_life < 60*60*24*365/12*1e6*100): # less than 100 My year, display in My
     return ' ({0:.2f} My)'.format(half_life / (60*60*24*365/12.*1e6))
   else:
-    return ' ({0:.2f} Gy)'.format(half_life / (60*60*24*365/12.*1e9))
+    return ' ( > 100 My)'
+    #return ' ({0:.2f} Gy)'.format(half_life / (60*60*24*365/12.*1e9))
 
 # -----------------------------
 # Layer tags
@@ -211,7 +213,11 @@ def _select_topn(
     sorted_items: list[tuple[str, float]]
     ) -> list[tuple[str, float]]:
     """
-    Plot the top 99.9% contribution to a measured quantity
+    For a given step, we add nuclides to plot until the next incremental percent of
+    total activity to show is below 5% of the total. This limits the number of nuclides
+    plotted and is more robust than simply plotting the top 95% of nuclides because in
+    short cooling times, there's dozens of nuclides which contribute to the total activity,
+    which would result in way too many nuclides to plot.
     """
 
     total = 0.0
@@ -219,15 +225,54 @@ def _select_topn(
       total += float(sorted_items[i][1])
 
     running_total = 0.0
+    prev_running_total = 0.0
     index = 0
     for i in range(len(sorted_items)):
+      prev_running_total = running_total
       running_total += float(sorted_items[i][1])
-      #if (running_total >= 0.99 * total):
-      if (float(sorted_items[i][1]) <= 0.01 * total):
+
+      # could have just a single very strong nuclide
+      if (i == 0 and running_total / total >= 0.99):
         index = i
         break
 
-    return sorted_items[:index+1]
+      # otherwise, compare the gain
+      if ((running_total - prev_running_total) / total <= 0.05):
+        index = i
+        break
+
+    return sorted_items[:i]
+
+def _select(dict_list, n_steps):
+    # selections per step; first, loop through all the time steps to find the top nuclides
+    # on each given step. Then, we take the union of these and then obtain the data to
+    # plot on each step by writing that nuclide for all time steps
+    topn_list_by_step: list[list[tuple[str, float]]] = [[] for _ in range(n_steps)]
+    top_nucs_union: set[str] = set()
+
+    for istep in range(n_steps):
+        d = dict_list[istep] or {}
+        if not d:
+            continue
+
+        step_sorted = sorted(d.items(), key=lambda x: x[1], reverse=True)
+        for nuc, _ in _select_topn(step_sorted):
+            top_nucs_union.add(nuc)
+
+    for istep in range(n_steps):
+        d = dict_list[istep] or {}
+        if not d:
+            continue
+
+        step_sorted = sorted(d.items(), key=lambda x: x[1], reverse=True)
+        selected = []
+        for s in step_sorted:
+          if (s[0] in top_nucs_union):
+            selected.append(s)
+
+        topn_list_by_step[istep] = selected
+
+    return topn_list_by_step, top_nucs_union
 
 def _add_time_reference_lines(ax):
     """Useful reference lines (x-axis in years)."""
@@ -330,23 +375,7 @@ def plot_activity_nuclides_per_cell(
         total_act_plot = total_act[mask]
         total_activity_all[cid] = (t_rel_plot, total_act_plot)
 
-        # selections per step
-        topn_list_by_step: list[list[tuple[str, float]]] = [[] for _ in range(n_steps)]
-        top_nucs_union: set[str] = set()
-
-        for istep in range(n_steps):
-            d = act_dict_list[istep] or {}
-            if not d:
-                continue
-
-            step_sorted = sorted(d.items(), key=lambda x: x[1], reverse=True)
-
-            selected = _select_topn(step_sorted)
-            topn_list_by_step[istep] = selected
-
-            for nuc, _ in selected:
-                top_nucs_union.add(nuc)
-
+        topn_list_by_step, top_nucs_union = _select(act_dict_list, n_steps)
         top_nucs = sorted(top_nucs_union)
 
         nuc_series: Dict[str, np.ndarray] = {nuc: np.full(n_steps, np.nan, dtype=float) for nuc in top_nucs}
@@ -391,7 +420,7 @@ def plot_activity_nuclides_per_cell(
                 color=colors[i % len(colors)],
                 marker=next(mcycle),
                 linestyle=next(lscycle),
-                markersize=4,
+                markersize=3,
                 linewidth=1.3,
             )
 
@@ -406,17 +435,14 @@ def plot_activity_nuclides_per_cell(
         region = cell_id_to_name.get(cid, str(cid))
         ax.set_xlabel("Time after irradiation [years]")
         ax.set_ylabel(f"Activity [{activity_units}]")
-        ax.set_title(f"Activity (Top 99.9% per timestep) — {region} (mat {mat_id})")
+        ax.set_title(f"Activity — {region} (mat {mat_id})")
 
         _add_time_reference_lines(ax)
         _format_log_axes(ax)
 
-        # y-min cutoff
-        if total_act_plot.size and np.nanmax(total_act_plot) > 0.0:
-            ymax = float(np.nanmax(total_act_plot))
-            ymin = _ymin_from_topn_edge(global_min_topn_edge)
-            if ymin is not None:
-                ax.set_ylim(ymin, 10.0 * ymax)
+        # y-min cutoff; cut off at 1 order of magnitude below the other activity and 1 order of magnitude
+        # above the total activity (rounded to powers of 10)
+        ax.set_ylim([10 ** math.floor(math.log10(np.min(others_plot))), 10 ** math.ceil(math.log10(np.max(total_act_plot)))])
 
         # Legend 
         n_entries = len(ax.get_legend_handles_labels()[1])
@@ -630,27 +656,7 @@ def plot_decayheat_nuclides_per_cell(
         if total_h_plot.size and np.nanmax(total_h_plot) > 0.0:
             max_decay_comb = max(max_decay_comb, float(np.nanmax(total_h_plot)))
 
-        topn_list_by_step: list[list[tuple[str, float]]] = [[] for _ in range(n_steps)]
-        top_nucs_union: set[str] = set()
-
-        for istep in range(n_steps):
-            d = heat_dict_list[istep] or {}
-            if not d:
-                continue
-
-            step_sorted = sorted(d.items(), key=lambda x: x[1], reverse=True)
-
-            if mask[istep] and top_n > 0 and len(step_sorted) >= top_n:
-                nth_val = float(step_sorted[top_n - 1][1])
-                if np.isfinite(nth_val) and nth_val > 0.0:
-                    global_min_topn_edge = min(global_min_topn_edge, nth_val)
-
-            selected = _select_topn(step_sorted)
-            topn_list_by_step[istep] = selected
-
-            for nuc, _ in selected:
-                top_nucs_union.add(nuc)
-
+        topn_list_by_step, top_nucs_union = _select(heat_dict_list, n_steps)
         top_nucs = sorted(top_nucs_union)
 
         nuc_series: Dict[str, np.ndarray] = {nuc: np.full(n_steps, np.nan, dtype=float) for nuc in top_nucs}
@@ -694,7 +700,7 @@ def plot_decayheat_nuclides_per_cell(
                 color=colors[i % len(colors)],
                 marker=next(mcycle),
                 linestyle=next(lscycle),
-                markersize=4,
+                markersize=3,
                 linewidth=1.3,
             )
 
@@ -707,7 +713,11 @@ def plot_decayheat_nuclides_per_cell(
         region = cell_id_to_name.get(cid, str(cid))
         ax.set_xlabel("Time after irradiation [years]")
         ax.set_ylabel(f"Decay heat [{decayheat_units}]")
-        ax.set_title(f"Decay heat (Top 99.9% per timestep) — {region} (mat {mat_id})")
+        ax.set_title(f"Decay heat — {region} (mat {mat_id})")
+
+        # y-min cutoff; cut off at 1 order of magnitude below the other decay heat and 1 order of magnitude
+        # above the total decay heat (rounded to powers of 10)
+        ax.set_ylim([10 ** math.floor(math.log10(np.min(others_plot))), 10 ** math.ceil(math.log10(np.max(total_h_plot)))])
 
         _add_time_reference_lines(ax)
         _format_log_axes(ax)
