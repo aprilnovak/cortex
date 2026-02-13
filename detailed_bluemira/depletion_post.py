@@ -207,20 +207,13 @@ def _ymin_from_topn_edge(global_min_topn_edge: float) -> Optional[float]:
         return None
     return 0.1 * v
 
-def _select_topn_with_tie(
-    sorted_items: list[tuple[str, float]],
-    *,
-    top_n: int,
-    similarity_threshold: float,
+def _select_topn(
+    sorted_items: list[tuple[str, float]]
     ) -> list[tuple[str, float]]:
     """
-    Always include top_n.
-    If (n+1) within similarity_threshold of nth (relative to nth), include (n+1) too.
+    Plot the top 99.9% contribution to a measured quantity
     """
-    if top_n <= 0 or not sorted_items:
-        return []
 
-    # use top 99% instead; find which index this occurs at
     total = 0.0
     for i in range(len(sorted_items)):
       total += float(sorted_items[i][1])
@@ -229,20 +222,12 @@ def _select_topn_with_tie(
     index = 0
     for i in range(len(sorted_items)):
       running_total += float(sorted_items[i][1])
-      if (running_total >= 0.999 * total):
+      #if (running_total >= 0.99 * total):
+      if (float(sorted_items[i][1]) <= 0.01 * total):
         index = i
         break
 
-    base = sorted_items[:index+1]
-    #base = sorted_items[:top_n]
-    #if len(sorted_items) >= top_n + 1:
-    #    nth_val = float(sorted_items[top_n - 1][1])
-    #    n1_val = float(sorted_items[top_n][1])
-    #    if nth_val > 0.0:
-    #        rel_diff = abs(nth_val - n1_val) / nth_val
-    #        if rel_diff < similarity_threshold:
-    #            base.append(sorted_items[top_n])
-    return base
+    return sorted_items[:index+1]
 
 def _add_time_reference_lines(ax):
     """Useful reference lines (x-axis in years)."""
@@ -356,37 +341,8 @@ def plot_activity_nuclides_per_cell(
 
             step_sorted = sorted(d.items(), key=lambda x: x[1], reverse=True)
 
-            # global min of true Nth in cooling portion
-            if mask[istep] and top_n > 0 and len(step_sorted) >= top_n:
-                nth_val = float(step_sorted[top_n - 1][1])
-                if np.isfinite(nth_val) and nth_val > 0.0:
-                    global_min_topn_edge = min(global_min_topn_edge, nth_val)
-
-            selected = _select_topn_with_tie(
-                step_sorted,
-                top_n=int(top_n),
-                similarity_threshold=float(similarity_threshold),
-            )
+            selected = _select_topn(step_sorted)
             topn_list_by_step[istep] = selected
-
-            if (
-                print_similarity
-                and top_n > 0
-                and len(step_sorted) >= top_n + 1
-                and len(selected) == top_n + 1
-            ):
-                nth_nuc, nth_val = step_sorted[top_n - 1]
-                n1_nuc, n1_val = step_sorted[top_n]
-                if float(nth_val) > 0.0:
-                    rel_diff = abs(float(nth_val) - float(n1_val)) / float(nth_val)
-                    region = cell_id_to_name.get(cid, str(cid))
-                    t_years = float((time_grid[istep] - time_grid[int(idx_shutdown)]) / SECONDS_PER_YEAR)
-                    #print(
-                    #    f"[Activity] Included (n+1) due to tie in {region} (cell {cid}, mat {mat_id}) "
-                    #    f"at step {istep} (t_rel={t_years:.3e} y): "
-                    #    f"nth {nth_nuc}={float(nth_val):.3e} vs (n+1) {n1_nuc}={float(n1_val):.3e} "
-                    #    f"(rel diff={rel_diff:.3%} < {similarity_threshold:.1%})"
-                    #)
 
             for nuc, _ in selected:
                 top_nucs_union.add(nuc)
@@ -445,11 +401,7 @@ def plot_activity_nuclides_per_cell(
 
         # Total
         if _has_positive_finite(total_act_plot):
-            ax.loglog(t_rel_plot, total_act_plot, color="black", linewidth=3.0, label="Total", zorder=10)
-
-        # check that others line is computed correctly
-        for i in range(len(others_plot)):
-          print(others_plot[i] / total_act_plot[i])
+            ax.loglog(t_rel_plot, total_act_plot, color="black", linewidth=2.0, label="Total", zorder=10)
 
         region = cell_id_to_name.get(cid, str(cid))
         ax.set_xlabel("Time after irradiation [years]")
@@ -693,31 +645,8 @@ def plot_decayheat_nuclides_per_cell(
                 if np.isfinite(nth_val) and nth_val > 0.0:
                     global_min_topn_edge = min(global_min_topn_edge, nth_val)
 
-            selected = _select_topn_with_tie(
-                step_sorted,
-                top_n=int(top_n),
-                similarity_threshold=float(similarity_threshold),
-            )
+            selected = _select_topn(step_sorted)
             topn_list_by_step[istep] = selected
-
-            if (
-                print_similarity
-                and top_n > 0
-                and len(step_sorted) >= top_n + 1
-                and len(selected) == top_n + 1
-            ):
-                nth_nuc, nth_val = step_sorted[top_n - 1]
-                n1_nuc, n1_val = step_sorted[top_n]
-                if float(nth_val) > 0.0:
-                    rel_diff = abs(float(nth_val) - float(n1_val)) / float(nth_val)
-                    region = cell_id_to_name.get(cid, str(cid))
-                    t_years = float((time_grid[istep] - time_grid[int(idx_shutdown)]) / SECONDS_PER_YEAR)
-                    #print(
-                    #    f"[DecayHeat] Included (n+1) due to tie in {region} (cell {cid}, mat {mat_id}) "
-                    #    f"at step {istep} (t_rel={t_years:.3e} y): "
-                    #    f"nth {nth_nuc}={float(nth_val):.3e} vs (n+1) {n1_nuc}={float(n1_val):.3e} "
-                    #    f"(rel diff={rel_diff:.3%} < {similarity_threshold:.1%})"
-                    #)
 
             for nuc, _ in selected:
                 top_nucs_union.add(nuc)
@@ -761,7 +690,7 @@ def plot_decayheat_nuclides_per_cell(
             ax.loglog(
                 t_rel_plot,
                 vals_plot,
-                label=nuc,
+                label=nuc + display_half_life(nuc),
                 color=colors[i % len(colors)],
                 marker=next(mcycle),
                 linestyle=next(lscycle),
@@ -770,7 +699,7 @@ def plot_decayheat_nuclides_per_cell(
             )
 
         if _has_positive_finite(others_plot):
-            ax.loglog(t_rel_plot, others_plot, label="Others", linewidth=2.0)
+            ax.loglog(t_rel_plot, others_plot, label="Others", linewidth=2.0, color='black', linestyle='--')
 
         if _has_positive_finite(total_h_plot):
             ax.loglog(t_rel_plot, total_h_plot, color="black", linewidth=3.0, label="Total", zorder=10)
@@ -778,7 +707,7 @@ def plot_decayheat_nuclides_per_cell(
         region = cell_id_to_name.get(cid, str(cid))
         ax.set_xlabel("Time after irradiation [years]")
         ax.set_ylabel(f"Decay heat [{decayheat_units}]")
-        ax.set_title(f"Decay heat (Top-{top_n} per timestep) — {region} (mat {mat_id})")
+        ax.set_title(f"Decay heat (Top 99.9% per timestep) — {region} (mat {mat_id})")
 
         _add_time_reference_lines(ax)
         _format_log_axes(ax)
