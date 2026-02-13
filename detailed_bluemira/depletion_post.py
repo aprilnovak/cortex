@@ -27,6 +27,26 @@ import openmc.deplete
 SECONDS_PER_YEAR = 365.25 * 24 * 3600.0
 INPUT_JSON = Path("Tokamak_inputs.json")
 
+def display_half_life(nuclide):
+  half_life = openmc.data.half_life(nuclide)
+
+  # display in best units for s, h, d, y; this guarantees that each of these will be at minimum
+  # 0.01 in their base units
+  if (half_life < 60): # less than 1 min, display in s
+    return ' ({0:.2f} s)'.format(half_life)
+  elif (half_life < 60*60): # less than 1 hour, display in m
+    return ' ({0:.2f} m)'.format(half_life/(60))
+  elif (half_life < 60*60*24): # less than 1 day, display in h
+    return ' ({0:.2f} h)'.format(half_life / (60*60))
+  elif (half_life < 60*60*24*365/12.): # less than 1 month, display in d
+    return ' ({0:.2f} d)'.format(half_life / (60*60*24))
+  elif (half_life < 60*60*24*365/12*100000): # less than 100000 year, display in y
+    return ' ({0:.2f} y)'.format(half_life / (60*60*24*365/12.))
+  elif (half_life < 60*60*24*365/12*1e6*100): # less than 100 My year, display in My
+    return ' ({0:.2f} My)'.format(half_life / (60*60*24*365/12.*1e6))
+  else:
+    return ' ({0:.2f} Gy)'.format(half_life / (60*60*24*365/12.*1e9))
+
 # -----------------------------
 # Layer tags
 # -----------------------------
@@ -200,29 +220,47 @@ def _select_topn_with_tie(
     if top_n <= 0 or not sorted_items:
         return []
 
-    base = sorted_items[:top_n]
-    if len(sorted_items) >= top_n + 1:
-        nth_val = float(sorted_items[top_n - 1][1])
-        n1_val = float(sorted_items[top_n][1])
-        if nth_val > 0.0:
-            rel_diff = abs(nth_val - n1_val) / nth_val
-            if rel_diff < similarity_threshold:
-                base.append(sorted_items[top_n])
+    # use top 99% instead; find which index this occurs at
+    total = 0.0
+    for i in range(len(sorted_items)):
+      total += float(sorted_items[i][1])
+
+    running_total = 0.0
+    index = 0
+    for i in range(len(sorted_items)):
+      running_total += float(sorted_items[i][1])
+      if (running_total >= 0.999 * total):
+        index = i
+        break
+
+    base = sorted_items[:index+1]
+    #base = sorted_items[:top_n]
+    #if len(sorted_items) >= top_n + 1:
+    #    nth_val = float(sorted_items[top_n - 1][1])
+    #    n1_val = float(sorted_items[top_n][1])
+    #    if nth_val > 0.0:
+    #        rel_diff = abs(nth_val - n1_val) / nth_val
+    #        if rel_diff < similarity_threshold:
+    #            base.append(sorted_items[top_n])
     return base
 
 def _add_time_reference_lines(ax):
     """Useful reference lines (x-axis in years)."""
 
     SEC_PER_YEAR = 365.0 * 24.0 * 3600.0
+    MIN_PER_YEAR = 365.0 * 24.0 * 60
     HOUR_PER_YEAR = 365.0 * 24.0
+    WEEK_PER_YEAR = 52
     DAY_PER_YEAR = 365.0
-    MONTH_PER_YEAR = 12.0  
+    MONTH_PER_YEAR = 12.0
 
     refs = [
         (1.0 / SEC_PER_YEAR,   "1 s"),
+        (1.0 / MIN_PER_YEAR,   "1 m"),
         (1.0 / HOUR_PER_YEAR,  "1 h"),
+        (1.0 / WEEK_PER_YEAR,  "1 w"),
         (1.0 / DAY_PER_YEAR,   "1 d"),
-        (1.0 / MONTH_PER_YEAR, "1 m"),
+        (1.0 / MONTH_PER_YEAR, "4 w"),
         (1.0,                 "1 y"),
         (10.0,                "10 y"),
         (100.0,               "100 y"),
@@ -393,7 +431,7 @@ def plot_activity_nuclides_per_cell(
             ax.loglog(
                 t_rel_plot,
                 vals_plot,
-                label=nuc,
+                label=nuc + display_half_life(nuc),
                 color=colors[i % len(colors)],
                 marker=next(mcycle),
                 linestyle=next(lscycle),
@@ -403,16 +441,20 @@ def plot_activity_nuclides_per_cell(
 
         # Others
         if _has_positive_finite(others_plot):
-            ax.loglog(t_rel_plot, others_plot, label="Others", linewidth=2.0)
+            ax.loglog(t_rel_plot, others_plot, label="Others", linewidth=2.0, color='black', linestyle='--')
 
         # Total
         if _has_positive_finite(total_act_plot):
             ax.loglog(t_rel_plot, total_act_plot, color="black", linewidth=3.0, label="Total", zorder=10)
 
+        # check that others line is computed correctly
+        for i in range(len(others_plot)):
+          print(others_plot[i] / total_act_plot[i])
+
         region = cell_id_to_name.get(cid, str(cid))
         ax.set_xlabel("Time after irradiation [years]")
         ax.set_ylabel(f"Activity [{activity_units}]")
-        ax.set_title(f"Activity (Top-{top_n} per timestep) — {region} (mat {mat_id})")
+        ax.set_title(f"Activity (Top 99.9% per timestep) — {region} (mat {mat_id})")
 
         _add_time_reference_lines(ax)
         _format_log_axes(ax)
@@ -581,7 +623,7 @@ def plot_decayheat_nuclides_per_cell(
     out_dir: Path,
     *,
     idx_shutdown: int,
-    top_n: int = 5,
+    top_n: int = 10,
     decayheat_units: str = "W/cm3",
     similarity_threshold: float = 0.10,
     print_similarity: bool = True,
@@ -1061,7 +1103,7 @@ if __name__ == "__main__":
         idx_shutdown=int(idx_shutdown),
         activity_units="Bq/kg",       # "Bq" or "Bq/kg"
         decayheat_units="W/cm3",
-        activity_top_n=5,
+        activity_top_n=10,
         decayheat_top_n=5,
         similarity_threshold=0.10,
         idx_to_plot=(0, 4, 8, 12, 16, 20),
