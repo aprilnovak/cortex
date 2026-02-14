@@ -736,7 +736,7 @@ def plot_decayheat_nuclides_per_cell(
         if total_h_plot.size and np.nanmax(total_h_plot) > 0.0:
             ymax = float(np.nanmax(total_h_plot))
             ymin = _ymin_from_topn_edge(global_min_topn_edge)
-            ax.set_xlim(1e-10, 2e3)
+            ax.set_xlim(1e-8, 2e3)
             if ymin is not None:
                 ax.set_ylim(ymin, 10.0 * ymax)
 
@@ -793,7 +793,7 @@ def plot_decayheat_all_cells(
     _add_time_reference_lines(ax)
     _format_log_axes(ax)
 
-    ax.set_xlim(1e-10, 2e3)
+    ax.set_xlim(1e-8, 2e3)
     ymin = _ymin_from_topn_edge(global_min_topn_edge)
     if max_decay_comb > 0 and ymin is not None:
         ax.set_ylim(ymin, 10.0 * max_decay_comb)
