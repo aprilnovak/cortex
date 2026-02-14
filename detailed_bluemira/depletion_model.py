@@ -80,9 +80,9 @@ to_mSv = 1e-9
 irradiation_time_y = np.array([5.0])
 irradiation_time = (irradiation_time_y * y_to_s).tolist()
 
-# cooling (1e-9 y to 1000 y)
+# cooling (1e-8 y to 1000 y)
 timesteps_years = np.concatenate([
-    np.logspace(-9, -4, 7),
+    np.logspace(-8, -4, 6),
     np.logspace(-4,  0, 8)[1:],  # drop 1e-4
     np.logspace( 0,  3, 14)[1:],  # drop 1e1
 ])
@@ -354,27 +354,29 @@ cell_to_mat = {cid: str(mat.id) for cid, mat in zip(dagmc_cell_ids, deplete_mats
 mat_to_cell = {str(mat.id): cid for cid, mat in zip(dagmc_cell_ids, deplete_mats)}
 mat_id_to_name = {str(mat.id): (mat.name or f"material_{mat.id}") for mat in deplete_mats}
 
-# Reduced chain 
+# ---- Build + use reduced chain everywhere below ----
 initial_nuclides = model.geometry.get_all_nuclides()
 reduced_chain = chain.reduce(initial_nuclides, level=2)
-reduced_chain.export_to_xml("bluemira_chain.xml")
 
 bluemira_chain = Path("bluemira_chain.xml").resolve()
+reduced_chain.export_to_xml(str(bluemira_chain))
+print(f"[info] Wrote reduced chain: {bluemira_chain}")
 
-# compute nuclide fluxes and microscopic cross-sections
+openmc.config["chain_file"] = str(bluemira_chain)
+model.settings.depletion = {"chain_file": str(bluemira_chain)}
+
 fluxes, micros = openmc.deplete.get_microxs_and_flux(
     model,
     deplete_mats,
-    chain_file=str(chain_path),  # keep using ENDF/B-VIII.0 chain
+    chain_file=str(bluemira_chain),
     run_kwargs={"output": False},
 )
 
-# IndependentOperator activation
 operator = openmc.deplete.IndependentOperator(
     deplete_mats,
     fluxes,
     micros,
-    chain_file=str(chain_path),
+    chain_file=str(bluemira_chain),
     normalization_mode="source-rate",
 )
 operator.output_dir = "r2s/activation"
