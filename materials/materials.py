@@ -135,7 +135,7 @@ def eurofer97(density):
   eurofer97.set_density('g/cc', density)
   return eurofer97
 
-def water(density):
+def Water(density):
   """ Return an OpenMC material for water. TODO: add impurities
   """
 
@@ -145,7 +145,7 @@ def water(density):
   water.set_density('g/cc', density)
   return water
 
-def helium(density):
+def Helium(density):
   """ Return an OpenMC material for helium. TODO: add impurities
   """
 
@@ -155,13 +155,240 @@ def helium(density):
   return helium
 
 def W(density):
-  """ Return an OpenMC material for pure tungsten.
+  """ Return an OpenMC material for tungsten.
+  https://doi.org/10.1016/j.fusengdes.2021.112646
   """
 
   tungsten = openmc.Material()
-  tungsten.add_element('W', 1.0)
+  tungsten.add_element('W', 0.9994)
+  tungsten.add_element('Ni', 0.0001)
+  tungsten.add_element('Fe', 0.0001)
+  tungsten.add_element('Si', 0.0001)
+  tungsten.add_element('O', 0.0001)
+  tungsten.add_element('N', 0.0001)
+  tungsten.add_element('C', 0.0001)
   tungsten.set_density('g/cc', density)
   return tungsten
+
+
+
+def CuCrZr(density):
+  """ Return an OpenMC material for CuCrZr.
+  DOI 10.1088/1741-4326/ac2a6b
+  """
+
+  CuCrZr = openmc.Material()
+  CuCrZr.add_element('Cu', 0.9879)
+  CuCrZr.add_element('Cr', 0.009, 'wo')
+  CuCrZr.add_element('Zr', 0.0015, 'wo')
+  CuCrZr.add_element('Co', 0.0005, 'wo')
+  CuCrZr.add_element('Ta', 0.0001, 'wo')
+  CuCrZr.add_element('Nb', 0.001, 'wo')
+  CuCrZr.set_density('g/cc', density)
+  return CuCrZr
+
+def ss316(density):
+  """ Return an OpenMC material for ss316.
+  https://doi.org/10.1016/j.fusengdes.2021.112646
+  """
+
+  ss316 = openmc.Material()
+  ss316.add_element('B', 0.000002, 'wo')
+  ss316.add_element('C', 0.0003, 'wo')
+  ss316.add_element('N', 0.0007, 'wo')
+  ss316.add_element('Si', 0.005, 'wo')
+  ss316.add_element('P', 0.00025, 'wo')
+  ss316.add_element('S', 0.0001, 'wo')
+  ss316.add_element('Ti', 0.001, 'wo')
+  ss316.add_element('Cr', 0.175, 'wo')
+  ss316.add_element('Mn', 0.018, 'wo')
+  ss316.add_element('Co', 0.0003, 'wo')
+  ss316.add_element('Ni', 0.1225, 'wo')
+  ss316.add_element('Cu', 0.003, 'wo')
+  ss316.add_element('Nb', 0.0001, 'wo')
+  ss316.add_element('Mo', 0.025, 'wo')
+  ss316.add_element('Ta', 0.0001, 'wo')
+  
+  #ss316.add_element('Fe', 0.64863, 'wo')
+  weight_sum = 0
+  for nuclide in ss316.nuclides:
+    weight_sum += nuclide.percent
+  
+  ss316.add_element('Fe', 1-weight_sum, 'wo')
+  ss316.set_density('g/cc', density)
+
+  return ss316
+
+def concrete(density):
+  """ Return an OpenMC material for concrete.
+  https://doi.org/10.1016/j.fusengdes.2021.112646
+  """
+  concrete = openmc.Material()
+  concrete.add_element('H',   0.36418/100, 'wo')
+  concrete.add_element('B',   0.00748/100, 'wo')
+  concrete.add_element('C',   5.88681/100, 'wo')
+  concrete.add_element('N',   0.049489/100, 'wo')
+  concrete.add_element('O',   49.09/100,   'wo')
+  concrete.add_element('Na',  0.30182/100, 'wo')
+  concrete.add_element('Mg',  0.51634/100, 'wo')
+  concrete.add_element('Al',  1.54553/100, 'wo')
+  concrete.add_element('Si',  15.58757/100,'wo')
+  concrete.add_element('P',   0.02245/100, 'wo')
+  concrete.add_element('S',   0.38913/100, 'wo')
+  concrete.add_element('Cl',  0.01247/100, 'wo')
+  concrete.add_element('K',   0.42156/100, 'wo')
+  concrete.add_element('Ca',  24.69467/100,'wo')
+  concrete.add_element('Ti',  0.07483/100, 'wo')
+  concrete.add_element('V',   0.00210/100, 'wo')
+  concrete.add_element('Cr',  0.00172/100, 'wo')
+  concrete.add_element('Mn',  0.00437/100, 'wo')
+  concrete.add_element('Fe',  0.93291/100, 'wo')
+  concrete.add_element('Co',  0.00025/100, 'wo')
+  concrete.add_element('Cu',  0.00087/100, 'wo')
+  concrete.add_element('Zn',  0.00334/100, 'wo')
+  concrete.add_element('Ga',  0.00277/100, 'wo')
+  concrete.add_element('Rb',  0.00534/100, 'wo')
+  concrete.add_element('Sr',  0.05163/100, 'wo')
+  concrete.add_element('Y',   0.00110/100, 'wo')
+  concrete.add_element('Zr',  0.00127/100, 'wo')
+  concrete.add_element('Cs',  0.00030/100, 'wo')
+  concrete.add_element('Ba',  0.00728/100, 'wo')
+  concrete.add_element('La',  0.00102/100, 'wo')
+  concrete.add_element('Ce',  0.00162/100, 'wo')
+  concrete.add_element('Pr',  0.00382/100, 'wo')
+  concrete.add_element('Nd',  0.00170/100, 'wo')
+  concrete.add_element('Eu',  0.00030/100, 'wo')
+  concrete.add_element('Gd',  0.00040/100, 'wo')
+  concrete.add_element('Tb',  0.00062/100, 'wo')
+  concrete.add_element('Er',  0.00040/100, 'wo')
+  concrete.add_element('Hf',  0.00020/100, 'wo')
+  concrete.add_element('Ta',  0.00025/100, 'wo')
+  concrete.add_element('Pb',  0.00130/100, 'wo')
+  concrete.add_element('U',   0.00499/100, 'wo')
+
+  concrete.set_density('g/cc', density)
+
+  return concrete
+
+# ------------- MATERIALS TO BE REFERENCED/UPDATED -------------------------
+
+def Cu(density):
+  """ Return an OpenMC material for pure Copper.
+  """
+
+  copper = openmc.Material()
+  copper.add_element('Cu', 1.0)
+  copper.set_density('g/cc', density)
+  return copper
+
+def NbTi(density):
+  """ Return an OpenMC material for NbTi.
+  """
+
+  NbTi = openmc.Material()
+  NbTi.add_element('Nb', 1.0)
+  NbTi.add_element('Ti', 1.0)
+  NbTi.set_density('g/cc', density)
+  return NbTi
+
+def Bronze(density):
+  """ Return an OpenMC material for Bronze.
+  """
+  bronze = openmc.Material()
+  bronze.add_element('Cu', 0.95, 'wo')
+  bronze.add_element('Sn', 0.06, 'wo')
+  bronze.set_density('g/cc', density)
+  return bronze
+
+def Nb3Sn(density):
+  """ Return an OpenMC material for Nb3Sn.
+  """
+  Nb3Sn = openmc.Material()
+  Nb3Sn.add_element('Nb', 3)
+  Nb3Sn.add_element('Sn', 1)
+  Nb3Sn.set_density('g/cc', density)
+  return Nb3Sn
+
+def Li4SiO4(density):
+  """ Return an OpenMC material for Li4SiO4.
+  """
+  Li4SiO4 = openmc.Material()
+  Li4SiO4.add_nuclide('Li6', 4 * 0.60)
+  Li4SiO4.add_nuclide('Li7', 4 * 0.40)
+  Li4SiO4.add_element('Si', 1)
+  Li4SiO4.add_element('O', 4)
+  Li4SiO4.set_density('g/cc', density)
+  return Li4SiO4
+
+def Epoxy(density):
+  """ Return an OpenMC material for Epoxy Resin.
+  """
+
+  epoxy = openmc.Material()
+  epoxy.add_element('Al', 0.0007074, 'wo')
+  epoxy.add_element('C', 0.0034056, 'wo')
+  epoxy.add_element('H', 0.0038934, 'wo')
+  epoxy.add_element('Mg', 0.0002142004, 'wo')
+  epoxy.add_element('N', 0.0003708, 'wo')
+  epoxy.add_element('O', 0.0048708, 'wo')
+  epoxy.add_element('S', 9.179996e-5, 'wo')
+  epoxy.add_element('Si', 0.0058552000000000005, 'wo')
+  epoxy.set_density('g/cc', density)
+  return epoxy
+
+def Be(density):
+  """ Return an OpenMC material for Beryllium.
+  """
+
+  beryllium = openmc.Material()
+  beryllium.add_element('Be', 0.99637)
+  beryllium.add_element('Al', 0.06e-2, 'wo')
+  beryllium.add_element('C', 0.1e-2, 'wo')
+  beryllium.add_element('Fe', 0.08e-2, 'wo')
+  beryllium.add_element('Mg', 0.06e-2, 'wo')
+  beryllium.add_element('Si', 0.06e-2, 'wo')
+  beryllium.add_element('U', 0.003e-2, 'wo')
+  beryllium.set_density('g/cc', density)
+  return beryllium
+
+def be12ti(density):
+  """ Return an OpenMC material for Be12Ti.
+  """
+  be12ti = openmc.Material()
+  be12ti.add_element('Be',0.6677, 'wo')
+  be12ti.add_element('Ti',0.308,'wo')
+  be12ti.add_element('Fe',0.0023, 'wo')
+  be12ti.add_element('Al',0.0006, 'wo')
+  be12ti.add_element('Si',0.0007, 'wo')
+  be12ti.add_element('Mn',0.0004, 'wo')
+  be12ti.add_element('Cu',0.0004, 'wo')
+  be12ti.add_element('Mg',0.0004, 'wo')
+  be12ti.add_element('Ni',0.0009, 'wo')
+  be12ti.add_element('Cr',0.0006, 'wo')
+  be12ti.add_element('O',0.013, 'wo')
+  be12ti.add_element('C',0.0010, 'wo')
+  be12ti.add_element('N',0.0005, 'wo')
+  be12ti.add_element('H',0.0035, 'wo')
+  be12ti.add_element('Cl',0.00004, 'wo')
+  be12ti.set_density('g/cc', density)
+
+  return be12ti
+
+def kalos_cb(density):
+  """ Return an OpenMC material for kalos_cb (Li4SiO4 + 35% mol Li2TiO3 (60% Li-6)).
+  """
+  # KALOS CB needs to be updated with impurites
+  kalos_cb = openmc.Material()
+  kalos_cb.add_nuclide('Li6', 0.2491, 'ao')
+  kalos_cb.add_nuclide('Li7', 0.1660, 'ao')
+  kalos_cb.add_element('Si',  0.0818, 'ao')
+  kalos_cb.add_element('Ti',  0.0440, 'ao')
+  kalos_cb.add_element('O',   0.4591, 'ao')
+  kalos_cb.set_density('g/cc', density)
+
+  return kalos_cb
+  
+# April addition to ss316
 
 def ss304_b4(density):
   """ Return an OpenMC material for SS304-B4, a borated SS-304 steel used for
@@ -248,6 +475,10 @@ def ss316Ln_ig(density):
   ss316Ln_ig.set_density('g/cc', density)
   return ss316Ln_ig
 
+
+
+# ------------------------------ END OF MATERIALS DEFINITIONS-----------------------------
+
 def atoms(material):
   Na = 6.023e23
 
@@ -284,7 +515,7 @@ def nuclides_for_each_element(material):
       nuclides[element] = []
       nuclides[element].append(n.name)
 
-  return nuclides
+  return nuclides  
 
 def Ed(element):
   ed = {}
@@ -326,4 +557,3 @@ def element(nuclides):
     elif (result != elem):
       raise ValueError("Nuclide list not a single nuclide!")
   return elem
-
