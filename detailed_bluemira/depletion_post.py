@@ -28,6 +28,12 @@ import openmc.deplete
 SECONDS_PER_YEAR = 365.25 * 24 * 3600.0
 INPUT_JSON = Path("Tokamak_inputs.json")
 
+def generate_colors(n):
+    """Generates a smooth rainbow gradient of n RGB colors."""
+    cmap = plt.get_cmap('turbo') # plasma also looks nice
+    color_range = cmap(np.linspace(1, 0, n))
+    return color_range
+
 def display_half_life(nuclide):
   half_life = openmc.data.half_life(nuclide)
 
@@ -405,8 +411,10 @@ def plot_activity_nuclides_per_cell(
         mcycle, lscycle = _style_cycle()
 
         # Nuclides (markers + varied linestyles)
-        num_nucs = max(1, len(top_nucs))
-        colors = plt.cm.tab20(np.linspace(0, 1, num_nucs))
+        halflife_list = [openmc.data.half_life(i) for i in top_nucs]
+        nuclide_list = top_nucs
+        sorted_halflife_list, sorted_nuclide_list = zip(*sorted(zip(halflife_list, nuclide_list)))
+        colors = generate_colors(len(top_nucs))
 
         for i, nuc in enumerate(top_nucs):
             vals_plot = _mask(nuc_series[nuc])
@@ -417,7 +425,7 @@ def plot_activity_nuclides_per_cell(
                 t_rel_plot,
                 vals_plot,
                 label=nuc + display_half_life(nuc),
-                color=colors[i % len(colors)],
+                color=colors[sorted_nuclide_list.index(nuc) % len(colors)],
                 marker=next(mcycle),
                 linestyle=next(lscycle),
                 markersize=3,
@@ -685,8 +693,11 @@ def plot_decayheat_nuclides_per_cell(
         fig, ax = plt.subplots(figsize=(11, 6))
         mcycle, lscycle = _style_cycle()
 
-        num_nucs = max(1, len(top_nucs))
-        colors = plt.cm.tab20(np.linspace(0, 1, num_nucs))
+        # form a color scale based on the half lives
+        halflife_list = [openmc.data.half_life(i) for i in top_nucs]
+        nuclide_list = top_nucs
+        sorted_halflife_list, sorted_nuclide_list = zip(*sorted(zip(halflife_list, nuclide_list)))
+        colors = generate_colors(len(top_nucs))
 
         for i, nuc in enumerate(top_nucs):
             vals_plot = _mask(nuc_series[nuc])
@@ -697,7 +708,7 @@ def plot_decayheat_nuclides_per_cell(
                 t_rel_plot,
                 vals_plot,
                 label=nuc + display_half_life(nuc),
-                color=colors[i % len(colors)],
+                color=colors[sorted_nuclide_list.index(nuc) % len(colors)],
                 marker=next(mcycle),
                 linestyle=next(lscycle),
                 markersize=3,
