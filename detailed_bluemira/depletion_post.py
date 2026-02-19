@@ -11,6 +11,9 @@ from pathlib import Path
 from typing import Dict, List, Sequence, Tuple, Optional
 from itertools import cycle
 
+import time
+from collections import OrderedDict
+
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -125,6 +128,29 @@ def shutdown_index_from_source_rates(source_rates: np.ndarray, n_steps: int) -> 
         return 0
     idx = int(irr_intervals[-1] + 1)
     return min(idx, n_steps - 1)
+
+
+class Timer:
+    def __init__(self):
+        self._start = {}
+        self.elapsed = OrderedDict()
+
+    def start(self, name: str):
+        self._start[name] = time.perf_counter()
+
+    def stop(self, name: str):
+        if name not in self._start:
+            raise RuntimeError(f"Timer '{name}' was not started")
+        dt = time.perf_counter() - self._start.pop(name)
+        self.elapsed[name] = self.elapsed.get(name, 0.0) + dt
+
+    def summary(self):
+        total = sum(self.elapsed.values())
+        print("\n=== Timing summary ===")
+        for k, v in self.elapsed.items():
+            print(f"{k:30s}: {v:8.3f} s ({100*v/total:5.1f}%)")
+        print(f"{'TOTAL':30s}: {total:8.3f} s")
+
 
 # ============================================================
 # Formatting helpers
@@ -988,22 +1014,46 @@ def run_chunk_postprocess(
 
         print(f"[DONE] {chunk_key} -> {out_dir}")
 
-
 # ============================================================
 # Run
 # ============================================================
 if __name__ == "__main__":
-    CHAIN_FILE = (Path(__file__).resolve().parent.parent / "depletion_chain" / "chain_endfb80_sfr.xml").resolve()
-    if not CHAIN_FILE.exists():
-        raise FileNotFoundError(f"Chain file not found: {CHAIN_FILE}")
-    openmc.config["chain_file"] = str(CHAIN_FILE)
+    
+    #
+    timer = Timer()
 
+    timer.start("Import decay-chain")
+    here = Path(__file__).resolve().parent
+    # Prefer the reduced chain produced by depletion_model.py
+    REDUCED_CHAIN = (here / "bluemira_chain.xml").resolve()
+    # Fallback: full ENDF/B-VIII.0 chain
+    FULL_CHAIN = (here.parent / "depletion_chain" / "chain_endfb80_sfr.xml").resolve()
+
+    if REDUCED_CHAIN.exists():
+        CHAIN_FILE = REDUCED_CHAIN
+        print(f"[info] Using reduced depletion chain: {CHAIN_FILE}")
+    elif FULL_CHAIN.exists():
+        CHAIN_FILE = FULL_CHAIN
+        print(f"[warn] Reduced chain not found; using full chain: {CHAIN_FILE}")
+    else:
+        raise FileNotFoundError(
+            "No depletion chain found. Expected one of:\n"
+            f"  - {REDUCED_CHAIN}\n"
+            f"  - {FULL_CHAIN}"
+        )
+
+    openmc.config["chain_file"] = str(CHAIN_FILE)
+    timer.stop("Import decay-chain")
+    
+    timer.start("import depletion resuts")
     results = openmc.deplete.Results("r2s/activation/depletion_results.h5")
+    timer.stop("import depletion resuts")
 
     # To be updated:
     xcentroids_ob = (0.1, 1.1, 6.0, 15.0, 25.0, 35.0, 45.0, 55.0, 65.0, 84.4, 156.0)
     xcentroids_ib = (0.1, 1.1, 6.0, 15.0, 25.0, 35.0, 45.0, 55.0, 65.0, 73.8, 108.0)
 
+    timer.start("Build neutronics model")
     from neutronics_model import build_breeder_chunks
 
     _cells_chunk = build_breeder_chunks(
@@ -1052,6 +1102,9 @@ if __name__ == "__main__":
     times = results.get_times()
     idx_shutdown = shutdown_index_from_source_rates(source_rates, n_steps=len(times))
 
+    timer.stop("Build neutronics model")
+
+    timer.start("Post-processing")
     run_chunk_postprocess(
         results,
         CHUNKS,
@@ -1061,8 +1114,10 @@ if __name__ == "__main__":
         idx_shutdown=int(idx_shutdown),
         activity_units="Bq/kg",       # "Bq" or "Bq/kg"
         decayheat_units="W/cm3",
-        activity_top_n=5,
-        decayheat_top_n=5,
+        activity_top_n=15,
+        decayheat_top_n=15,
         similarity_threshold=0.10,
         idx_to_plot=(0, 4, 8, 12, 16, 20),
     )
+    timer.stop("Post-processing")
+    timer.summary()

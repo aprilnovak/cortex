@@ -8,15 +8,58 @@ import openmc.data
 import openmc.deplete
 from openmc.deplete import d1s
 
+import time
+from collections import OrderedDict
+
 import sys
 import os
 module_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "materials"))
 sys.path.append(module_path)
 import materials 
 
+# --------------------
+# TIME CLASS
+# --------------------
+
+class Timer:
+    def __init__(self):
+        self._start = {}
+        self.elapsed = OrderedDict()
+
+    def start(self, name: str):
+        self._start[name] = time.perf_counter()
+
+    def stop(self, name: str):
+        if name not in self._start:
+            raise RuntimeError(f"Timer '{name}' was not started")
+        dt = time.perf_counter() - self._start.pop(name)
+        self.elapsed[name] = self.elapsed.get(name, 0.0) + dt
+
+    def summary(self):
+        total = sum(self.elapsed.values())
+        print("\n=== Timing summary ===")
+        for k, v in self.elapsed.items():
+            print(f"{k:30s}: {v:8.3f} s ({100*v/total:5.1f}%)")
+        print(f"{'TOTAL':30s}: {total:8.3f} s")
+
+# ------------------------------------------------------------------
+# Helper: bounding box
+# ------------------------------------------------------------------
+def dagmc_bounding_box(pydagmc_model, volume_id):
+    """Returns the bounding box of a given volume in a PyDAGMC model."""
+    volume = pydagmc_model.volumes_by_id[volume_id]
+    triangle_coords = volume.triangle_coords
+    min_coords = np.min(triangle_coords, axis=0)
+    max_coords = np.max(triangle_coords, axis=0)
+    return openmc.BoundingBox(min_coords, max_coords)
+
+
 # ------------------------------------------------------------------
 # Import from neutronics_model.py
 # ------------------------------------------------------------------
+timer = Timer()
+
+timer.start("Build neutronics model")
 from neutronics_model import (
     neutron_source_rate,
     model,
@@ -42,21 +85,15 @@ IB_CHUNK_SIZE = chunk_cells["IB_CHUNK_SIZE"]
 cell_ids = chunk_cells["cell_ids_all"]
 cell_ids_equatorial_ob = chunk_cells["equatorial_ob_cell_ids"]
 
-# ------------------------------------------------------------------
-# Helper: bounding box
-# ------------------------------------------------------------------
-def dagmc_bounding_box(pydagmc_model, volume_id):
-    """Returns the bounding box of a given volume in a PyDAGMC model."""
-    volume = pydagmc_model.volumes_by_id[volume_id]
-    triangle_coords = volume.triangle_coords
-    min_coords = np.min(triangle_coords, axis=0)
-    max_coords = np.max(triangle_coords, axis=0)
-    return openmc.BoundingBox(min_coords, max_coords)
+
+timer.stop("Build neutronics model")
 
 
 # ------------------------------------------------------------------
 # Resolve chain file (ENDF/B-VIII.0)
 # ------------------------------------------------------------------
+timer.start("Build D1S model")
+
 chain_path = (Path(__file__).resolve().parent.parent / "depletion_chain" / "chain_endfb80_sfr.xml").resolve()
 if not chain_path.exists():
     raise FileNotFoundError(f"Chain file not found: {chain_path}")
@@ -103,8 +140,6 @@ xcentroids_ib = (0.1, 1.1, 6.0, 15.0, 25.0, 35.0, 45.0, 55.0, 65.0, 73.8, 108.0)
 # ------------------------------------------------------------------
 # Identify plasma and vv port-fill cells (last two cells)
 # ------------------------------------------------------------------
-vols = list(pydagmc_model.volumes)
-
 vols = list(pydagmc_model.volumes)
 if len(vols) < 2:
     raise RuntimeError(f"PyDAGMC model has only {len(vols)} volumes; expected >= 2.")
@@ -178,9 +213,12 @@ model.settings.use_decay_photons = True
 nuclides = d1s.prepare_tallies(model)
 factors = d1s.time_correction_factors(nuclides, timesteps, source_rates)
 
+timer.stop("Build D1S model")
+
 print("---------------------------")
 print("Performing D1S run")
 print("---------------------------")
+timer.start("D1S run")
 
 statepoint = model.run(output=False)
 
@@ -193,6 +231,32 @@ for i in range(len(timesteps)):
     corrected_tallies.append(d1s.apply_time_correction(tally, factors, i + 1))
 
 print("Displaying cell dose rates")
+
+# ------------------------------------------------------------------
+# Debug/config knobs
+# ------------------------------------------------------------------
+DEBUG_D1S = True
+PLOT_VVPF_SYMLOG_IF_NONPOSITIVE = True  # if vvpf has zeros/negatives, use symlog
+VVPF_SYMLOG_LINTHRESH = 1e-6           # adjust based on your dose scale
+CLIP_FOR_LOG = False                   # alternative: clip <=0 to a floor for log-log
+CLIP_FLOOR = 1e-30
+
+def _print_series_stats(name: str, arr: list[float]):
+    a = np.asarray(arr, dtype=float)
+    if a.size == 0:
+        print(f"[{name}] empty")
+        return
+    finite = np.isfinite(a)
+    a_f = a[finite]
+    if a_f.size == 0:
+        print(f"[{name}] all non-finite (n={a.size})")
+        return
+    print(
+        f"[{name}] n={a.size} finite={finite.sum()} "
+        f"min={np.nanmin(a_f):.3e} max={np.nanmax(a_f):.3e} "
+        f"n<=0={np.sum(a_f <= 0)} n==0={np.sum(a_f == 0)} n<0={np.sum(a_f < 0)} "
+        f"n_nan={np.sum(~finite)}"
+    )
 
 # Storage:
 time_s = []  # cooling times (seconds), corresponds to timesteps[1:]
@@ -210,8 +274,19 @@ for t_cool, ctally in zip(timesteps[1:], corrected_tallies[1:]):
     else:
         raise KeyError(f"Could not find a cell column in tally dataframe. Columns: {list(d1s_df.columns)}")
 
+    # --- HARDEN TYPES (prevents isin mismatches) ---
+    # cell ids must be int
+    d1s_df[cell_col] = pd.to_numeric(d1s_df[cell_col], errors="raise").astype(int)
+
+    # mean must be numeric
+    d1s_df["mean"] = pd.to_numeric(d1s_df["mean"], errors="coerce")
+    if d1s_df["mean"].isna().any():
+        bad = d1s_df[d1s_df["mean"].isna()].head(10)
+        raise ValueError(f"NaNs in 'mean' after numeric coercion. Example rows:\n{bad.to_string(index=False)}")
+
     # normalize per cell
     d1s_df["cell_volume"] = d1s_df[cell_col].map(vol_by_cell_all)
+
     if d1s_df["cell_volume"].isna().any():
         missing = d1s_df.loc[d1s_df["cell_volume"].isna(), cell_col].unique().tolist()
         raise KeyError(f"Missing volumes for cells: {missing}")
@@ -219,18 +294,52 @@ for t_cool, ctally in zip(timesteps[1:], corrected_tallies[1:]):
     d1s_df["μSv/h"] = d1s_df["mean"] * (s_to_h * to_μSv) / d1s_df["cell_volume"]
     d1s_df["mSv/h"] = d1s_df["mean"] * (s_to_h * to_mSv) / d1s_df["cell_volume"]
 
+    # ensure μSv/h is numeric (defensive)
+    d1s_df["μSv/h"] = pd.to_numeric(d1s_df["μSv/h"], errors="coerce")
+    if d1s_df["μSv/h"].isna().any():
+        bad = d1s_df[d1s_df["μSv/h"].isna()].head(10)
+        raise ValueError(f"NaNs in 'μSv/h' after numeric coercion. Example rows:\n{bad.to_string(index=False)}")
+
     # -------------------------
     # (A) time series: plasma & vvportfill
     # -------------------------
     df_time = d1s_df[d1s_df[cell_col].isin(dose_cells_time)].copy()
+
     got = set(df_time[cell_col].tolist())
-    want = set(dose_cells_time)
+    want = set(int(x) for x in dose_cells_time)
     if got != want:
+        # richer debug
+        missing = sorted(list(want - got))
+        extra = sorted(list(got - want))
+        print(f"[debug] df_time rows={len(df_time)} at t={t_cool:.3e}s")
+        if missing:
+            print(f"[debug] missing cells in df_time: {missing}")
+        if extra:
+            print(f"[debug] unexpected cells in df_time: {extra}")
+        # show nearby candidates if vvpf missing
+        if vvportfill_vol_id in missing:
+            print("[debug] vvpf is missing; showing top 20 rows by μSv/h:")
+            print(d1s_df.sort_values("μSv/h", ascending=False).head(20).to_string(index=False))
         raise RuntimeError(f"Time-series rows mismatch. Got {sorted(got)}, want {sorted(want)}")
 
     time_s.append(float(t_cool))
+
+    # strict per-cell extraction (catch duplicates / missing explicitly)
     for cid in dose_cells_time:
-        dose_time_by_cell[cid].append(float(df_time.loc[df_time[cell_col] == cid, "μSv/h"].iloc[0]))
+        cid = int(cid)
+        sub = df_time.loc[df_time[cell_col] == cid, "μSv/h"]
+
+        if len(sub) == 0:
+            raise RuntimeError(f"Missing μSv/h row for cid={cid} at t={t_cool:.3e}s")
+        if len(sub) > 1 and DEBUG_D1S:
+            print(f"[warn] duplicate rows for cid={cid} at t={t_cool:.3e}s: values={sub.values[:5]} (taking first)")
+
+        dose_time_by_cell[cid].append(float(sub.iloc[0]))
+
+    # vvpf raw row print (helps confirm it is truly 0, not missing)
+    if DEBUG_D1S:
+        vv_rows = df_time.loc[df_time[cell_col] == int(vvportfill_vol_id), :]
+        print("[vvpf raw rows]\n", vv_rows.to_string(index=False))
 
     # -------------------------
     # (B) spatial profile: OB_1_b6
@@ -246,38 +355,79 @@ for t_cool, ctally in zip(timesteps[1:], corrected_tallies[1:]):
     profiles.append({"t_s": float(t_cool), "df": df_prof.copy()})
 
     print(
-        f"Cooling {t_cool:.3e} s | plasma={dose_time_by_cell[plasma_vol_id][-1]:.3e} μSv/h | "
-        f"vvpf={dose_time_by_cell[vvportfill_vol_id][-1]:.3e} μSv/h | "
+        f"Cooling {t_cool:.3e} s | plasma={dose_time_by_cell[int(plasma_vol_id)][-1]:.3e} μSv/h | "
+        f"vvpf={dose_time_by_cell[int(vvportfill_vol_id)][-1]:.3e} μSv/h | "
         f"{OB_KEY} rows={len(df_prof)}"
     )
 
 # ------------------------------------------------------------------
-# Plot 1A: time series for plasma
+# Debug summary for vvpf/plasma series
+# ------------------------------------------------------------------
+if DEBUG_D1S:
+    _print_series_stats("plasma μSv/h", dose_time_by_cell[int(plasma_vol_id)])
+    _print_series_stats("vvpf  μSv/h", dose_time_by_cell[int(vvportfill_vol_id)])
+    # write a quick CSV for vvpf inspection
+    df_dbg = pd.DataFrame({
+        "t_s": np.asarray(time_s, float),
+        "plasma_uSvph": np.asarray(dose_time_by_cell[int(plasma_vol_id)], float),
+        "vvpf_uSvph": np.asarray(dose_time_by_cell[int(vvportfill_vol_id)], float),
+    })
+    df_dbg.to_csv("d1s_time_debug.csv", index=False)
+    print("[debug] wrote d1s_time_debug.csv")
+
+# ------------------------------------------------------------------
+# Plot 1A: time series for plasma (log-log is fine if >0)
 # ------------------------------------------------------------------
 plt.figure()
-plt.plot(time_s, dose_time_by_cell[plasma_vol_id], label="Plasma (D1S)")
-plt.grid()
+plt.plot(time_s, dose_time_by_cell[int(plasma_vol_id)], label="Plasma (D1S)")
+plt.grid(True, which="both")
 plt.xscale("log")
 plt.yscale("log")
 plt.ylabel("Shutdown Dose (μSv/h)")
 plt.xlabel("Cooling Time [s]")
 plt.legend()
 plt.savefig("sdr_time_plasma.png", dpi=300, bbox_inches="tight")
-plt.show()
+plt.close()
 
 # ------------------------------------------------------------------
 # Plot 1B: time series for VV port-fill
+#   - if any <=0, log-log will hide it. Use symlog or clip.
 # ------------------------------------------------------------------
+t_arr = np.asarray(time_s, float)
+vv_arr = np.asarray(dose_time_by_cell[int(vvportfill_vol_id)], float)
+
 plt.figure()
-plt.plot(time_s, dose_time_by_cell[vvportfill_vol_id], label="VV port-fill (D1S)")
-plt.grid()
+plt.plot(t_arr, vv_arr, label="VV port-fill (D1S)")
+plt.grid(True, which="both")
 plt.xscale("log")
-plt.yscale("log")
+
+if PLOT_VVPF_SYMLOG_IF_NONPOSITIVE and np.any(np.isfinite(vv_arr) & (vv_arr <= 0.0)):
+    # show zeros/negatives instead of disappearing
+    plt.yscale("symlog", linthresh=VVPF_SYMLOG_LINTHRESH)
+    plt.title(f"VV port-fill (symlog, linthresh={VVPF_SYMLOG_LINTHRESH:g})")
+    outname = "sdr_time_vvportfill_symlog.png"
+elif CLIP_FOR_LOG and np.any(np.isfinite(vv_arr) & (vv_arr <= 0.0)):
+    vv_plot = vv_arr.copy()
+    bad = ~np.isfinite(vv_plot) | (vv_plot <= 0.0)
+    n_bad = int(bad.sum())
+    vv_plot[bad] = CLIP_FLOOR
+    print(f"[vvpf] clipped {n_bad}/{vv_plot.size} values to {CLIP_FLOOR:.1e} for log plotting")
+    plt.cla()
+    plt.plot(t_arr, vv_plot, label=f"VV port-fill (clipped to {CLIP_FLOOR:.0e})")
+    plt.grid(True, which="both")
+    plt.xscale("log")
+    plt.yscale("log")
+    plt.title("VV port-fill (clipped for log)")
+    outname = "sdr_time_vvportfill_clipped.png"
+else:
+    plt.yscale("log")
+    outname = "sdr_time_vvportfill.png"
+
 plt.ylabel("Shutdown Dose (μSv/h)")
 plt.xlabel("Cooling Time [s]")
 plt.legend()
-plt.savefig("sdr_time_vvportfill.png", dpi=300, bbox_inches="tight")
-plt.show()
+plt.savefig(outname, dpi=300, bbox_inches="tight")
+plt.close()
 
 # ------------------------------------------------------------------
 # Plot 2: spatial profiles for OB_1_b6 at a few representative cooling times
@@ -292,24 +442,29 @@ plt.figure()
 for i in idxs:
     t_s_i = profiles[i]["t_s"]
     dfp = profiles[i]["df"]
-    plt.plot(dfp["centers"], dfp["μSv/h"], label=f"{t_s_i:.1e} s")
+    # defensive: ensure μSv/h is numeric
+    y = pd.to_numeric(dfp["μSv/h"], errors="coerce").to_numpy(float)
+    x = np.asarray(dfp["centers"], float)
+    plt.plot(x, y, label=f"{t_s_i:.1e} s")
 
-plt.grid()
+plt.grid(True, which="both")
 plt.yscale("log")
-plt.ylim(1e-6,1e12)
+plt.ylim(1e-6, 1e12)
 plt.ylabel("Shutdown Dose (μSv/h)")
 plt.xlabel("Radial Position [cm]")
 plt.title(f"D1S spatial profile: {OB_KEY}")
 plt.legend()
-plt.savefig(f"sdr_profile_{OB_KEY}.png", dpi=300)
-plt.show()
+plt.savefig(f"sdr_profile_{OB_KEY}.png", dpi=300, bbox_inches="tight")
+plt.close()
 
+timer.stop("D1S run")
 # ------------------------------------------------------------------
 # Depletion 
 # ------------------------------------------------------------------
 print("--------------------------------")
 print("Performing depletion")
 print("--------------------------------")
+timer.start("Set up depletion model")
 
 # Make sure the model's materials list matches the geometry
 model.materials = openmc.Materials(list(model.geometry.get_all_materials().values()))
@@ -354,27 +509,29 @@ cell_to_mat = {cid: str(mat.id) for cid, mat in zip(dagmc_cell_ids, deplete_mats
 mat_to_cell = {str(mat.id): cid for cid, mat in zip(dagmc_cell_ids, deplete_mats)}
 mat_id_to_name = {str(mat.id): (mat.name or f"material_{mat.id}") for mat in deplete_mats}
 
-# Reduced chain 
+# ---- Build + use reduced chain everywhere below ----
 initial_nuclides = model.geometry.get_all_nuclides()
 reduced_chain = chain.reduce(initial_nuclides, level=2)
-reduced_chain.export_to_xml("bluemira_chain.xml")
 
 bluemira_chain = Path("bluemira_chain.xml").resolve()
+reduced_chain.export_to_xml(str(bluemira_chain))
+print(f"[info] Wrote reduced chain: {bluemira_chain}")
 
-# compute nuclide fluxes and microscopic cross-sections
+openmc.config["chain_file"] = str(bluemira_chain)
+model.settings.depletion = {"chain_file": str(bluemira_chain)}
+
 fluxes, micros = openmc.deplete.get_microxs_and_flux(
     model,
     deplete_mats,
-    chain_file=str(chain_path),  # keep using ENDF/B-VIII.0 chain
+    chain_file=str(bluemira_chain),
     run_kwargs={"output": False},
 )
 
-# IndependentOperator activation
 operator = openmc.deplete.IndependentOperator(
     deplete_mats,
     fluxes,
     micros,
-    chain_file=str(chain_path),
+    chain_file=str(bluemira_chain),
     normalization_mode="source-rate",
 )
 operator.output_dir = "r2s/activation"
@@ -384,9 +541,11 @@ integrator = openmc.deplete.PredictorIntegrator(
     timesteps,
     source_rates=source_rates,
 )
+timer.stop("Set up depletion model")
+
+timer.start("Depletion run")
 integrator.integrate()
 
-# ------------------------------------------------------------------
 # Post-processing: Results
 # ------------------------------------------------------------------
 results = openmc.deplete.Results("r2s/activation/depletion_results.h5")
@@ -394,6 +553,7 @@ results = openmc.deplete.Results("r2s/activation/depletion_results.h5")
 # -----------------------------------------------------------------
 # EXPORT CELL-MAT MAPPING FOR POST PROCESSING
 # -----------------------------------------------------------------
+
 rows = []
 for cid, mat in zip(dagmc_cell_ids, deplete_mats):
     rows.append({"cell_id": cid, "mat_id": int(mat.id), "material_name": mat.name})
@@ -401,7 +561,8 @@ for cid, mat in zip(dagmc_cell_ids, deplete_mats):
 df_map = pd.DataFrame(rows)
 df_map.to_csv("r2s/activation/cell_material_map.csv", index=False)
 print("Written r2s/activation/cell_material_map.csv")
-
+timer.stop("Depletion run")
+timer.summary()
 # -----------------------------------------------------------------
 # Introduce R2S decay-gamma run (placeholder)
 # -----------------------------------------------------------------

@@ -33,6 +33,7 @@ import openmc
 # Load neutronics model
 # ----------------------------
 import neutronics_model as bm  
+
 # ----------------------------
 # User settings
 # ----------------------------
@@ -162,107 +163,21 @@ def set_ylim_and_ticks(
     ax.yaxis.set_minor_locator(mticker.AutoMinorLocator())
     ax.yaxis.set_major_formatter(mticker.StrMethodFormatter("{x:g}"))
 
-def dump_bins(outdir: Path, key: str, centroids, widths, edges, *, label: str = ""):
-    """
-    Print and save bin centroids/widths/edges for debugging.
-
-    Saves:
-      bins_<key>_<label>.csv
-    """
-    outdir = Path(outdir)
-    outdir.mkdir(parents=True, exist_ok=True)
-
-    c = np.asarray(centroids, dtype=float).ravel()
-    w = np.asarray(widths, dtype=float).ravel()
-    e = np.asarray(edges, dtype=float).ravel()
-
-    print("\n" + "=" * 80)
-    print(f"[bins] {key} {label}".strip())
-    print(f"  centroids (n={c.size}): {np.array2string(c, precision=6, separator=', ')}")
-    print(f"  widths    (n={w.size}): {np.array2string(w, precision=6, separator=', ')}")
-    print(f"  edges     (n={e.size}): {np.array2string(e, precision=6, separator=', ')}")
-
-    # Helpful sanity checks
-    if e.size != c.size + 1:
-        print(f"  [WARN] edges size {e.size} != centroids size + 1 ({c.size+1})")
-    if w.size != c.size:
-        print(f"  [WARN] widths size {w.size} != centroids size ({c.size})")
-    if e.size >= 2:
-        w_from_edges = np.diff(e)
-        max_err = float(np.max(np.abs(w_from_edges[: min(w_from_edges.size, w.size)] - w[: min(w_from_edges.size, w.size)])))
-        print(f"  max(|diff(edges)-widths|) = {max_err:.6g}")
-    if c.size >= 1 and e.size >= 2:
-        c_from_edges = 0.5 * (e[:-1] + e[1:])
-        max_err_c = float(np.max(np.abs(c_from_edges[: min(c_from_edges.size, c.size)] - c[: min(c_from_edges.size, c.size)])))
-        print(f"  max(|centroids-from-edges - centroids|) = {max_err_c:.6g}")
-
-    # Save CSV for inspection
-    rows = []
-    for i in range(max(c.size, w.size)):
-        rows.append({
-            "i": i,
-            "centroid_cm": float(c[i]) if i < c.size else np.nan,
-            "width_cm": float(w[i]) if i < w.size else np.nan,
-            "edge_left_cm": float(e[i]) if i < e.size else np.nan,
-            "edge_right_cm": float(e[i+1]) if (i+1) < e.size else np.nan,
-        })
-    df = pd.DataFrame(rows)
-    suffix = f"_{label}" if label else ""
-    df.to_csv(outdir / f"bins_{key}{suffix}.csv", index=False)
-
-def _print_interp_debug(
-    *,
-    key: str,
-    side: str,
-    r: int,
-    n_regions: int,
-    t: float,
-    last_top_mid_bot: tuple[float, float, float],
-    vv_top_mid_bot: tuple[float, float, float],
-    interp_last: float,
-    interp_vv: float,
-    last_offset: float,
-    last_breeder: float,
-    ):
-    print("\n" + "-" * 80)
-    print(f"[interp] {key}")
-    print(f"  side        = {side}")
-    print(f"  region r    = {r} / {n_regions}")
-    print(f"  t           = {t:.6f}")
-    print(f"  last(top,mid,bot) = {last_top_mid_bot}")
-    print(f"  vv  (top,mid,bot) = {vv_top_mid_bot}")
-    print(f"  interp_last = {interp_last:.6f} cm")
-    print(f"  interp_vv   = {interp_vv:.6f} cm")
-    print(f"  last_offset = {last_offset:.6f} cm")
-    print(f"  last_breeder_thickness = {last_breeder:.6f} cm")
-
 # =============================================================================
 # structural-origin fractions per cell/nuclide
 # =============================================================================
-def build_cell_struct_origin_frac(bm, cell_ids: list[int]) -> Dict[int, Dict[str, float]]:
-    """
-    f_struct_origin(n) = N_struct(n) / N_total(n)
-
-    Uses:
-      bm.cell_struct_nuclide_atoms[cid][nuc]  (atoms contributed by structural materials)
-      bm.cell_nuclide_atoms[cid][nuc]         (atoms in total mixture)
-    """
-    if not hasattr(bm, "cell_struct_nuclide_atoms"):
-        raise RuntimeError("bm.cell_struct_nuclide_atoms missing (expected from neutronics_model.py).")
-    if not hasattr(bm, "cell_nuclide_atoms"):
-        raise RuntimeError("bm.cell_nuclide_atoms missing (expected from neutronics_model.py).")
-
-    out: Dict[int, Dict[str, float]] = {}
-    for cid in cell_ids:
-        cid = int(cid)
-        struct_atoms = bm.cell_struct_nuclide_atoms.get(cid, {}) or {}
-        total_atoms = bm.cell_nuclide_atoms.get(cid, {}) or {}
-        frac: Dict[str, float] = {}
-        for nuc, n_struct in struct_atoms.items():
-            n_tot = float(total_atoms.get(nuc, 0.0))
-            frac[str(nuc)] = (float(n_struct) / n_tot) if n_tot > 0.0 else 0.0
-        out[cid] = frac
-    return out
+def require_struct_maps(bm):
+    need = [
+        "cell_struct_origin_frac",
+        "cell_struct_nuclide_atoms",
+        "cell_total_atoms_struct",
+    ]
+    missing = [k for k in need if not hasattr(bm, k)]
+    if missing:
+        raise RuntimeError(
+            f"Missing {missing} in neutronics_model module. "
+            "Expected you to compute these in neutronics_model.py via build_structural_maps_vo/build_structural_maps."
+        )
 
 def write_struct_origin_csv(
     outdir: Path,
@@ -287,6 +202,15 @@ def write_struct_origin_csv(
             )
     df = pd.DataFrame(rows)
     df.to_csv(outdir / f"struct_origin_fractions_{chunk_key}.csv", index=False)
+
+def tally_mean_std_for_nuclide(t, *, score: str, nuclide: str) -> tuple[float, float]:
+    """
+    Return (mean, std) for a single nuclide for a score in an OpenMC Tally result object `t`.
+    Works for a single cell filter bin (which is your case if `t` is already cell-specific).
+    """
+    mean = float(t.get_values(scores=[score], nuclides=[nuclide], value="mean").ravel()[0])
+    std  = float(t.get_values(scores=[score], nuclides=[nuclide], value="std_dev").ravel()[0])
+    return mean, std
 
 # ----------------------------
 # Load chunking + bin helpers from neutronics_model.py
@@ -408,7 +332,7 @@ def _rank_sids_by_area(pydagmc_model, sids: List[int]) -> List[int]:
     pairs.sort(key=lambda x: x[0], reverse=True)
     return [sid for _, sid in pairs]
 
-def build_special_surfaces_rethink(
+def build_special_surfaces(
     pydagmc_model,
     bm_info_flat: dict,
     *,
@@ -418,7 +342,7 @@ def build_special_surfaces_rethink(
     allowed_surface_ids: Set[int],
     external_surface_ids: Set[int],
     internal_surface_ids: Set[int],
-) -> Tuple[Dict[str, int], Set[int], Dict[str, int], Dict[str, object]]:
+    ) -> Tuple[Dict[str, int], Set[int], Dict[str, int], Dict[str, object]]:
     allowed = set(int(x) for x in allowed_surface_ids)
     ext_set = set(int(x) for x in external_surface_ids)
     int_set = set(int(x) for x in internal_surface_ids)
@@ -508,7 +432,7 @@ def compute_albedo_for_chunk(
     chunk_key: str,
     pydagmc_model,
     EXCLUDED_SURFACES: Optional[set[int]] = None,
-) -> Dict[str, object]:
+    ) -> Dict[str, object]:
     outdir = Path(outdir)
     outdir.mkdir(parents=True, exist_ok=True)
     EXCLUDED_SURFACES = set(EXCLUDED_SURFACES or set())
@@ -580,7 +504,7 @@ def compute_albedo_for_chunk(
 
         bm_info_flat = {int(cid): _cell_surfaces(int(cid), "all_surfaces") for cid in cell_ids}
 
-        special, special_surface_ids, special_owner_cell, special_debug = build_special_surfaces_rethink(
+        special, special_surface_ids, special_owner_cell, special_debug = build_special_surfaces(
             pydagmc_model,
             bm_info_flat,
             armor_cell_id=armor_cell_id,
@@ -879,45 +803,46 @@ def compute_albedo_for_chunk(
     )
 
 # =============================================================================
-# DPA helper (composition-weighted Ed)
+# DPA helper 
 # =============================================================================
 def element_from_nuclide(nuc: str) -> str:
     m = re.match(r"[A-Za-z]+", nuc)
     return m.group(0) if m else nuc
 
-def effective_Ed_struct(bm, cid: int) -> float:
-    """
-    Effective displacement energy based on STRUCTURAL-only nuclide fractions
-    computed in neutronics_model.py (bm.cell_struct_nuclide_frac).
-    """
-    frac = bm.cell_struct_nuclide_frac.get(cid, {})
-    if not frac:
-        return 40.0
-    Ed_eff = 0.0
-    for nuc, f in frac.items():
-        el = element_from_nuclide(str(nuc))
-        Ed_eff += float(f) * float(bm.materials.Ed(el))
-    return float(Ed_eff) if Ed_eff > 0.0 else 40.0
-
 # =============================================================================
 # Corrected summations (apply f_struct_origin)
 # =============================================================================
-def corrected_sum_mean_std(t: openmc.Tally, *, scores: list[str], nuclides: list[str], f_struct: Dict[str, float]):
+def corrected_sum_mean_std_getvalues(
+    t: openmc.Tally,
+    *,
+    score: str,
+    nuclides: list[str],
+    f_struct: Dict[str, float],
+    ) -> tuple[float, float]:
     """
-    Return (mean, std) for Σ_n T(n) * f_struct_origin(n), over provided nuclides.
+    Return (mean, std) for Σ_n T(score, n) * f_struct_origin(n)
+    using tally_mean_std_for_nuclide() for the per-nuclide fetch.
+
     Assumes nuclide contributions are uncorrelated for std (quadrature).
     """
     mean_tot = 0.0
     var_tot = 0.0
+
     for nuc in nuclides:
-        w = float(f_struct.get(str(nuc), 0.0))
+        nuc = str(nuc)
+        w = float(f_struct.get(nuc, 0.0))
         if w == 0.0:
             continue
-        s = t.summation(scores=scores, nuclides=[nuc])
-        m = float(np.atleast_1d(s.mean).squeeze())
-        sd = float(np.atleast_1d(s.std_dev).squeeze())
+
+        try:
+            m, sd = tally_mean_std_for_nuclide(t, score=score, nuclide=nuc)
+        except Exception:
+            # nuclide not present in results for this tally, etc.
+            continue
+
         mean_tot += w * m
         var_tot += (w * sd) ** 2
+
     return mean_tot, math.sqrt(max(var_tot, 0.0))
 
 # =============================================================================
@@ -946,7 +871,7 @@ def process_chunk(
     scaling = scaling_for_cells(cell_ids)
 
     # build & save structural-origin fractions for this chunk
-    cell_struct_origin_frac = build_cell_struct_origin_frac(bm, cell_ids)
+    cell_struct_origin_frac = bm.cell_struct_origin_frac  # dict[cid] -> dict[nuc] -> f_origin
     write_struct_origin_csv(outdir, chunk_key, cell_ids, labels, cell_struct_origin_frac)
 
     # ==========================================
@@ -1060,7 +985,7 @@ def process_chunk(
     plt.close(fig)
 
     # ==========================================
-    # H production -> appm/y 
+    # H production -> appm/fpy 
     # ==========================================
     h_appm_y = np.zeros(len(cell_ids), dtype=float)
     h_appm_y_std = np.zeros(len(cell_ids), dtype=float)
@@ -1082,8 +1007,9 @@ def process_chunk(
         f_struct = cell_struct_origin_frac.get(cid, {}) or {}
         nuclides = list(t.nuclides or [])
 
-        h1_mean_corr, h1_std_corr = corrected_sum_mean_std(
-            t, scores=[h_score], nuclides=nuclides, f_struct=f_struct
+        # Apply here the structural_nuclide_fraction
+        h1_mean_corr, h1_std_corr = corrected_sum_mean_std_getvalues(
+            t, score=h_score, nuclides=nuclides, f_struct=f_struct
         )
 
         denom = float(bm.cell_total_atoms_struct.get(cid, 0.0))
@@ -1131,11 +1057,12 @@ def process_chunk(
         f_struct = cell_struct_origin_frac.get(cid, {}) or {}
         nuclides = list(t.nuclides or [])
 
-        he3_mean_corr, he3_std_corr = corrected_sum_mean_std(
-            t, scores=[he3_score], nuclides=nuclides, f_struct=f_struct
+        # Grab tally values and sum += score * structural_nuclide_fraction
+        he3_mean_corr, he3_std_corr = corrected_sum_mean_std_getvalues(
+            t, score=he3_score, nuclides=nuclides, f_struct=f_struct
         )
-        he4_mean_corr, he4_std_corr = corrected_sum_mean_std(
-            t, scores=[he4_score], nuclides=nuclides, f_struct=f_struct
+        he4_mean_corr, he4_std_corr = corrected_sum_mean_std_getvalues(
+            t, score=he4_score, nuclides=nuclides, f_struct=f_struct
         )
 
         he_mean_corr = he3_mean_corr + he4_mean_corr
@@ -1162,10 +1089,13 @@ def process_chunk(
     plt.close(fig)
 
     # ==========================================
-    # DPA per year -> DPA/y 
+    # DPA per full power year -> DPA/fpy 
     # ==========================================
+
     dpa_y = np.zeros(len(cell_ids), dtype=float)
     dpa_y_std = np.zeros(len(cell_ids), dtype=float)
+
+    dpa_by_nuclide = {} 
 
     for i, cid in enumerate(cell_ids):
         cid = int(cid)
@@ -1173,25 +1103,67 @@ def process_chunk(
         if t is None:
             continue
 
+        
+        denom_atoms = float(bm.cell_total_atoms_struct.get(cid, 0.0))
+        if denom_atoms <= 0.0:
+            continue
+
         f_struct = cell_struct_origin_frac.get(cid, {}) or {}
         nuclides = list(t.nuclides or [])
 
-        dmg_mean_corr, dmg_std_corr = corrected_sum_mean_std(
-            t, scores=["damage-energy"], nuclides=nuclides, f_struct=f_struct
-        )
+        sum_mean = 0.0
+        sum_var = 0.0
+        breakdown = {}
 
-        Ed_eff = effective_Ed_struct(bm, cid)
-        scale = 0.8 / (2.0 * Ed_eff) * neutron_source_rate * s_in_y
-        disp_mean = scale * dmg_mean_corr
-        disp_std = scale * dmg_std_corr
+        for nuc in nuclides:
+            nuc = str(nuc)
 
-        denom_atoms = float(bm.cell_total_atoms_struct.get(cid, 0.0))
-        if denom_atoms > 0.0:
-            dpa_y[i] = disp_mean / denom_atoms
-            dpa_y_std[i] = disp_std / denom_atoms
+            # get Tally values damage-energy per nuclide
+            dmg_mean, dmg_std = tally_mean_std_for_nuclide(t, score="damage-energy", nuclide=nuc)
 
-    lower = np.maximum(dpa_y - dpa_y_std, 1e-30)
+            # Apply  *= structural_nuclide_fraction
+            fs = float(f_struct.get(nuc, 0.0))
+            dmg_mean *= fs
+            dmg_std  *= fs
+
+
+            # Find element Ed for the nuclide
+            el = element_from_nuclide(nuc)
+            Ed = float(bm.materials.Ed(el)) # if not on list material default is 25 eV
+
+            # NRT scaling per nuclide (Ed)
+            disp_scale = (0.8)/(2.0 * Ed)
+            
+            # Scale by source intensity
+            source_scale = neutron_source_rate * s_in_y
+
+            disp_mean = disp_scale * source_scale * dmg_mean
+            disp_std = disp_scale  * source_scale * dmg_std
+
+            # Scale per total structurl atoms
+            dpa_mean_per_nuclide = disp_mean / denom_atoms
+            dpa_std_per_nuclide = disp_std / denom_atoms
+
+            breakdown[nuc] = dpa_mean_per_nuclide
+
+            # 'store' summed contributions for all different nuclides
+            sum_mean += dpa_mean_per_nuclide
+            sum_var += dpa_std_per_nuclide**2
+
+    
+        dpa_y[i] = sum_mean
+        dpa_y_std[i] = math.sqrt(sum_var)
+        dpa_by_nuclide[cid] = breakdown
+
+        # print for  debugging or extra info (comment if undesired)
+        print(f"\n[DPA breakdown] cell {cid}")
+        for nuc, val in sorted(breakdown.items(), key=lambda x: x[1], reverse=True)[:10]:
+            print(f"  {nuc:>8s} : {val:.3e} DPA/y")
+
+    
+    lower= np.maximum(dpa_y - dpa_y_std, 1e-30)
     upper = dpa_y + dpa_y_std
+
 
     fig, ax = plt.subplots()
     ax.set_yscale("log")
@@ -1256,14 +1228,25 @@ def compute_dpa_layer_region1_only(
     *,
     dpa_gas_map: Dict[int, openmc.Tally],
     ):
+    """
+    Region-1-only DPA that MATCHES method A used in process_chunk():
+
+      For each cell:
+        DPA/fpy = (neutron_source_rate*s_in_y / N_struct) * Σ_n [ (0.8/(2*Ed(elem(n)))) * (damage-energy_n * f_struct_origin(n)) ]
+
+    - Applies f_struct_origin(n) per nuclide (structural-origin correction)
+    - Uses Ed per element per nuclide (NOT a single Ed_eff)
+    - Assumes nuclide contributions uncorrelated for std_dev (quadrature), consistent with method A
+    """
     idx_map = {int(cid): i for i, cid in enumerate(cell_ids_layer)}
     n = len(cell_ids_layer)
 
     dpa_y = np.zeros(n, dtype=float)
     dpa_y_std = np.zeros(n, dtype=float)
 
-    # Build struct-origin fractions for these cells
-    cell_struct_origin_frac = build_cell_struct_origin_frac(bm, cell_ids_layer)
+    cell_struct_origin_frac = bm.cell_struct_origin_frac
+
+    source_scale = float(neutron_source_rate) * float(s_in_y)
 
     for cid in cell_ids_layer:
         cid = int(cid)
@@ -1271,23 +1254,54 @@ def compute_dpa_layer_region1_only(
         if t is None:
             continue
 
+        denom_atoms = float(bm.cell_total_atoms_struct.get(cid, 0.0))
+        if denom_atoms <= 0.0:
+            continue
+
         f_struct = cell_struct_origin_frac.get(cid, {}) or {}
         nuclides = list(t.nuclides or [])
-        dmg_mean_corr, dmg_std_corr = corrected_sum_mean_std(
-            t, scores=["damage-energy"], nuclides=nuclides, f_struct=f_struct
-        )
 
-        Ed_eff = effective_Ed_struct(bm, cid)
-        scale_factor = 0.8 / (2.0 * Ed_eff) * neutron_source_rate * s_in_y
+        sum_mean = 0.0
+        sum_var = 0.0
 
-        dpa_disp_mean = scale_factor * dmg_mean_corr
-        dpa_disp_std = scale_factor * dmg_std_corr
+        for nuc in nuclides:
+            nuc = str(nuc)
+
+            # get Tally values damage-energy per nuclide
+            try:
+                dmg_mean, dmg_std = tally_mean_std_for_nuclide(t, score="damage-energy", nuclide=nuc)
+            except Exception:
+                # Nuclide may not have results for this score in this tally
+                continue
+            
+            # Apply  *= structural_nuclide_fraction
+            fs = float(f_struct.get(nuc, 0.0))
+            if fs == 0.0:
+                continue
+            dmg_mean *= fs
+            dmg_std *= fs
+
+            # element-specific displacement energy
+            el = element_from_nuclide(nuc)
+            Ed = float(bm.materials.Ed(el))  
+
+            # NRT scaling per nuclide (Ed)
+            disp_scale = 0.8 / (2.0 * Ed)
+
+            disp_mean = disp_scale * source_scale * dmg_mean
+            disp_std  = disp_scale * source_scale * dmg_std
+
+            # Scale per total structurl atoms
+            dpa_mean = disp_mean / denom_atoms
+            dpa_std  = disp_std / denom_atoms
+
+            # 'store' summed contributions for all different nuclides
+            sum_mean += dpa_mean
+            sum_var  += dpa_std ** 2
 
         i = idx_map[cid]
-        denom = float(bm.cell_total_atoms_struct.get(cid, 0.0))
-        if denom > 0.0:
-            dpa_y[i] += dpa_disp_mean / denom
-            dpa_y_std[i] += dpa_disp_std / denom
+        dpa_y[i] = sum_mean
+        dpa_y_std[i] = math.sqrt(max(sum_var, 0.0))
 
     return dpa_y, dpa_y_std
 
@@ -1331,7 +1345,7 @@ def process_layer_region1_only(
     flux_tally_total_id: int,
     heating_tally_id: int,
     *,
-    dpa_gas_map=Dict[int, openmc.Tally],
+    dpa_gas_map: Dict[int, openmc.Tally],
     dpa: bool = True,
     hprod: bool = True,
     heprod: bool = True,
@@ -1358,7 +1372,7 @@ def process_layer_region1_only(
     x = np.concatenate([[x[0] - 1], x, [x[-1] + 1]])
 
     # Build struct-origin fractions for these cells (for gas correction below)
-    cell_struct_origin_frac = build_cell_struct_origin_frac(bm, cell_ids_layer)
+    cell_struct_origin_frac = bm.cell_struct_origin_frac
 
     def _apply_scale(ax, data, eps_for_log):
         if yscale_mode == "log":
@@ -1514,8 +1528,8 @@ def process_layer_region1_only(
 
             f_struct = cell_struct_origin_frac.get(cid, {}) or {}
             nuclides = list(t.nuclides or [])
-            h1_mean_corr, h1_std_corr = corrected_sum_mean_std(
-                t, scores=[h_score], nuclides=nuclides, f_struct=f_struct
+            h1_mean_corr, h1_std_corr = corrected_sum_mean_std_getvalues(
+                t, score=h_score, nuclides=nuclides, f_struct=f_struct
             )
 
             denom = float(bm.cell_total_atoms_struct.get(cid, 0.0))
@@ -1565,11 +1579,11 @@ def process_layer_region1_only(
 
             f_struct = cell_struct_origin_frac.get(cid, {}) or {}
             nuclides = list(t.nuclides or [])
-            he3_mean_corr, he3_std_corr = corrected_sum_mean_std(
-                t, scores=[he3_score], nuclides=nuclides, f_struct=f_struct
+            he3_mean_corr, he3_std_corr = corrected_sum_mean_std_getvalues(
+                t, score=he3_score, nuclides=nuclides, f_struct=f_struct
             )
-            he4_mean_corr, he4_std_corr = corrected_sum_mean_std(
-                t, scores=[he4_score], nuclides=nuclides, f_struct=f_struct
+            he4_mean_corr, he4_std_corr = corrected_sum_mean_std_getvalues(
+                t, score=he4_score, nuclides=nuclides, f_struct=f_struct
             )
 
             he_mean_corr = he3_mean_corr + he4_mean_corr
@@ -1604,10 +1618,10 @@ def process_layer_region1_only(
 # Choose which chunks to process
 # =============================================================================
 KEYS_TO_PROCESS = [
-    "OB_3_b1",
+ #   "OB_3_b1",
     "OB_1_b6",
-    "OB_1_b10",
-    "IB_1_b4",
+ #   "OB_1_b10",
+ #   "IB_1_b4",
 ]
 
 # layer poloidal analysis (region 1 only)
@@ -1619,6 +1633,7 @@ layers = [("Armor", 0), ("First_Wall", 1), ("VV", vv_index)]
 # =============================================================================
 with openmc.StatePoint(STATEPOINT_FILE) as sp:
     dpa_gas_map = build_dpa_gas_map(sp)
+    require_struct_maps(bm)
 
     for key in KEYS_TO_PROCESS:
         if key in ob_by_key:
@@ -1629,7 +1644,11 @@ with openmc.StatePoint(STATEPOINT_FILE) as sp:
             print(f"[warn] Unknown chunk key: {key} (skipping)")
             continue
 
-        xcentroids, widths, x_edges = radial_bins_for_key(key)
+        try:
+            xcentroids, widths, x_edges = radial_bins_for_key(key)
+        except KeyError:
+            print(f"[warn] No radial bins found for key={key} (skipping)")
+            continue
 
         process_chunk(
             sp, key, chunk_cells, bm.pydagmc_model,
