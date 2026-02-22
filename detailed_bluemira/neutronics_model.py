@@ -130,6 +130,7 @@ breeder_material = materials.PbLi(0.90, 9.8)
 # -----------------------------------------------------------------------------
 # Structural / breeder / coolant definitions
 # -----------------------------------------------------------------------------
+# TODO: very unclear what these lists are. Why are the other solid materials not included in structure_material_list?
 structure_material_list: list[openmc.Material] = [structural_material, armor_material, w, ss316]
 breeder_material_list: list[openmc.Material] = [breeder_material]
 coolant_material_list: list[openmc.Material] = [coolant_material]
@@ -669,15 +670,15 @@ _ATOMS_PER_BARNCM_TO_ATOMS = 1.0e24  # (barn*cm)^-1 * cm^3 * 1e24 = atoms
 
 def atoms_by_nuclide(material: openmc.Material, vol_cm3: float) -> Dict[str, float]:
     """
-    Compute atoms per nuclide for `material` occupying `vol_cm3` (cm^3).
+    Compute atoms by nuclide for `material` occupying `vol_cm3` (cm^3).
+    Returns a dictionary indexed by the nuclide name, then returning the number of
+    atoms of that nuclide in the given material.
 
     OpenMC: get_nuclide_atom_densities() gives atoms/(barn*cm).
     Multiply by volume (cm^3) and 1e24 to get atoms.
     """
     nd = material.get_nuclide_atom_densities()
-    v = float(vol_cm3)
-    # TODO: why not just use get_nuclide_atoms?
-    return {str(n): float(d) * v * _ATOMS_PER_BARNCM_TO_ATOMS for n, d in nd.items()}
+    return {str(n): float(d) * vol_cm3 * _ATOMS_PER_BARNCM_TO_ATOMS for n, d in nd.items()}
 
 def build_solid_nuclides(structural_materials: List[openmc.Material]) -> List[str]:
     """
@@ -749,6 +750,7 @@ def build_structural_maps_vo(
                 # not relevant for structural-origin corrections
                 continue
 
+            #TODO: is there a bug here? This code never gets executed
             total_by_nuc = atoms_by_nuclide(fill_mat, vol)
             # restrict to solid nuclides
             total_by_nuc = {n: a for n, a in total_by_nuc.items() if n in solid_set}
@@ -761,6 +763,8 @@ def build_structural_maps_vo(
         # -----------------------
         else:
             # normalize recipe VFs to sum to 1 (defensive)
+            # TODO: isn't that redundant because the volume fractions are guaranteed to sum to 1 when
+            # they are formed because you do so yourself?
             mats = list(recipe.keys())
             vfs = [float(recipe[m]) for m in mats]
             s = float(sum(vfs))
@@ -773,8 +777,10 @@ def build_structural_maps_vo(
 
             # VO-linear accumulation from component materials
             for m_i, vf_i in zip(mats, vfs):
+                # TODO: could vf_i ever be less than zero?
                 if vf_i <= 0.0:
                     continue
+
                 nd_i = m_i.get_nuclide_atom_densities()
                 scale = vol * vf_i * _ATOMS_PER_BARNCM_TO_ATOMS
 
@@ -782,6 +788,7 @@ def build_structural_maps_vo(
 
                 for nuc, dens in nd_i.items():
                     nuc = str(nuc)
+                    # TODO: I'm confused on the difference between the solid_set and structural_set. Can we just have one notion, and call structural == solid? Our purpose here is just to exlude the non-solid materials
                     if nuc not in solid_set:
                         continue
                     a = float(dens) * scale
@@ -793,10 +800,10 @@ def build_structural_maps_vo(
             frac_by_nuc: Dict[str, float] = {}
             for nuc, n_tot in total_by_nuc.items():
                 n_str = float(struct_by_nuc.get(nuc, 0.0))
-                f = (n_str / n_tot) if n_tot > 0.0 else 0.0
+                f = min((n_str / n_tot), 1.0) if n_tot > 0.0 else 0.0
                 # clamp tiny floating overshoot
-                if f > 1.0 and f < 1.0 + 1e-12:
-                    f = 1.0
+                #if f > 1.0 and f < 1.0 + 1e-12:
+                #    f = 1.0
                 frac_by_nuc[nuc] = f
 
         # store
@@ -842,9 +849,10 @@ for cid in cell_ids:
 
     tg = openmc.Tally()
     tg.filters = [cell_filters_by_cid[cid], n_particle_filter]
+    # TODO: Why is H2-production and H3-production not included as a score? Those are still hydrogen
     tg.scores = [
         "damage-energy",
-        "H1-production", "He3-production", "He4-production",
+        "H1-production", "H2-production", "H3-production", "He3-production", "He4-production",
     ]
     tg.nuclides = nuclides_in_cell
 
@@ -856,6 +864,7 @@ for cid in cell_ids:
 # -----------------------------------------------------------------------------
 model.export_to_model_xml(path="neutronics_model.xml")
 
+# TODO: is this necessary? How would these come to exist? Suggest to remove if not needed
 # remove redundant defaults
 redundant_files = ["geometry.xml", "materials.xml", "settings.xml", "tallies.xml"]
 for f in redundant_files:
