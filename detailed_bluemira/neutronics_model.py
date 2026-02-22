@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
+
 """
-neutronics_model.py 
+Generates a wedge of the EU DEMO tokamak, based on a CAD file generated from the
+BlueMira/Process codes.
 """
 
 from __future__ import annotations
@@ -22,7 +24,7 @@ import os
 import sys
 module_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "materials"))
 sys.path.append(module_path)
-import materials  
+import materials
 
 # -----------------------------------------------------------------------------
 # Inputs
@@ -33,7 +35,7 @@ INPUT_JSON = Path("Tokamak_inputs.json")
 model = openmc.Model()
 
 # -----------------------------------------------------------------------------
-# GEOMETRY 
+# GEOMETRY
 # -----------------------------------------------------------------------------
 dagmc_universe = openmc.DAGMCUniverse(filename=_DAGMC_MODEL_FILE)
 pydagmc_model = pydagmc.Model(str(dagmc_universe.filename))
@@ -43,15 +45,15 @@ openmc.reserve_ids([v.id for v in pydagmc_model.volumes], cls=openmc.Cell)
 openmc.reserve_ids([s.id for s in pydagmc_model.surfaces], cls=openmc.Surface)
 
 def azimuthal_plane(theta_deg, boundary_type=None, name=None, surface_id=None):
+    "
+    Generate a CSG plane to cut the tokamak into a wedge. The unit normals of
+    these planes are generated such that the correct region definitions later
+    in this file will include the small-angle space between the two planes.
+    "
     theta = math.radians(theta_deg)
     if abs(theta_deg - 90.0) < 1e-6:
-        return openmc.Plane(a=1.0, b=0.0, c=0.0, d=0.0,
-                            boundary_type=boundary_type, name=name, surface_id=surface_id)
-    a = -math.tan(theta)
-    b = 1.0
-    c = 0.0
-    d = 0.0
-    return openmc.Plane(a=a, b=b, c=c, d=d,
+        return openmc.XPlane(boundary_type=boundary_type, name=name, surface_id=surface_id)
+    return openmc.Plane(a=-math.tan(theta), b=1.0, c=0.0, d=0.0,
                         boundary_type=boundary_type, name=name, surface_id=surface_id)
 
 number_sectors = 16
@@ -75,11 +77,14 @@ sector_cell = openmc.Cell(
 model.geometry = openmc.Geometry(root=[sector_cell])
 
 # -----------------------------------------------------------------------------
-# MATERIALS 
+# MATERIALS
 # -----------------------------------------------------------------------------
 ss316   = materials.ss316Ln_ig(7.93)
 ccz     = materials.CuCrZr(8.9)
+
+# tungsten, density based on PNNL material compendium value
 w       = materials.W(19.3)
+
 h       = materials.Helium(0.0001785)
 nb3sn   = materials.Nb3Sn(5.7)
 epoxy   = materials.Epoxy(1.207)
@@ -91,10 +96,12 @@ c       = materials.Cu(8.96)
 # Plasma Region
 plasma = openmc.Material(name="Plasma_Region")
 plasma.set_density("g/cm3", 1e-6)
-plasma.add_element("He", 1.0)
+plasma.add_element("H", 1.0)
+
 # Cryostat
 CS = materials.ss316Ln_ig(7.93)
 CS.name = "Cryostat"
+
 # Radiation Shielding
 RS = materials.ss304_b4(7.8)
 RS.name = "RadiationShield_all"
@@ -105,15 +112,24 @@ RS.name = "RadiationShield_all"
 # ----------------------------------------------
 # Armor (default tungsten if not provided by user)
 armor_material = materials.W(19.3)
+
+print(armor_material)
+
 # Structural material (Eurofer if not provided by user)
 structural_material = materials.eurofer97(7.87)
+
+print(structural_material)
+
 # Coolant material (dependent on the breeder type) (water for WCLL)
 coolant_material = materials.Water(0.866)
+
+print(coolant_material)
+
 # Breeder material (dependent on the breeder type) (PbLi for WCLL)
 breeder_material = materials.PbLi(0.90, 9.8)
 
 # -----------------------------------------------------------------------------
-# Structural / breeder / coolant definitions 
+# Structural / breeder / coolant definitions
 # -----------------------------------------------------------------------------
 structure_material_list: list[openmc.Material] = [structural_material, armor_material, w, ss316]
 breeder_material_list: list[openmc.Material] = [breeder_material]
@@ -121,7 +137,7 @@ coolant_material_list: list[openmc.Material] = [coolant_material]
 
 # ARMOR DEFINITION (not a mixture)
 #armor = armor_material
-#armor.name = "Armor" 
+#armor.name = "Armor"
 # -----------------------------------------------------------------------------
 # MIX RECIPES
 # (easier to find nuclides ratios with this)
@@ -606,6 +622,7 @@ flux_tally.filters = [cell_filter, particle_filter, energy_filter]
 flux_tally.scores = ["flux"]
 model.tallies.append(flux_tally)
 
+# TODO: this does not need to be its own tally, you have all the information in flux_tally already
 flux_tally_total = openmc.Tally()
 flux_tally_total.filters = [cell_filter, particle_filter]
 flux_tally_total.scores = ["flux"]
@@ -652,6 +669,7 @@ def atoms_by_nuclide(material: openmc.Material, vol_cm3: float) -> Dict[str, flo
     """
     nd = material.get_nuclide_atom_densities()
     v = float(vol_cm3)
+    # TODO: why not just use get_nuclide_atoms?
     return {str(n): float(d) * v * _ATOMS_PER_BARNCM_TO_ATOMS for n, d in nd.items()}
 
 def build_solid_nuclides(structural_materials: List[openmc.Material]) -> List[str]:
