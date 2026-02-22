@@ -96,6 +96,8 @@ nbti    = materials.NbTi(6.538)
 c       = materials.Cu(8.96)
 
 # Static materials (invariant to users or breeder concept)
+# TODO: I am confused by why you name these ones "static." Aren't the materials in e.g.
+# the magnets also static and not changed by the user or breeder concept?
 # Plasma Region
 plasma = openmc.Material(name="Plasma_Region")
 plasma.set_density("g/cm3", 1e-6)
@@ -116,17 +118,11 @@ RS.name = "RadiationShield_all"
 # Armor (default tungsten if not provided by user)
 armor_material = materials.W(19.3)
 
-print(armor_material)
-
 # Structural material (Eurofer if not provided by user)
 structural_material = materials.eurofer97(7.87)
 
-print(structural_material)
-
 # Coolant material (dependent on the breeder type) (water for WCLL)
 coolant_material = materials.Water(0.866)
-
-print(coolant_material)
 
 # Breeder material (dependent on the breeder type) (PbLi for WCLL)
 breeder_material = materials.PbLi(0.90, 9.8)
@@ -190,50 +186,48 @@ def build_and_set_model_materials_from_obj_recipes_vo(
     *,
     recipes_obj: dict[str, dict[openmc.Material, float]],
     static_materials: list[openmc.Material] | None = None,
-    normalize: bool = True,
 ) -> dict[str, openmc.Material]:
     """
     VO-only builder: interprets recipe fractions as volume fractions.
 
     CRITICAL: passes percent_type="vo" into openmc.Material.mix_materials()
     (otherwise OpenMC defaults to atom percent).
+
+    This routine returns a dictionary of the material names, followed by the
+    openmc.Material definition for each material in the geometry.
     """
-    # TODO: is there ever a scenario where normalize would be false? I think it is
-    # required by OpenMC. Why not have it removed as an input parameter then?
     def normalize_fracs(vals: list[float]) -> list[float]:
         """
         The mix_materials function requires that the things being mixed sum up to 1, so
         this function will renormalize if necessary
         """
-        s = float(sum(vals))
+        s = sum(vals)
         if s <= 0.0:
             raise ValueError("Fractions sum to <= 0")
-        return [float(v) / s for v in vals]
+        return [v / s for v in vals]
 
     static_materials = list(static_materials or [])
     mixed: dict[str, openmc.Material] = {}
 
     for name, comp in recipes_obj.items():
         mats = list(comp.keys())
-        fracs = [float(v) for v in comp.values()]
-        if normalize:
-            fracs = normalize_fracs(fracs)
+        fracs = [v for v in comp.values()]
+        fracs = normalize_fracs(fracs)
 
         m = openmc.Material.mix_materials(mats, fracs, percent_type="vo", name=name)
-
         mixed[name] = m
 
-    # TODO: I don't think that you need this
     model.materials = openmc.Materials(static_materials + list(mixed.values()))
     return mixed
 
-
+# TODO: wouldn't it be easier to avoid this NO_MIXTURE thing at altogether by just defining
+# the CS, RS, and plasma as mixtures with only a single entity being mixed?
+# e.g. with fracs = [1.0], mats = [CS]
 NO_MIXTURE = [CS, RS, plasma]
 mixed = build_and_set_model_materials_from_obj_recipes_vo(
     model,
     recipes_obj=MIX_RECIPES_OBJ,
-    static_materials=NO_MIXTURE,
-    normalize=True,
+    static_materials=NO_MIXTURE
 )
 
 # -----------------------------------------------------------------------------
@@ -270,9 +264,10 @@ model.settings.batches = 10
 model.settings.particles = 10_000
 model.settings.run_mode = "fixed source"
 model.settings.source = my_source
+# TODO: change 245 and 56 to not be hard-coded
 model.settings.surf_source_write = {
-    'surface_ids': [245], 
-    'max_particles': 1_000, 
+    'surface_ids': [245],
+    'max_particles': 1_000,
     'cellto': 56
     }
 # -----------------------------------------------------------------------------
@@ -289,7 +284,7 @@ openmc.reserve_ids([c_id for c_id in model.geometry.get_all_cells()], cls=openmc
 openmc.reserve_ids([s_id for s_id in model.geometry.get_all_surfaces()], cls=openmc.Surface)
 
 # -----------------------------------------------------------------------------
-# SURFACE INFO HELPERS 
+# SURFACE INFO HELPERS
 # -----------------------------------------------------------------------------
 class Orientation(Enum):
     FORWARD = 1
