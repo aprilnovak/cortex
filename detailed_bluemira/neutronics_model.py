@@ -45,11 +45,11 @@ openmc.reserve_ids([v.id for v in pydagmc_model.volumes], cls=openmc.Cell)
 openmc.reserve_ids([s.id for s in pydagmc_model.surfaces], cls=openmc.Surface)
 
 def azimuthal_plane(theta_deg, boundary_type=None, name=None, surface_id=None):
-    "
+    """
     Generate a CSG plane to cut the tokamak into a wedge. The unit normals of
     these planes are generated such that the correct region definitions later
     in this file will include the small-angle space between the two planes.
-    "
+    """
     theta = math.radians(theta_deg)
     if abs(theta_deg - 90.0) < 1e-6:
         return openmc.XPlane(boundary_type=boundary_type, name=name, surface_id=surface_id)
@@ -60,6 +60,7 @@ number_sectors = 16
 theta0 = 0.0
 theta1 = theta0 + 360 / number_sectors
 
+# generate the CSG wedge to place the DAGMC model within
 cut_lo = azimuthal_plane(theta0, boundary_type="reflective", surface_id=100_001)
 cut_hi = azimuthal_plane(theta1, boundary_type="reflective", surface_id=100_002)
 
@@ -79,6 +80,8 @@ model.geometry = openmc.Geometry(root=[sector_cell])
 # -----------------------------------------------------------------------------
 # MATERIALS
 # -----------------------------------------------------------------------------
+# TODO: add citations for where these densities come from
+# TODO: need to review materials.py for correctness for all materials
 ss316   = materials.ss316Ln_ig(7.93)
 ccz     = materials.CuCrZr(8.9)
 
@@ -142,6 +145,7 @@ coolant_material_list: list[openmc.Material] = [coolant_material]
 # MIX RECIPES
 # (easier to find nuclides ratios with this)
 # (ADD any openmc.Materials.mix_materials() to this dict)
+# TODO: add citation for where these numbers come from
 # -----------------------------------------------------------------------------
 MIX_RECIPES_OBJ: dict[str, dict[openmc.Material, float]] = {
     # Armor
@@ -194,7 +198,13 @@ def build_and_set_model_materials_from_obj_recipes_vo(
     CRITICAL: passes percent_type="vo" into openmc.Material.mix_materials()
     (otherwise OpenMC defaults to atom percent).
     """
+    # TODO: is there ever a scenario where normalize would be false? I think it is
+    # required by OpenMC. Why not have it removed as an input parameter then?
     def normalize_fracs(vals: list[float]) -> list[float]:
+        """
+        The mix_materials function requires that the things being mixed sum up to 1, so
+        this function will renormalize if necessary
+        """
         s = float(sum(vals))
         if s <= 0.0:
             raise ValueError("Fractions sum to <= 0")
@@ -210,9 +220,10 @@ def build_and_set_model_materials_from_obj_recipes_vo(
             fracs = normalize_fracs(fracs)
 
         m = openmc.Material.mix_materials(mats, fracs, percent_type="vo", name=name)
-        m.name = name
+
         mixed[name] = m
 
+    # TODO: I don't think that you need this
     model.materials = openmc.Materials(static_materials + list(mixed.values()))
     return mixed
 
