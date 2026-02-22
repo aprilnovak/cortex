@@ -619,10 +619,10 @@ t_surf_filter = openmc.SurfaceFilter(external_surface_ids)
 n_particle_filter = openmc.ParticleFilter(bins=["neutron"])
 energies = openmc.mgxs.GROUP_STRUCTURES["CCFE-709"]
 energy_filter = openmc.EnergyFilter(energies)
-unit_lethargy = [np.log(energies[i + 1] / energies[i]) for i in range(len(energies) - 1)]
 
 model.tallies = openmc.Tallies()
 
+# Neutron and photon flux
 flux_tally = openmc.Tally()
 flux_tally.filters = [cell_filter, particle_filter, energy_filter]
 flux_tally.scores = ["flux"]
@@ -634,6 +634,7 @@ flux_tally_total.filters = [cell_filter, particle_filter]
 flux_tally_total.scores = ["flux"]
 model.tallies.append(flux_tally_total)
 
+# TODO: why is this only looking at the neutrons? I guess we are only computing the albedos for the neutrons?
 t_current_tally = openmc.Tally()
 t_current_tally.filters = [t_surf_filter, n_particle_filter]
 t_current_tally.scores = ["current"]
