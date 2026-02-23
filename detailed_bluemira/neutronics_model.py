@@ -94,22 +94,12 @@ epoxy   = materials.Epoxy(1.207)
 bronze  = materials.Bronze(8.8775)
 nbti    = materials.NbTi(6.538)
 c       = materials.Cu(8.96)
+ss304_b4 = materials.ss304_b4(7.8)
 
-# Static materials (invariant to users or breeder concept)
-# TODO: I am confused by why you name these ones "static." Aren't the materials in e.g.
-# the magnets also static and not changed by the user or breeder concept?
 # Plasma Region
-plasma = openmc.Material(name="Plasma_Region")
+plasma = openmc.Material()
 plasma.set_density("g/cm3", 1e-6)
 plasma.add_element("H", 1.0)
-
-# Cryostat
-CS = materials.ss316Ln_ig(7.93)
-CS.name = "Cryostat"
-
-# Radiation Shielding
-RS = materials.ss304_b4(7.8)
-RS.name = "RadiationShield_all"
 
 # ----------------------------------------------
 # CASE MATERIALS
@@ -131,6 +121,10 @@ breeder_material = materials.PbLi(0.90, 9.8)
 # Structural / breeder / coolant definitions
 # -----------------------------------------------------------------------------
 # TODO: very unclear what these lists are. Why are the other solid materials not included in structure_material_list?
+# (REPLY):
+# 1) I kept as strcuture_material_list just the structural materials that exist from armor -> VV. 
+# 2)
+# 3)
 structure_material_list: list[openmc.Material] = [structural_material, armor_material, w, ss316]
 breeder_material_list: list[openmc.Material] = [breeder_material]
 coolant_material_list: list[openmc.Material] = [coolant_material]
@@ -177,6 +171,13 @@ MIX_RECIPES_OBJ: dict[str, dict[openmc.Material, float]] = {
     # Coils
     "PC_PFC":      {nbti: 0.02895, c: 0.1169, epoxy: 0.18, bronze: 0.0735, h: 0.1682, ss316: 0.43245},
     "TFcoil":      {nb3sn: 0.02895, c: 0.1169, epoxy: 0.18, bronze: 0.0735, h: 0.1682, ss316: 0.43245},
+    # Plasma Region
+    "Plasma_Region": {plasma: 1.00},
+    # Cryostat
+    "Cryostat": {ss316: 1.00},
+    # Shielding
+    "RadiationShield_all": {ss304_b4: 1.00},
+
 }
 
 # -----------------------------------------------------------------------------
@@ -186,8 +187,7 @@ def build_and_set_model_materials_from_obj_recipes_vo(
     model: openmc.Model,
     *,
     recipes_obj: dict[str, dict[openmc.Material, float]],
-    static_materials: list[openmc.Material] | None = None,
-) -> dict[str, openmc.Material]:
+    ) -> dict[str, openmc.Material]:
     """
     VO-only builder: interprets recipe fractions as volume fractions.
 
@@ -207,7 +207,6 @@ def build_and_set_model_materials_from_obj_recipes_vo(
             raise ValueError("Fractions sum to <= 0")
         return [v / s for v in vals]
 
-    static_materials = list(static_materials or [])
     mixed: dict[str, openmc.Material] = {}
 
     for name, comp in recipes_obj.items():
@@ -218,17 +217,12 @@ def build_and_set_model_materials_from_obj_recipes_vo(
         m = openmc.Material.mix_materials(mats, fracs, percent_type="vo", name=name)
         mixed[name] = m
 
-    model.materials = openmc.Materials(static_materials + list(mixed.values()))
+    model.materials = openmc.Materials(list(mixed.values()))
     return mixed
 
-# TODO: wouldn't it be easier to avoid this NO_MIXTURE thing at altogether by just defining
-# the CS, RS, and plasma as mixtures with only a single entity being mixed?
-# e.g. with fracs = [1.0], mats = [CS]
-NO_MIXTURE = [CS, RS, plasma]
 mixed = build_and_set_model_materials_from_obj_recipes_vo(
     model,
     recipes_obj=MIX_RECIPES_OBJ,
-    static_materials=NO_MIXTURE
 )
 
 # -----------------------------------------------------------------------------
@@ -266,6 +260,8 @@ model.settings.particles = 10_000
 model.settings.run_mode = "fixed source"
 model.settings.source = my_source
 # TODO: change 245 and 56 to not be hard-coded
+# (TOMAS REPLY):planning to perform most of the geometry pre/post-processing in an initial .py file.
+# With that we could figure it out the cell and surface_id for this source without adding repetitive functions.
 model.settings.surf_source_write = {
     'surface_ids': [245],
     'max_particles': 1_000,
@@ -403,7 +399,7 @@ def build_known_thicknesses_from_offsets(geom: dict, *, side: str) -> np.ndarray
     so we do NOT include Armor/FW inside offsets; we prepend them explicitly.
     """
     side = side.lower()
-    armor_cm = float(geom["armor_cm"])
+    armor_cm = float(geom["armor_cm"] - geom["fw_cm"])
     fw_cm = float(geom["fw_cm"])
     n_layers = int(geom[f"{side}_n_layers"])
     offsets = np.asarray(geom[f"{side}_offsets_cm"], dtype=float).ravel()
@@ -495,7 +491,7 @@ def make_radial_bins_for_key(
         interp_last = interp_three_point(t, topL, midL, botL)
         vv = interp_three_point(t, topV, midV, botV)
 
-    pre_breeder_shift = float(geom["armor_cm"] + geom["fw_cm"])
+    pre_breeder_shift = float(geom["armor_cm"]) # geom["armor_cm"] => fw + armor offset
     last_offset = float(abs(offsets[-1]) + pre_breeder_shift)
 
     last_breeder = float(interp_last - last_offset)
@@ -680,9 +676,10 @@ def atoms_by_nuclide(material: openmc.Material, vol_cm3: float) -> Dict[str, flo
     nd = material.get_nuclide_atom_densities()
     return {str(n): float(d) * vol_cm3 * _ATOMS_PER_BARNCM_TO_ATOMS for n, d in nd.items()}
 
-def build_solid_nuclides(structural_materials: List[openmc.Material]) -> List[str]:
+def build_structural_nuclides(structural_materials: List[openmc.Material]) -> List[str]:
     """
-    1) Build a sorted list of nuclides present in the provided structural materials.
+    Sorted list of nuclides present in the provided *structural* materials.
+    This list is used as a whitelist for per-nuclide tallies / bookkeeping.
     """
     s: Set[str] = set()
     for m in structural_materials:
@@ -697,7 +694,7 @@ def build_structural_maps_vo(
     mix_recipes_obj: Dict[str, Dict[openmc.Material, float]],
     structural_materials: List[openmc.Material],
     ) -> Tuple[
-    List[str],                    # solid_nuclides
+    List[str],                    # structural_nuclides (whitelist)
     Dict[int, Dict[str, float]],  # cell_nuclide_atoms (total atoms per nuclide)
     Dict[int, Dict[str, float]],  # cell_struct_nuclide_atoms (struct atoms per nuclide)
     Dict[int, float],             # cell_total_atoms_struct (sum struct atoms)
@@ -705,8 +702,6 @@ def build_structural_maps_vo(
     ]:
     """
     For each cell:
-      - Non-mixture: only if fill material is structural -> atoms from fill.
-      - Mixture: recipe is interpreted as VO fractions.
           total_by_nuc  = sum_i [ atoms_dens_i(n) * vol * vf_i * 1e24 ] over ALL components
           struct_by_nuc  = sum_{i in structural} [ atoms_dens_i(n) * vol * vf_i * 1e24 ]
           frac(n)        = struct_by_nuc(n) / total_by_nuc(n)
@@ -714,9 +709,9 @@ def build_structural_maps_vo(
     Notes:
       - Stored nuclides in `solid_nuclides` (used in tally selection).
     """
-    structural_set: Set[openmc.Material] = set(structural_materials)
-    solid_nuclides: List[str] = build_solid_nuclides(structural_materials)
-    solid_set: Set[str] = set(solid_nuclides)
+    structural_materials_set: Set[openmc.Material] = set(structural_materials)
+    structural_nuclides: List[str] = build_structural_nuclides(structural_materials)
+    structural_nuclide_set: Set[str] = set(structural_nuclides)
 
     all_cells = model.geometry.get_all_cells()
 
@@ -742,69 +737,53 @@ def build_structural_maps_vo(
         fill_name = str(fill_mat.name or "")
         recipe = mix_recipes_obj.get(fill_name)
 
-        # -----------------------
-        # Case A: non-mixture cell
-        # -----------------------
         if recipe is None:
-            if fill_mat not in structural_set:
-                # not relevant for structural-origin corrections
+            raise KeyError(f"[mix_recipes_obj] Missing recipe for fill material name '{fill_name}' (cell {cid}).")
+
+        # TODO: isn't that redundant because the volume fractions are guaranteed to sum to 1 when
+        # they are formed because you do so yourself?
+        # (REPLY): Right now I am operating both times into the initial matrix that is not normalized
+        # I think the best way is to create a function that operates directly on that matrix and remove
+        # the normalization on both following steps.
+        mats = list(recipe.keys())
+        vfs = [float(recipe[m]) for m in mats]
+        s = float(sum(vfs))
+        if s <= 0.0:
+            raise ValueError(f"[mix_recipes_obj] Recipe '{fill_name}' fractions sum <= 0.")
+        vfs = [x / s for x in vfs]
+
+        total_by_nuc: Dict[str, float] = {}
+        struct_by_nuc: Dict[str, float] = {}
+
+        # VO-linear accumulation from component materials
+        for m_i, vf_i in zip(mats, vfs):
+            # TODO: could vf_i ever be less than zero?
+            # Physically, no
+            if vf_i <= 0.0:
                 continue
 
-            #TODO: is there a bug here? This code never gets executed
-            total_by_nuc = atoms_by_nuclide(fill_mat, vol)
-            # restrict to solid nuclides
-            total_by_nuc = {n: a for n, a in total_by_nuc.items() if n in solid_set}
+            nd_i = m_i.get_nuclide_atom_densities()
+            scale = vol * vf_i * _ATOMS_PER_BARNCM_TO_ATOMS
 
-            struct_by_nuc = dict(total_by_nuc)  # all atoms come from structure
-            frac_by_nuc = {n: 1.0 for n in struct_by_nuc.keys()}
+            is_struct = (m_i in structural_materials_set)
 
-        # -----------------------
-        # Case B: mixture cell (VO)
-        # -----------------------
-        else:
-            # normalize recipe VFs to sum to 1 (defensive)
-            # TODO: isn't that redundant because the volume fractions are guaranteed to sum to 1 when
-            # they are formed because you do so yourself?
-            mats = list(recipe.keys())
-            vfs = [float(recipe[m]) for m in mats]
-            s = float(sum(vfs))
-            if s <= 0.0:
-                raise ValueError(f"[mix_recipes_obj] Recipe '{fill_name}' fractions sum <= 0.")
-            vfs = [x / s for x in vfs]
-
-            total_by_nuc: Dict[str, float] = {}
-            struct_by_nuc: Dict[str, float] = {}
-
-            # VO-linear accumulation from component materials
-            for m_i, vf_i in zip(mats, vfs):
-                # TODO: could vf_i ever be less than zero?
-                if vf_i <= 0.0:
+            for nuc, dens in nd_i.items():
+                nuc = str(nuc)
+                # TODO: I'm confused on the difference between the solid_set and structural_set. Can we just have one notion, and call structural == solid? Our purpose here is just to exlude the non-solid materials
+                # I do think I can merge them and remove at least one function out of the script.
+                if nuc not in structural_nuclide_set:
                     continue
+                a = float(dens) * scale
+                total_by_nuc[nuc] = total_by_nuc.get(nuc, 0.0) + a
+                if is_struct:
+                    struct_by_nuc[nuc] = struct_by_nuc.get(nuc, 0.0) + a
 
-                nd_i = m_i.get_nuclide_atom_densities()
-                scale = vol * vf_i * _ATOMS_PER_BARNCM_TO_ATOMS
-
-                is_struct = (m_i in structural_set)
-
-                for nuc, dens in nd_i.items():
-                    nuc = str(nuc)
-                    # TODO: I'm confused on the difference between the solid_set and structural_set. Can we just have one notion, and call structural == solid? Our purpose here is just to exlude the non-solid materials
-                    if nuc not in solid_set:
-                        continue
-                    a = float(dens) * scale
-                    total_by_nuc[nuc] = total_by_nuc.get(nuc, 0.0) + a
-                    if is_struct:
-                        struct_by_nuc[nuc] = struct_by_nuc.get(nuc, 0.0) + a
-
-            # fraction per nuclide
-            frac_by_nuc: Dict[str, float] = {}
-            for nuc, n_tot in total_by_nuc.items():
-                n_str = float(struct_by_nuc.get(nuc, 0.0))
-                f = min((n_str / n_tot), 1.0) if n_tot > 0.0 else 0.0
-                # clamp tiny floating overshoot
-                #if f > 1.0 and f < 1.0 + 1e-12:
-                #    f = 1.0
-                frac_by_nuc[nuc] = f
+        # fraction per nuclide
+        frac_by_nuc: Dict[str, float] = {}
+        for nuc, n_tot in total_by_nuc.items():
+            n_str = float(struct_by_nuc.get(nuc, 0.0))
+            f = min((n_str / n_tot), 1.0) if n_tot > 0.0 else 0.0
+            frac_by_nuc[nuc] = f
 
         # store
         cell_nuclide_atoms[cid] = total_by_nuc
@@ -813,14 +792,14 @@ def build_structural_maps_vo(
         cell_struct_origin_frac[cid] = frac_by_nuc
 
     return (
-        solid_nuclides,
+        structural_nuclides,
         cell_nuclide_atoms,
         cell_struct_nuclide_atoms,
         cell_total_atoms_struct,
         cell_struct_origin_frac,
     )
 
-solid_nuclides, cell_nuclide_atoms, cell_struct_nuclide_atoms, cell_total_atoms_struct, cell_struct_origin_frac = (
+structural_nuclides, cell_nuclide_atoms, cell_struct_nuclide_atoms, cell_total_atoms_struct, cell_struct_origin_frac = (
     build_structural_maps_vo(
         model,
         cell_ids=cell_ids,
@@ -833,7 +812,7 @@ solid_nuclides, cell_nuclide_atoms, cell_struct_nuclide_atoms, cell_total_atoms_
 # DPA + gas production tallies per cell
 # -----------------------------------------------------------------------------
 cell_filters_by_cid = {int(cid): openmc.CellFilter([int(cid)]) for cid in cell_ids}
-solid_set = set(solid_nuclides)
+structural_nuclide_set = set(structural_nuclides)
 
 dpa_gas_tallies: Dict[int, openmc.Tally] = {}
 
@@ -842,7 +821,7 @@ for cid in cell_ids:
 
     nuclides_in_cell = sorted(
         nuc for nuc in cell_nuclide_atoms.get(cid, {}).keys()
-        if nuc in solid_set
+        if nuc in structural_nuclide_set
     )
     if not nuclides_in_cell:
         continue
@@ -866,6 +845,7 @@ model.export_to_model_xml(path="neutronics_model.xml")
 
 # TODO: is this necessary? How would these come to exist? Suggest to remove if not needed
 # remove redundant defaults
+# (REPLY): I think the model.init_lib(output=False) is creating these outputs (not the tallies)
 redundant_files = ["geometry.xml", "materials.xml", "settings.xml", "tallies.xml"]
 for f in redundant_files:
     if os.path.exists(f):
