@@ -1511,9 +1511,15 @@ def process_layer_region1_only(
         # TODO (optional): would be nice to have the uncertainty plotted as shaded region
         fig, ax = empty_poloidal_plot(x, n)
         dpa_plot = pad_poloidal_data(np.asarray(dpa_y, dtype=float))
+        dpa_plot_std = pad_poloidal_data(np.asarray(dpa_y_std, dtype=float))
+
+        dpa_low = np.clip(dpa_plot - dpa_plot_std, eps_heat, None)
+        dpa_high = np.clip(dpa_plot + dpa_plot_std, eps_heat, None)
 
         set_ylim_and_ticks(ax, dpa_plot, ratio=ylim_ratio, scale="linear")
         ax.step(x, dpa_plot, where="mid", linewidth=2)
+        ax.fill_between(x, dpa_low, dpa_high, step="mid", alpha=0.15)
+
         ax.set_ylabel("NRT-dpa/fpy", fontsize=11)
         ax.set_title(f"NRT-dpa/fpy — {layer_tag}", fontsize=12)
 
