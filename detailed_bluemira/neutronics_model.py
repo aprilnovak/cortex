@@ -125,7 +125,7 @@ breeder_material = materials.PbLi(0.90, 9.8)
 # 1) I kept as strcuture_material_list just the structural materials that exist from armor -> VV. 
 # 2)
 # 3)
-structure_material_list: list[openmc.Material] = [structural_material, armor_material, w, ss316]
+structure_material_list: list[openmc.Material] = [structural_material, armor_material, ss316]
 breeder_material_list: list[openmc.Material] = [breeder_material]
 coolant_material_list: list[openmc.Material] = [coolant_material]
 
@@ -177,12 +177,44 @@ MIX_RECIPES_OBJ: dict[str, dict[openmc.Material, float]] = {
     "Cryostat": {ss316: 1.00},
     # Shielding
     "RadiationShield_all": {ss304_b4: 1.00},
-
 }
 
 # -----------------------------------------------------------------------------
 # Build mixed materials and assign model.materials (VO ONLY)
 # -----------------------------------------------------------------------------
+def normalize_mix_recipes_obj(
+    recipes_obj: dict[str, dict[openmc.Material, float]],
+    *,
+    drop_nonpositive: bool = True,
+    tol: float = 1e-14,
+    ) -> dict[str, dict[openmc.Material, float]]:
+    """
+    Normalize volume % of each materials components in the mixture of [mix_recipes_obj]
+
+    - If drop_nonpositive: remove components with vf <= 0 before normalizing.
+    - Raises if the sum is <= 0 after filtering.
+    """
+    out: dict[str, dict[openmc.Material, float]] = {}
+
+    for name, comp in recipes_obj.items():
+        if comp is None or len(comp) == 0:
+            raise ValueError(f"[MIX_RECIPES_OBJ] Recipe '{name}' is empty.")
+
+        items = []
+        for m, vf in comp.items():
+            vf = float(vf)
+            if drop_nonpositive and vf <= 0.0:
+                continue
+            items.append((m, vf))
+
+        s = sum(vf for _, vf in items)
+        if s <= tol:
+            raise ValueError(f"[MIX_RECIPES_OBJ] Recipe '{name}' fractions sum <= 0 (sum={s}).")
+
+        out[name] = {m: vf / s for m, vf in items}
+
+    return out
+
 def build_and_set_model_materials_from_obj_recipes_vo(
     model: openmc.Model,
     *,
@@ -191,28 +223,14 @@ def build_and_set_model_materials_from_obj_recipes_vo(
     """
     VO-only builder: interprets recipe fractions as volume fractions.
 
-    CRITICAL: passes percent_type="vo" into openmc.Material.mix_materials()
-    (otherwise OpenMC defaults to atom percent).
-
     This routine returns a dictionary of the material names, followed by the
     openmc.Material definition for each material in the geometry.
     """
-    def normalize_fracs(vals: list[float]) -> list[float]:
-        """
-        The mix_materials function requires that the things being mixed sum up to 1, so
-        this function will renormalize if necessary
-        """
-        s = sum(vals)
-        if s <= 0.0:
-            raise ValueError("Fractions sum to <= 0")
-        return [v / s for v in vals]
-
     mixed: dict[str, openmc.Material] = {}
 
     for name, comp in recipes_obj.items():
         mats = list(comp.keys())
         fracs = [v for v in comp.values()]
-        fracs = normalize_fracs(fracs)
 
         m = openmc.Material.mix_materials(mats, fracs, percent_type="vo", name=name)
         mixed[name] = m
@@ -220,9 +238,11 @@ def build_and_set_model_materials_from_obj_recipes_vo(
     model.materials = openmc.Materials(list(mixed.values()))
     return mixed
 
+MIX_RECIPES_OBJ_NORM = normalize_mix_recipes_obj(MIX_RECIPES_OBJ)
+
 mixed = build_and_set_model_materials_from_obj_recipes_vo(
     model,
-    recipes_obj=MIX_RECIPES_OBJ,
+    recipes_obj=MIX_RECIPES_OBJ_NORM,
 )
 
 # -----------------------------------------------------------------------------
@@ -664,28 +684,22 @@ model.tallies.append(heating_tally)
 # -----------------------------------------------------------------------------
 _ATOMS_PER_BARNCM_TO_ATOMS = 1.0e24  # (barn*cm)^-1 * cm^3 * 1e24 = atoms
 
-def atoms_by_nuclide(material: openmc.Material, vol_cm3: float) -> Dict[str, float]:
-    """
-    Compute atoms by nuclide for `material` occupying `vol_cm3` (cm^3).
-    Returns a dictionary indexed by the nuclide name, then returning the number of
-    atoms of that nuclide in the given material.
-
-    OpenMC: get_nuclide_atom_densities() gives atoms/(barn*cm).
-    Multiply by volume (cm^3) and 1e24 to get atoms.
-    """
-    nd = material.get_nuclide_atom_densities()
-    return {str(n): float(d) * vol_cm3 * _ATOMS_PER_BARNCM_TO_ATOMS for n, d in nd.items()}
-
 def build_structural_nuclides(structural_materials: List[openmc.Material]) -> List[str]:
     """
     Sorted list of nuclides present in the provided *structural* materials.
-    This list is used as a whitelist for per-nuclide tallies / bookkeeping.
+
+    This is a whitelist used to:
+      - restrict per-nuclide tallies (damage-energy, H/He production) to only
+        nuclides that exist in your structural materials set.
+      - restrict book-keeping for f_struct_origin(n) to the same whitelist.
     """
     s: Set[str] = set()
     for m in structural_materials:
-        for nuc in m.get_nuclide_densities().keys():
+        # Use the same API as the later accumulation (atom densities).
+        for nuc in m.get_nuclide_atom_densities().keys():
             s.add(str(nuc))
     return sorted(s)
+
 
 def build_structural_maps_vo(
     model: openmc.Model,
@@ -693,23 +707,27 @@ def build_structural_maps_vo(
     cell_ids: List[int],
     mix_recipes_obj: Dict[str, Dict[openmc.Material, float]],
     structural_materials: List[openmc.Material],
-    ) -> Tuple[
+) -> Tuple[
     List[str],                    # structural_nuclides (whitelist)
     Dict[int, Dict[str, float]],  # cell_nuclide_atoms (total atoms per nuclide)
     Dict[int, Dict[str, float]],  # cell_struct_nuclide_atoms (struct atoms per nuclide)
     Dict[int, float],             # cell_total_atoms_struct (sum struct atoms)
     Dict[int, Dict[str, float]],  # cell_struct_origin_frac (struct/total per nuclide)
-    ]:
+]:
     """
     For each cell:
-          total_by_nuc  = sum_i [ atoms_dens_i(n) * vol * vf_i * 1e24 ] over ALL components
-          struct_by_nuc  = sum_{i in structural} [ atoms_dens_i(n) * vol * vf_i * 1e24 ]
-          frac(n)        = struct_by_nuc(n) / total_by_nuc(n)
+        total_by_nuc(n)  = sum_i [ dens_i(n) * vol * vf_i * 1e24 ] over ALL components i
+        struct_by_nuc(n) = sum_{i in structural materials} [ dens_i(n) * vol * vf_i * 1e24 ]
+        f_struct_origin(n) = struct_by_nuc(n) / total_by_nuc(n)
 
-    Notes:
-      - Stored nuclides in `solid_nuclides` (used in tally selection).
+    Important:
+      - We only track nuclides in `structural_nuclides` (whitelist), defined as
+        nuclides present in the *structural materials list*.
+      - Structural-origin is determined by which *component material* contributed,
+        via membership in `structural_materials_set`.
     """
     structural_materials_set: Set[openmc.Material] = set(structural_materials)
+
     structural_nuclides: List[str] = build_structural_nuclides(structural_materials)
     structural_nuclide_set: Set[str] = set(structural_nuclides)
 
@@ -724,7 +742,6 @@ def build_structural_maps_vo(
         cell = all_cells[cid]
         vol = float(cell.volume or 0.0)
 
-        # defaults
         cell_nuclide_atoms[cid] = {}
         cell_struct_nuclide_atoms[cid] = {}
         cell_total_atoms_struct[cid] = 0.0
@@ -735,55 +752,47 @@ def build_structural_maps_vo(
 
         fill_mat: openmc.Material = cell.fill
         fill_name = str(fill_mat.name or "")
+
         recipe = mix_recipes_obj.get(fill_name)
-
         if recipe is None:
-            raise KeyError(f"[mix_recipes_obj] Missing recipe for fill material name '{fill_name}' (cell {cid}).")
+            raise KeyError(
+                f"[mix_recipes_obj] Missing recipe for fill material name '{fill_name}' "
+                f"(cell {cid})."
+            )
 
-        # TODO: isn't that redundant because the volume fractions are guaranteed to sum to 1 when
-        # they are formed because you do so yourself?
-        # (REPLY): Right now I am operating both times into the initial matrix that is not normalized
-        # I think the best way is to create a function that operates directly on that matrix and remove
-        # the normalization on both following steps.
         mats = list(recipe.keys())
         vfs = [float(recipe[m]) for m in mats]
-        s = float(sum(vfs))
-        if s <= 0.0:
-            raise ValueError(f"[mix_recipes_obj] Recipe '{fill_name}' fractions sum <= 0.")
-        vfs = [x / s for x in vfs]
 
         total_by_nuc: Dict[str, float] = {}
         struct_by_nuc: Dict[str, float] = {}
 
-        # VO-linear accumulation from component materials
         for m_i, vf_i in zip(mats, vfs):
-            # TODO: could vf_i ever be less than zero?
-            # Physically, no
             if vf_i <= 0.0:
                 continue
 
             nd_i = m_i.get_nuclide_atom_densities()
             scale = vol * vf_i * _ATOMS_PER_BARNCM_TO_ATOMS
 
+            # Structural-origin classification is by 'component material'
             is_struct = (m_i in structural_materials_set)
 
             for nuc, dens in nd_i.items():
                 nuc = str(nuc)
-                # TODO: I'm confused on the difference between the solid_set and structural_set. Can we just have one notion, and call structural == solid? Our purpose here is just to exlude the non-solid materials
-                # I do think I can merge them and remove at least one function out of the script.
+
+                # only nuclides present in structural materials list.
                 if nuc not in structural_nuclide_set:
                     continue
+
                 a = float(dens) * scale
                 total_by_nuc[nuc] = total_by_nuc.get(nuc, 0.0) + a
                 if is_struct:
                     struct_by_nuc[nuc] = struct_by_nuc.get(nuc, 0.0) + a
 
-        # fraction per nuclide
+        # Structural-origin fraction per nuclide
         frac_by_nuc: Dict[str, float] = {}
         for nuc, n_tot in total_by_nuc.items():
             n_str = float(struct_by_nuc.get(nuc, 0.0))
-            f = min((n_str / n_tot), 1.0) if n_tot > 0.0 else 0.0
-            frac_by_nuc[nuc] = f
+            frac_by_nuc[nuc] = min((n_str / n_tot), 1.0) if n_tot > 0.0 else 0.0
 
         # store
         cell_nuclide_atoms[cid] = total_by_nuc
@@ -799,11 +808,12 @@ def build_structural_maps_vo(
         cell_struct_origin_frac,
     )
 
+
 structural_nuclides, cell_nuclide_atoms, cell_struct_nuclide_atoms, cell_total_atoms_struct, cell_struct_origin_frac = (
     build_structural_maps_vo(
         model,
         cell_ids=cell_ids,
-        mix_recipes_obj=MIX_RECIPES_OBJ,
+        mix_recipes_obj=MIX_RECIPES_OBJ_NORM,
         structural_materials=structure_material_list,
     )
 )
@@ -819,6 +829,8 @@ dpa_gas_tallies: Dict[int, openmc.Tally] = {}
 for cid in cell_ids:
     cid = int(cid)
 
+    # NOTE: cell_nuclide_atoms was built using the whitelist already, so
+    # this membership filter is redundant but harmless. Keep it for clarity.
     nuclides_in_cell = sorted(
         nuc for nuc in cell_nuclide_atoms.get(cid, {}).keys()
         if nuc in structural_nuclide_set
@@ -828,10 +840,10 @@ for cid in cell_ids:
 
     tg = openmc.Tally()
     tg.filters = [cell_filters_by_cid[cid], n_particle_filter]
-    # TODO: Why is H2-production and H3-production not included as a score? Those are still hydrogen
     tg.scores = [
         "damage-energy",
-        "H1-production", "H2-production", "H3-production", "He3-production", "He4-production",
+        "H1-production", "H2-production", "H3-production",
+        "He3-production", "He4-production",
     ]
     tg.nuclides = nuclides_in_cell
 
