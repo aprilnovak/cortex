@@ -998,9 +998,13 @@ def process_chunk(
 
         scores = {str(s) for s in (t.scores or [])}
         if GAS_SCORES_EXPLICIT.issubset(scores):
-            h_score = "H1-production"
+            h1_score = "H1-production"
+            h2_score = "H2-production"
+            h3_score = "H3-production"
         elif GAS_SCORES_REACTION.issubset(scores):
-            h_score = "(n,Xp)"
+            h1_score = "(n,Xp)"
+            h2_score = "(n,Xd)"
+            h3_score = "(n,Xt)"
         else:
             continue
 
@@ -1009,14 +1013,23 @@ def process_chunk(
 
         # Apply here the structural_nuclide_fraction
         h1_mean_corr, h1_std_corr = corrected_sum_mean_std_getvalues(
-            t, score=h_score, nuclides=nuclides, f_struct=f_struct
+            t, score=h1_score, nuclides=nuclides, f_struct=f_struct
         )
+        h2_mean_corr, h2_std_corr = corrected_sum_mean_std_getvalues(
+            t, score=h2_score, nuclides=nuclides, f_struct=f_struct
+        )
+        h3_mean_corr, h3_std_corr = corrected_sum_mean_std_getvalues(
+            t, score=h3_score, nuclides=nuclides, f_struct=f_struct
+        )
+
+        h_mean_corr = h1_mean_corr + h2_mean_corr + h3_mean_corr
+        h_std_corr = math.sqrt(h1_std_corr ** 2 + h2_std_corr ** 2 + h3_std_corr ** 2)
 
         denom = float(bm.cell_total_atoms_struct.get(cid, 0.0))
         if denom > 0.0:
             factor = neutron_source_rate * s_in_y / denom * 1e6
-            h_appm_y[i] = h1_mean_corr * factor
-            h_appm_y_std[i] = h1_std_corr * factor
+            h_appm_y[i] = h_mean_corr * factor
+            h_appm_y_std[i] = h_std_corr * factor
 
     lower = np.maximum(h_appm_y - h_appm_y_std, 1e-30)
     upper = h_appm_y + h_appm_y_std
@@ -1498,9 +1511,15 @@ def process_layer_region1_only(
         # TODO (optional): would be nice to have the uncertainty plotted as shaded region
         fig, ax = empty_poloidal_plot(x, n)
         dpa_plot = pad_poloidal_data(np.asarray(dpa_y, dtype=float))
+        dpa_plot_std = pad_poloidal_data(np.asarray(dpa_y_std, dtype=float))
+
+        dpa_low = np.clip(dpa_plot - dpa_plot_std, eps_heat, None)
+        dpa_high = np.clip(dpa_plot + dpa_plot_std, eps_heat, None)
 
         set_ylim_and_ticks(ax, dpa_plot, ratio=ylim_ratio, scale="linear")
         ax.step(x, dpa_plot, where="mid", linewidth=2)
+        ax.fill_between(x, dpa_low, dpa_high, step="mid", alpha=0.15)
+
         ax.set_ylabel("NRT-dpa/fpy", fontsize=11)
         ax.set_title(f"NRT-dpa/fpy — {layer_tag}", fontsize=12)
 

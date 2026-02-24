@@ -156,17 +156,22 @@ def Helium(density):
 
 def W(density):
   """ Return an OpenMC material for tungsten.
+
   https://doi.org/10.1016/j.fusengdes.2021.112646
+
+  I am assuming this is weight percent, based on how other materials are presented in Table 1.
+  For instance, the SS316LN-IG column matches well with our other reference for SS316LN-IG
+  which we know is based on weight percent.
   """
 
   tungsten = openmc.Material()
-  tungsten.add_element('W', 0.9994)
-  tungsten.add_element('Ni', 0.0001)
-  tungsten.add_element('Fe', 0.0001)
-  tungsten.add_element('Si', 0.0001)
-  tungsten.add_element('O', 0.0001)
-  tungsten.add_element('N', 0.0001)
-  tungsten.add_element('C', 0.0001)
+  tungsten.add_element('W', 99.94, 'wo')
+  tungsten.add_element('Ni', 0.01, 'wo')
+  tungsten.add_element('Fe', 0.01, 'wo')
+  tungsten.add_element('Si', 0.01, 'wo')
+  tungsten.add_element('O', 0.01, 'wo')
+  tungsten.add_element('N', 0.01, 'wo')
+  tungsten.add_element('C', 0.01, 'wo')
   tungsten.set_density('g/cc', density)
   return tungsten
 
@@ -518,6 +523,9 @@ def nuclides_for_each_element(material):
   return nuclides  
 
 def Ed(element):
+  # Get the threshold displacement energies from NJOY (Macfarlane), EXCEPT
+  # for tungsten, which is set to 55 eV based on more modern recommendations
+  # \cite{gilbert_2018}
   ed = {}
   ed['Be'] = 31
   ed['C'] = 31
@@ -538,7 +546,8 @@ def Ed(element):
   ed['Mo'] = 60
   ed['Ag'] = 60
   ed['Ta'] = 90
-  ed['W'] = 90
+  #ed['W'] = 90
+  ed['W'] = 55
   ed['Au'] = 30
   ed['Pb'] = 25
 
