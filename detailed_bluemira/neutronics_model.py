@@ -280,7 +280,7 @@ model.settings.source = my_source
 # With that we could figure it out the cell and surface_id for this source without adding repetitive functions.
 model.settings.surf_source_write = {
     'surface_ids': [245],
-    'max_particles': 200_000,
+    'max_particles': 1_000_000,
     'cellto': 56
     }
 # -----------------------------------------------------------------------------
@@ -689,8 +689,7 @@ def build_structural_nuclides(structural_materials: List[openmc.Material]) -> Li
 
     This is a whitelist used to:
       - restrict per-nuclide tallies (damage-energy, H/He production) to only
-        nuclides that exist in your structural materials set.
-      - restrict book-keeping for f_struct_origin(n) to the same whitelist.
+        nuclides that exist in structural materials set.
     """
     s: Set[str] = set()
     for m in structural_materials:
@@ -699,20 +698,19 @@ def build_structural_nuclides(structural_materials: List[openmc.Material]) -> Li
             s.add(str(nuc))
     return sorted(s)
 
-
 def build_structural_maps_vo(
     model: openmc.Model,
     *,
     cell_ids: List[int],
     mix_recipes_obj: Dict[str, Dict[openmc.Material, float]],
     structural_materials: List[openmc.Material],
-) -> Tuple[
+    ) -> Tuple[
     List[str],                    # structural_nuclides (whitelist)
     Dict[int, Dict[str, float]],  # cell_nuclide_atoms (total atoms per nuclide)
     Dict[int, Dict[str, float]],  # cell_struct_nuclide_atoms (struct atoms per nuclide)
     Dict[int, float],             # cell_total_atoms_struct (sum struct atoms)
     Dict[int, Dict[str, float]],  # cell_struct_origin_frac (struct/total per nuclide)
-]:
+    ]:
     """
     For each cell:
         total_by_nuc(n)  = sum_i [ dens_i(n) * vol * vf_i * 1e24 ] over ALL components i
