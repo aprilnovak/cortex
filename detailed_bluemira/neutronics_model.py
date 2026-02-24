@@ -121,10 +121,6 @@ breeder_material = materials.PbLi(0.90, 9.8)
 # Structural / breeder / coolant definitions
 # -----------------------------------------------------------------------------
 # TODO: very unclear what these lists are. Why are the other solid materials not included in structure_material_list?
-# (REPLY):
-# 1) I kept as strcuture_material_list just the structural materials that exist from armor -> VV. 
-# 2)
-# 3)
 structure_material_list: list[openmc.Material] = [structural_material, armor_material, ss316]
 breeder_material_list: list[openmc.Material] = [breeder_material]
 coolant_material_list: list[openmc.Material] = [coolant_material]
@@ -276,7 +272,7 @@ model.settings = openmc.Settings()
 model.settings.dagmc = True
 model.settings.photon_transport = True
 model.settings.batches = 10
-model.settings.particles = 10_000
+model.settings.particles = 2_000_000
 model.settings.run_mode = "fixed source"
 model.settings.source = my_source
 # TODO: change 245 and 56 to not be hard-coded
@@ -284,7 +280,7 @@ model.settings.source = my_source
 # With that we could figure it out the cell and surface_id for this source without adding repetitive functions.
 model.settings.surf_source_write = {
     'surface_ids': [245],
-    'max_particles': 1_000,
+    'max_particles': 200_000,
     'cellto': 56
     }
 # -----------------------------------------------------------------------------
@@ -646,12 +642,15 @@ flux_tally.scores = ["flux"]
 model.tallies.append(flux_tally)
 
 # TODO: this does not need to be its own tally, you have all the information in flux_tally already
+# (REPLY): You are correct! (I will remove this soon)
 flux_tally_total = openmc.Tally()
 flux_tally_total.filters = [cell_filter, particle_filter]
 flux_tally_total.scores = ["flux"]
 model.tallies.append(flux_tally_total)
 
 # TODO: why is this only looking at the neutrons? I guess we are only computing the albedos for the neutrons?
+# (REPLY) I have been checked neutrons only. But I agree this should have been more in depth explored with photons.
+# I will introduce Photons analysis after 2/26/2026.
 t_current_tally = openmc.Tally()
 t_current_tally.filters = [t_surf_filter, n_particle_filter]
 t_current_tally.scores = ["current"]
