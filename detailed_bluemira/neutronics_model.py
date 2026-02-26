@@ -268,11 +268,13 @@ my_source = tokamak_source(
 # -----------------------------------------------------------------------------
 # SETTINGS
 # -----------------------------------------------------------------------------
+
+
 model.settings = openmc.Settings()
 model.settings.dagmc = True
 model.settings.photon_transport = True
 model.settings.batches = 10
-model.settings.particles = 2_000_000
+model.settings.particles = 100_000
 model.settings.run_mode = "fixed source"
 model.settings.source = my_source
 # TODO: change 245 and 56 to not be hard-coded
@@ -280,7 +282,7 @@ model.settings.source = my_source
 # With that we could figure it out the cell and surface_id for this source without adding repetitive functions.
 model.settings.surf_source_write = {
     'surface_ids': [245],
-    'max_particles': 1_000_000,
+    'max_particles': 50_000,
     'cellto': 56
     }
 # -----------------------------------------------------------------------------
@@ -371,6 +373,7 @@ for volume in pydagmc_model.volumes:
     dagmc_universe_cells[volume.id].volume = volume.volume
     dagmc_universe_cells[volume.id].bounding_box = dagmc_bounding_box(pydagmc_model, volume.id)
 
+all_cells = model.geometry.get_all_cells()  
 # -----------------------------------------------------------------------------
 # IMPORT JSON GEOMETRY INFO (cell IDs)
 # Also provide functions to create centroids and bin wedges

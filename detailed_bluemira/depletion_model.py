@@ -71,6 +71,11 @@ from neutronics_model import (
 # -----------------------------------------------------------------------------
 # USER INPUTS
 # -----------------------------------------------------------------------------
+# Create SDR directory
+sdr_dir = Path("sdr")
+sdr_dir.mkdir(parents=True, exist_ok=True)
+
+# load geometry json input
 path_file = Path(__file__).resolve().parent
 INPUT_JSON = (path_file / "Tokamak_inputs.json").resolve()  
 OB_KEY = "OB_1_b6"
@@ -307,22 +312,25 @@ plt.yscale("log")
 plt.ylabel("Shutdown Dose (μSv/h)")
 plt.xlabel("Cooling Time [s]")
 plt.legend()
-plt.savefig("sdr_time_plasma.png", dpi=300, bbox_inches="tight")
+plt.savefig(sdr_dir / "sdr_time_plasma.png", dpi=300, bbox_inches="tight")
 plt.close()
 
 # ------------------------------------------------------------------
 # Plot 1B: VV port-fill time series
 # ------------------------------------------------------------------
-plt.figure()
-plt.plot(time_s, dose_time_by_cell[int(vvportfill_vol_id)], label="VV port-fill (D1S)")
-plt.grid(True, which="both")
-plt.xscale("log")
-plt.yscale("log")
-plt.ylabel("Shutdown Dose (μSv/h)")
-plt.xlabel("Cooling Time [s]")
-plt.legend()
-plt.savefig("sdr_time_vvportfill.png", dpi=300, bbox_inches="tight")
-plt.close()
+# TODO: SDR currently shows zero here. Checks are scheduled for the following weeks
+show_VV = False
+if show_VV:
+    plt.figure()
+    plt.plot(time_s, dose_time_by_cell[int(vvportfill_vol_id)], label="VV port-fill (D1S)")
+    plt.grid(True, which="both")
+    plt.xscale("log")
+    plt.yscale("log")
+    plt.ylabel("Shutdown Dose (μSv/h)")
+    plt.xlabel("Cooling Time [s]")
+    plt.legend()
+    plt.savefig(sdr_dir /"sdr_time_vvportfill.png", dpi=300, bbox_inches="tight")
+    plt.close()
 
 # ------------------------------------------------------------------
 # Plot 2: OB_1_b6 spatial profiles
@@ -348,7 +356,7 @@ plt.ylabel("Shutdown Dose (μSv/h)")
 plt.xlabel("Radial Position [cm]")
 plt.title(f"D1S spatial profile: {OB_KEY}")
 plt.legend()
-plt.savefig(f"sdr_profile_{OB_KEY}.png", dpi=300, bbox_inches="tight")
+plt.savefig(sdr_dir /f"sdr_profile_{OB_KEY}.png", dpi=300, bbox_inches="tight")
 plt.close()
 
 timer.stop("D1S run")
@@ -406,7 +414,7 @@ mat_id_to_name = {str(mat.id): (mat.name or f"material_{mat.id}") for mat in dep
 
 # ---- Build + use reduced chain everywhere below ----
 initial_nuclides = model.geometry.get_all_nuclides()
-reduced_chain = chain.reduce(initial_nuclides, level=2)
+reduced_chain = chain.reduce(initial_nuclides, level=5)
 
 bluemira_chain = Path("bluemira_chain.xml").resolve()
 reduced_chain.export_to_xml(str(bluemira_chain))

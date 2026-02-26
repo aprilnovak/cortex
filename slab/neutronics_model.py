@@ -417,7 +417,7 @@ model.settings = openmc.Settings()
 model.settings.dagmc = True
 model.settings.photon_transport = True
 model.settings.batches = 10
-model.settings.particles = 2_000_000
+model.settings.particles = 100_000
 model.settings.run_mode = "fixed source"
 model.settings.surf_source_read = {'path': SURF_SOURCE_FILE}
 
@@ -439,6 +439,8 @@ dagmc_universe_cells = dagmc_universe.get_all_cells()
 for volume in pydagmc_model.volumes:
     dagmc_universe_cells[volume.id].volume = volume.volume
     dagmc_universe_cells[volume.id].bounding_box = dagmc_bounding_box(pydagmc_model, volume.id)
+
+all_cells = model.geometry.get_all_cells()  
 
 # -----------------------------------------------------------------------------
 # IMPORT JSON GEOMETRY INFO (cell IDs)
@@ -671,15 +673,26 @@ def build_breeder_chunks(
         "radial_bins_for_key": radial_bins_for_key,
     }
 
-chunk_cells = build_breeder_chunks(INPUT_JSON, default_equatorial_ob_key="OB_1_b6")
+_cells_chunk = build_breeder_chunks(INPUT_JSON, default_equatorial_ob_key="OB_1_b6")
 
-cell_ids = chunk_cells["cell_ids_for_key"]("OB_1_b6")
-cell_ids_equatorial_ob = chunk_cells["equatorial_ob_cell_ids"]
+cell_ids = _cells_chunk["cell_ids_for_key"]("OB_1_b6")
+cell_ids_equatorial_ob = _cells_chunk["equatorial_ob_cell_ids"]
 
 info, all_surface_ids, external_surface_ids, internal_surface_ids = dagmc_volume_surface_info(
     pydagmc_model,
     cell_ids
 )
+OB_KEY = "OB_1_b6"
+
+present = sorted(int(cid) for cid in dagmc_universe.get_all_cells().keys())
+print(f"[present] dagmc_universe cells present: {len(present)}")
+print(f"[present] min/max: {present[0]}..{present[-1]}")
+print(f"[present] sample: {present[:20]}")
+
+ob_cells = _cells_chunk["cell_ids_for_key"](OB_KEY)
+ob_present = [cid for cid in ob_cells if cid in present]
+print(f"[chunk] {OB_KEY}: {len(ob_cells)} from JSON, {len(ob_present)} present in wrapper")
+print(f"[chunk] present ids: {ob_present}")
 # -----------------------------------------------------------------------------
 # TALLIES
 # -----------------------------------------------------------------------------
@@ -717,30 +730,30 @@ flux_tally_total.filters = [cell_filter, particle_filter]
 flux_tally_total.scores = ["flux"]
 model.tallies.append(flux_tally_total)
 
-# TODO: why is this only looking at the neutrons? I guess we are only computing the albedos for the neutrons?
-# (REPLY) I have been checked neutrons only. But I agree this should have been more in depth explored with photons.
-# I will introduce Photons analysis after 2/26/2026.
-t_current_tally = openmc.Tally()
-t_current_tally.filters = [t_surf_filter, n_particle_filter]
-t_current_tally.scores = ["current"]
-model.tallies.append(t_current_tally)
+# Turn it off current tallies for albedo in the slab model
+DO_ALBEDO = False
+if DO_ALBEDO:
+    t_current_tally = openmc.Tally()
+    t_current_tally.filters = [t_surf_filter, n_particle_filter]
+    t_current_tally.scores = ["current"]
+    model.tallies.append(t_current_tally)
 
-p_current_tallies: dict[int, openmc.Tally] = {}
-for cid in cell_ids_equatorial_ob:
-    ocell = dagmc_universe_cells[cid]
-    surf_ids_for_cell = [int(s["surface_id"]) for s in info.get(cid, {}).get("all_surfaces", [])]
-    if not surf_ids_for_cell:
-        continue
+    p_current_tallies: dict[int, openmc.Tally] = {}
+    for cid in cell_ids_equatorial_ob:
+        ocell = dagmc_universe_cells[cid]
+        surf_ids_for_cell = [int(s["surface_id"]) for s in info.get(cid, {}).get("all_surfaces", [])]
+        if not surf_ids_for_cell:
+            continue
 
-    cell_from_filter = openmc.CellFromFilter([ocell])
-    surf_filter = openmc.SurfaceFilter(surf_ids_for_cell)
+        cell_from_filter = openmc.CellFromFilter([ocell])
+        surf_filter = openmc.SurfaceFilter(surf_ids_for_cell)
 
-    p_current_tally = openmc.Tally()
-    p_current_tally.filters = [cell_from_filter, surf_filter, n_particle_filter]
-    p_current_tally.scores = ["current"]
+        p_current_tally = openmc.Tally()
+        p_current_tally.filters = [cell_from_filter, surf_filter, n_particle_filter]
+        p_current_tally.scores = ["current"]
 
-    model.tallies.append(p_current_tally)
-    p_current_tallies[cid] = p_current_tally
+        model.tallies.append(p_current_tally)
+        p_current_tallies[cid] = p_current_tally
 
 heating_tally = openmc.Tally()
 heating_tally.filters = [cell_filter]

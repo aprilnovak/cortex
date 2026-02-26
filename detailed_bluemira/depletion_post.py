@@ -11,9 +11,7 @@ from pathlib import Path
 from typing import Dict, List, Sequence, Tuple, Optional
 from itertools import cycle
 
-import time
-from collections import OrderedDict
-
+import math
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -29,6 +27,33 @@ import openmc.deplete
 # parameters
 SECONDS_PER_YEAR = 365.25 * 24 * 3600.0
 INPUT_JSON = Path("Tokamak_inputs.json")
+
+def generate_colors(n):
+    """Generates a smooth rainbow gradient of n RGB colors."""
+    cmap = plt.get_cmap('turbo') # plasma also looks nice
+    color_range = cmap(np.linspace(1, 0, n))
+    return color_range
+
+def display_half_life(nuclide):
+  half_life = openmc.data.half_life(nuclide)
+
+  # display in best units for s, h, d, y; this guarantees that each of these will be at minimum
+  # 0.01 in their base units
+  if (half_life < 60): # less than 1 min, display in s
+    return ' ({0:.2f} s)'.format(half_life)
+  elif (half_life < 60*60): # less than 1 hour, display in m
+    return ' ({0:.2f} m)'.format(half_life/(60))
+  elif (half_life < 60*60*24): # less than 1 day, display in h
+    return ' ({0:.2f} h)'.format(half_life / (60*60))
+  elif (half_life < 60*60*24*365/12.): # less than 1 month, display in d
+    return ' ({0:.2f} d)'.format(half_life / (60*60*24))
+  elif (half_life < 60*60*24*365/12*100000): # less than 100000 year, display in y
+    return ' ({0:.2f} y)'.format(half_life / (60*60*24*365/12.))
+  elif (half_life < 60*60*24*365/12*1e6*100): # less than 100 My year, display in My
+    return ' ({0:.2f} My)'.format(half_life / (60*60*24*365/12.*1e6))
+  else:
+    return ' ( > 100 My)'
+    #return ' ({0:.2f} Gy)'.format(half_life / (60*60*24*365/12.*1e9))
 
 # -----------------------------
 # Layer tags
@@ -129,29 +154,6 @@ def shutdown_index_from_source_rates(source_rates: np.ndarray, n_steps: int) -> 
     idx = int(irr_intervals[-1] + 1)
     return min(idx, n_steps - 1)
 
-
-class Timer:
-    def __init__(self):
-        self._start = {}
-        self.elapsed = OrderedDict()
-
-    def start(self, name: str):
-        self._start[name] = time.perf_counter()
-
-    def stop(self, name: str):
-        if name not in self._start:
-            raise RuntimeError(f"Timer '{name}' was not started")
-        dt = time.perf_counter() - self._start.pop(name)
-        self.elapsed[name] = self.elapsed.get(name, 0.0) + dt
-
-    def summary(self):
-        total = sum(self.elapsed.values())
-        print("\n=== Timing summary ===")
-        for k, v in self.elapsed.items():
-            print(f"{k:30s}: {v:8.3f} s ({100*v/total:5.1f}%)")
-        print(f"{'TOTAL':30s}: {total:8.3f} s")
-
-
 # ============================================================
 # Formatting helpers
 # ============================================================
@@ -213,42 +215,88 @@ def _ymin_from_topn_edge(global_min_topn_edge: float) -> Optional[float]:
         return None
     return 0.1 * v
 
-def _select_topn_with_tie(
-    sorted_items: list[tuple[str, float]],
-    *,
-    top_n: int,
-    similarity_threshold: float,
+def _select_topn(
+    sorted_items: list[tuple[str, float]]
     ) -> list[tuple[str, float]]:
     """
-    Always include top_n.
-    If (n+1) within similarity_threshold of nth (relative to nth), include (n+1) too.
+    For a given step, we add nuclides to plot until the next incremental percent of
+    total activity to show is below 5% of the total. This limits the number of nuclides
+    plotted and is more robust than simply plotting the top 95% of nuclides because in
+    short cooling times, there's dozens of nuclides which contribute to the total activity,
+    which would result in way too many nuclides to plot.
     """
-    if top_n <= 0 or not sorted_items:
-        return []
 
-    base = sorted_items[:top_n]
-    if len(sorted_items) >= top_n + 1:
-        nth_val = float(sorted_items[top_n - 1][1])
-        n1_val = float(sorted_items[top_n][1])
-        if nth_val > 0.0:
-            rel_diff = abs(nth_val - n1_val) / nth_val
-            if rel_diff < similarity_threshold:
-                base.append(sorted_items[top_n])
-    return base
+    total = 0.0
+    for i in range(len(sorted_items)):
+      total += float(sorted_items[i][1])
+
+    running_total = 0.0
+    prev_running_total = 0.0
+    index = 0
+    for i in range(len(sorted_items)):
+      prev_running_total = running_total
+      running_total += float(sorted_items[i][1])
+
+      # could have just a single very strong nuclide
+      if (i == 0 and running_total / total >= 0.99):
+        index = i
+        break
+
+      # otherwise, compare the gain
+      if ((running_total - prev_running_total) / total <= 0.05):
+        index = i
+        break
+
+    return sorted_items[:i]
+
+def _select(dict_list, n_steps):
+    # selections per step; first, loop through all the time steps to find the top nuclides
+    # on each given step. Then, we take the union of these and then obtain the data to
+    # plot on each step by writing that nuclide for all time steps
+    topn_list_by_step: list[list[tuple[str, float]]] = [[] for _ in range(n_steps)]
+    top_nucs_union: set[str] = set()
+
+    for istep in range(n_steps):
+        d = dict_list[istep] or {}
+        if not d:
+            continue
+
+        step_sorted = sorted(d.items(), key=lambda x: x[1], reverse=True)
+        for nuc, _ in _select_topn(step_sorted):
+            top_nucs_union.add(nuc)
+
+    for istep in range(n_steps):
+        d = dict_list[istep] or {}
+        if not d:
+            continue
+
+        step_sorted = sorted(d.items(), key=lambda x: x[1], reverse=True)
+        selected = []
+        for s in step_sorted:
+          if (s[0] in top_nucs_union):
+            selected.append(s)
+
+        topn_list_by_step[istep] = selected
+
+    return topn_list_by_step, top_nucs_union
 
 def _add_time_reference_lines(ax):
     """Useful reference lines (x-axis in years)."""
 
     SEC_PER_YEAR = 365.0 * 24.0 * 3600.0
+    MIN_PER_YEAR = 365.0 * 24.0 * 60
     HOUR_PER_YEAR = 365.0 * 24.0
+    WEEK_PER_YEAR = 52
     DAY_PER_YEAR = 365.0
-    MONTH_PER_YEAR = 12.0  
+    MONTH_PER_YEAR = 12.0
 
     refs = [
         (1.0 / SEC_PER_YEAR,   "1 s"),
+        (1.0 / MIN_PER_YEAR,   "1 m"),
         (1.0 / HOUR_PER_YEAR,  "1 h"),
+        (1.0 / WEEK_PER_YEAR,  "1 w"),
         (1.0 / DAY_PER_YEAR,   "1 d"),
-        (1.0 / MONTH_PER_YEAR, "1 m"),
+        (1.0 / MONTH_PER_YEAR, "4 w"),
         (1.0,                 "1 y"),
         (10.0,                "10 y"),
         (100.0,               "100 y"),
@@ -333,52 +381,7 @@ def plot_activity_nuclides_per_cell(
         total_act_plot = total_act[mask]
         total_activity_all[cid] = (t_rel_plot, total_act_plot)
 
-        # selections per step
-        topn_list_by_step: list[list[tuple[str, float]]] = [[] for _ in range(n_steps)]
-        top_nucs_union: set[str] = set()
-
-        for istep in range(n_steps):
-            d = act_dict_list[istep] or {}
-            if not d:
-                continue
-
-            step_sorted = sorted(d.items(), key=lambda x: x[1], reverse=True)
-
-            # global min of true Nth in cooling portion
-            if mask[istep] and top_n > 0 and len(step_sorted) >= top_n:
-                nth_val = float(step_sorted[top_n - 1][1])
-                if np.isfinite(nth_val) and nth_val > 0.0:
-                    global_min_topn_edge = min(global_min_topn_edge, nth_val)
-
-            selected = _select_topn_with_tie(
-                step_sorted,
-                top_n=int(top_n),
-                similarity_threshold=float(similarity_threshold),
-            )
-            topn_list_by_step[istep] = selected
-
-            if (
-                print_similarity
-                and top_n > 0
-                and len(step_sorted) >= top_n + 1
-                and len(selected) == top_n + 1
-            ):
-                nth_nuc, nth_val = step_sorted[top_n - 1]
-                n1_nuc, n1_val = step_sorted[top_n]
-                if float(nth_val) > 0.0:
-                    rel_diff = abs(float(nth_val) - float(n1_val)) / float(nth_val)
-                    region = cell_id_to_name.get(cid, str(cid))
-                    t_years = float((time_grid[istep] - time_grid[int(idx_shutdown)]) / SECONDS_PER_YEAR)
-                    #print(
-                    #    f"[Activity] Included (n+1) due to tie in {region} (cell {cid}, mat {mat_id}) "
-                    #    f"at step {istep} (t_rel={t_years:.3e} y): "
-                    #    f"nth {nth_nuc}={float(nth_val):.3e} vs (n+1) {n1_nuc}={float(n1_val):.3e} "
-                    #    f"(rel diff={rel_diff:.3%} < {similarity_threshold:.1%})"
-                    #)
-
-            for nuc, _ in selected:
-                top_nucs_union.add(nuc)
-
+        topn_list_by_step, top_nucs_union = _select(act_dict_list, n_steps)
         top_nucs = sorted(top_nucs_union)
 
         nuc_series: Dict[str, np.ndarray] = {nuc: np.full(n_steps, np.nan, dtype=float) for nuc in top_nucs}
@@ -408,8 +411,10 @@ def plot_activity_nuclides_per_cell(
         mcycle, lscycle = _style_cycle()
 
         # Nuclides (markers + varied linestyles)
-        num_nucs = max(1, len(top_nucs))
-        colors = plt.cm.tab20(np.linspace(0, 1, num_nucs))
+        halflife_list = [openmc.data.half_life(i) for i in top_nucs]
+        nuclide_list = top_nucs
+        sorted_halflife_list, sorted_nuclide_list = zip(*sorted(zip(halflife_list, nuclide_list)))
+        colors = generate_colors(len(top_nucs))
 
         for i, nuc in enumerate(top_nucs):
             vals_plot = _mask(nuc_series[nuc])
@@ -419,36 +424,33 @@ def plot_activity_nuclides_per_cell(
             ax.loglog(
                 t_rel_plot,
                 vals_plot,
-                label=nuc,
-                color=colors[i % len(colors)],
+                label=nuc + display_half_life(nuc),
+                color=colors[sorted_nuclide_list.index(nuc) % len(colors)],
                 marker=next(mcycle),
                 linestyle=next(lscycle),
-                markersize=4,
+                markersize=3,
                 linewidth=1.3,
             )
 
         # Others
         if _has_positive_finite(others_plot):
-            ax.loglog(t_rel_plot, others_plot, label="Others", linewidth=2.0)
+            ax.loglog(t_rel_plot, others_plot, label="Others", linewidth=2.0, color='black', linestyle='--')
 
         # Total
         if _has_positive_finite(total_act_plot):
-            ax.loglog(t_rel_plot, total_act_plot, color="black", linewidth=3.0, label="Total", zorder=10)
+            ax.loglog(t_rel_plot, total_act_plot, color="black", linewidth=2.0, label="Total", zorder=10)
 
         region = cell_id_to_name.get(cid, str(cid))
         ax.set_xlabel("Time after irradiation [years]")
         ax.set_ylabel(f"Activity [{activity_units}]")
-        ax.set_title(f"Activity (Top-{top_n} per timestep) — {region} (mat {mat_id})")
+        ax.set_title(f"Activity — {region} (mat {mat_id})")
 
         _add_time_reference_lines(ax)
         _format_log_axes(ax)
 
-        # y-min cutoff
-        if total_act_plot.size and np.nanmax(total_act_plot) > 0.0:
-            ymax = float(np.nanmax(total_act_plot))
-            ymin = _ymin_from_topn_edge(global_min_topn_edge)
-            if ymin is not None:
-                ax.set_ylim(ymin, 10.0 * ymax)
+        # y-min cutoff; cut off at 1 order of magnitude below the other activity and 1 order of magnitude
+        # above the total activity (rounded to powers of 10)
+        ax.set_ylim([10 ** math.floor(math.log10(np.min(others_plot))), 10 ** math.ceil(math.log10(np.max(total_act_plot)))])
 
         # Legend 
         n_entries = len(ax.get_legend_handles_labels()[1])
@@ -607,7 +609,7 @@ def plot_decayheat_nuclides_per_cell(
     out_dir: Path,
     *,
     idx_shutdown: int,
-    top_n: int = 5,
+    top_n: int = 10,
     decayheat_units: str = "W/cm3",
     similarity_threshold: float = 0.10,
     print_similarity: bool = True,
@@ -662,50 +664,7 @@ def plot_decayheat_nuclides_per_cell(
         if total_h_plot.size and np.nanmax(total_h_plot) > 0.0:
             max_decay_comb = max(max_decay_comb, float(np.nanmax(total_h_plot)))
 
-        topn_list_by_step: list[list[tuple[str, float]]] = [[] for _ in range(n_steps)]
-        top_nucs_union: set[str] = set()
-
-        for istep in range(n_steps):
-            d = heat_dict_list[istep] or {}
-            if not d:
-                continue
-
-            step_sorted = sorted(d.items(), key=lambda x: x[1], reverse=True)
-
-            if mask[istep] and top_n > 0 and len(step_sorted) >= top_n:
-                nth_val = float(step_sorted[top_n - 1][1])
-                if np.isfinite(nth_val) and nth_val > 0.0:
-                    global_min_topn_edge = min(global_min_topn_edge, nth_val)
-
-            selected = _select_topn_with_tie(
-                step_sorted,
-                top_n=int(top_n),
-                similarity_threshold=float(similarity_threshold),
-            )
-            topn_list_by_step[istep] = selected
-
-            if (
-                print_similarity
-                and top_n > 0
-                and len(step_sorted) >= top_n + 1
-                and len(selected) == top_n + 1
-            ):
-                nth_nuc, nth_val = step_sorted[top_n - 1]
-                n1_nuc, n1_val = step_sorted[top_n]
-                if float(nth_val) > 0.0:
-                    rel_diff = abs(float(nth_val) - float(n1_val)) / float(nth_val)
-                    region = cell_id_to_name.get(cid, str(cid))
-                    t_years = float((time_grid[istep] - time_grid[int(idx_shutdown)]) / SECONDS_PER_YEAR)
-                    #print(
-                    #    f"[DecayHeat] Included (n+1) due to tie in {region} (cell {cid}, mat {mat_id}) "
-                    #    f"at step {istep} (t_rel={t_years:.3e} y): "
-                    #    f"nth {nth_nuc}={float(nth_val):.3e} vs (n+1) {n1_nuc}={float(n1_val):.3e} "
-                    #    f"(rel diff={rel_diff:.3%} < {similarity_threshold:.1%})"
-                    #)
-
-            for nuc, _ in selected:
-                top_nucs_union.add(nuc)
-
+        topn_list_by_step, top_nucs_union = _select(heat_dict_list, n_steps)
         top_nucs = sorted(top_nucs_union)
 
         nuc_series: Dict[str, np.ndarray] = {nuc: np.full(n_steps, np.nan, dtype=float) for nuc in top_nucs}
@@ -734,8 +693,11 @@ def plot_decayheat_nuclides_per_cell(
         fig, ax = plt.subplots(figsize=(11, 6))
         mcycle, lscycle = _style_cycle()
 
-        num_nucs = max(1, len(top_nucs))
-        colors = plt.cm.tab20(np.linspace(0, 1, num_nucs))
+        # form a color scale based on the half lives
+        halflife_list = [openmc.data.half_life(i) for i in top_nucs]
+        nuclide_list = top_nucs
+        sorted_halflife_list, sorted_nuclide_list = zip(*sorted(zip(halflife_list, nuclide_list)))
+        colors = generate_colors(len(top_nucs))
 
         for i, nuc in enumerate(top_nucs):
             vals_plot = _mask(nuc_series[nuc])
@@ -745,16 +707,16 @@ def plot_decayheat_nuclides_per_cell(
             ax.loglog(
                 t_rel_plot,
                 vals_plot,
-                label=nuc,
-                color=colors[i % len(colors)],
+                label=nuc + display_half_life(nuc),
+                color=colors[sorted_nuclide_list.index(nuc) % len(colors)],
                 marker=next(mcycle),
                 linestyle=next(lscycle),
-                markersize=4,
+                markersize=3,
                 linewidth=1.3,
             )
 
         if _has_positive_finite(others_plot):
-            ax.loglog(t_rel_plot, others_plot, label="Others", linewidth=2.0)
+            ax.loglog(t_rel_plot, others_plot, label="Others", linewidth=2.0, color='black', linestyle='--')
 
         if _has_positive_finite(total_h_plot):
             ax.loglog(t_rel_plot, total_h_plot, color="black", linewidth=3.0, label="Total", zorder=10)
@@ -762,7 +724,11 @@ def plot_decayheat_nuclides_per_cell(
         region = cell_id_to_name.get(cid, str(cid))
         ax.set_xlabel("Time after irradiation [years]")
         ax.set_ylabel(f"Decay heat [{decayheat_units}]")
-        ax.set_title(f"Decay heat (Top-{top_n} per timestep) — {region} (mat {mat_id})")
+        ax.set_title(f"Decay heat — {region} (mat {mat_id})")
+
+        # y-min cutoff; cut off at 1 order of magnitude below the other decay heat and 1 order of magnitude
+        # above the total decay heat (rounded to powers of 10)
+        ax.set_ylim([10 ** math.floor(math.log10(np.min(others_plot))), 10 ** math.ceil(math.log10(np.max(total_h_plot)))])
 
         _add_time_reference_lines(ax)
         _format_log_axes(ax)
@@ -770,7 +736,7 @@ def plot_decayheat_nuclides_per_cell(
         if total_h_plot.size and np.nanmax(total_h_plot) > 0.0:
             ymax = float(np.nanmax(total_h_plot))
             ymin = _ymin_from_topn_edge(global_min_topn_edge)
-            ax.set_xlim(1e-10, 2e3)
+            ax.set_xlim(1e-8, 2e3)
             if ymin is not None:
                 ax.set_ylim(ymin, 10.0 * ymax)
 
@@ -827,7 +793,7 @@ def plot_decayheat_all_cells(
     _add_time_reference_lines(ax)
     _format_log_axes(ax)
 
-    ax.set_xlim(1e-10, 2e3)
+    ax.set_xlim(1e-8, 2e3)
     ymin = _ymin_from_topn_edge(global_min_topn_edge)
     if max_decay_comb > 0 and ymin is not None:
         ax.set_ylim(ymin, 10.0 * max_decay_comb)
@@ -1014,46 +980,22 @@ def run_chunk_postprocess(
 
         print(f"[DONE] {chunk_key} -> {out_dir}")
 
+
 # ============================================================
 # Run
 # ============================================================
 if __name__ == "__main__":
-    
-    #
-    timer = Timer()
-
-    timer.start("Import decay-chain")
-    here = Path(__file__).resolve().parent
-    # Prefer the reduced chain produced by depletion_model.py
-    REDUCED_CHAIN = (here / "bluemira_chain.xml").resolve()
-    # Fallback: full ENDF/B-VIII.0 chain
-    FULL_CHAIN = (here.parent / "depletion_chain" / "chain_endfb80_sfr.xml").resolve()
-
-    if REDUCED_CHAIN.exists():
-        CHAIN_FILE = REDUCED_CHAIN
-        print(f"[info] Using reduced depletion chain: {CHAIN_FILE}")
-    elif FULL_CHAIN.exists():
-        CHAIN_FILE = FULL_CHAIN
-        print(f"[warn] Reduced chain not found; using full chain: {CHAIN_FILE}")
-    else:
-        raise FileNotFoundError(
-            "No depletion chain found. Expected one of:\n"
-            f"  - {REDUCED_CHAIN}\n"
-            f"  - {FULL_CHAIN}"
-        )
-
+    CHAIN_FILE = (Path(__file__).resolve().parent.parent / "depletion_chain" / "chain_endfb80_sfr.xml").resolve()
+    if not CHAIN_FILE.exists():
+        raise FileNotFoundError(f"Chain file not found: {CHAIN_FILE}")
     openmc.config["chain_file"] = str(CHAIN_FILE)
-    timer.stop("Import decay-chain")
-    
-    timer.start("import depletion resuts")
+
     results = openmc.deplete.Results("r2s/activation/depletion_results.h5")
-    timer.stop("import depletion resuts")
 
     # To be updated:
     xcentroids_ob = (0.1, 1.1, 6.0, 15.0, 25.0, 35.0, 45.0, 55.0, 65.0, 84.4, 156.0)
     xcentroids_ib = (0.1, 1.1, 6.0, 15.0, 25.0, 35.0, 45.0, 55.0, 65.0, 73.8, 108.0)
 
-    timer.start("Build neutronics model")
     from neutronics_model import build_breeder_chunks
 
     _cells_chunk = build_breeder_chunks(
@@ -1102,9 +1044,6 @@ if __name__ == "__main__":
     times = results.get_times()
     idx_shutdown = shutdown_index_from_source_rates(source_rates, n_steps=len(times))
 
-    timer.stop("Build neutronics model")
-
-    timer.start("Post-processing")
     run_chunk_postprocess(
         results,
         CHUNKS,
@@ -1114,10 +1053,8 @@ if __name__ == "__main__":
         idx_shutdown=int(idx_shutdown),
         activity_units="Bq/kg",       # "Bq" or "Bq/kg"
         decayheat_units="W/cm3",
-        activity_top_n=15,
-        decayheat_top_n=15,
+        activity_top_n=10,
+        decayheat_top_n=5,
         similarity_threshold=0.10,
         idx_to_plot=(0, 4, 8, 12, 16, 20),
     )
-    timer.stop("Post-processing")
-    timer.summary()

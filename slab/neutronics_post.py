@@ -1193,7 +1193,8 @@ def process_chunk(
     # ==========================================
     # Albedo post-processing
     # ==========================================
-    DO_ALBEDO = True
+    # Albedo post-processing is currently off for slab
+    
     if DO_ALBEDO:
         compute_albedo_for_chunk(
             sp,
@@ -1651,7 +1652,8 @@ layers = [("Armor", 0), ("First_Wall", 1), ("VV", vv_index)]
 with openmc.StatePoint(STATEPOINT_FILE) as sp:
     dpa_gas_map = build_dpa_gas_map(sp)
     require_struct_maps(bm)
-
+    DO_ALBEDO = False
+    
     for key in KEYS_TO_PROCESS:
         if key in ob_by_key:
             chunk_cells = ob_by_key[key]
