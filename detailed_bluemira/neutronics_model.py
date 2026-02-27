@@ -277,6 +277,11 @@ model.settings.batches = 10
 model.settings.particles = 100_000
 model.settings.run_mode = "fixed source"
 model.settings.source = my_source
+
+# output particle track, selected at random
+import random
+model.settings.track = [(1, 1, random.randint(1, model.settings.particles))]
+
 # TODO: change 245 and 56 to not be hard-coded
 # (TOMAS REPLY):planning to perform most of the geometry pre/post-processing in an initial .py file.
 # With that we could figure it out the cell and surface_id for this source without adding repetitive functions.
