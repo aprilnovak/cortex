@@ -48,9 +48,9 @@ def display_half_life(nuclide):
   elif (half_life < 60*60*24*365/12.): # less than 1 month, display in d
     return ' ({0:.2f} d)'.format(half_life / (60*60*24))
   elif (half_life < 60*60*24*365/12*100000): # less than 100000 year, display in y
-    return ' ({0:.2f} y)'.format(half_life / (60*60*24*365/12.))
+    return ' ({0:.2f} y)'.format(half_life / (60*60*24*365))
   elif (half_life < 60*60*24*365/12*1e6*100): # less than 100 My year, display in My
-    return ' ({0:.2f} My)'.format(half_life / (60*60*24*365/12.*1e6))
+    return ' ({0:.2f} My)'.format(half_life / (60*60*24*365*1e6))
   else:
     return ' ( > 100 My)'
     #return ' ({0:.2f} Gy)'.format(half_life / (60*60*24*365/12.*1e9))
