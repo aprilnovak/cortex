@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from matplotlib import pyplot as plt
+import matplotlib.ticker as mticker
 import numpy as np
 import pandas as pd
 import openmc
@@ -90,7 +91,8 @@ IB_CHUNK_SIZE = chunk_cells["IB_CHUNK_SIZE"]
 cell_ids = chunk_cells["cell_ids_all"]
 cell_ids_equatorial_ob = chunk_cells["equatorial_ob_cell_ids"]
 
-
+# TODO: why not have the D1S part be in the neutronics_model.py? I think it could be?
+# Let's check with Patrick
 timer.stop("Build neutronics model")
 
 
@@ -301,19 +303,78 @@ for t_cool, ctally in zip(timesteps[1:], corrected_tallies[1:]):
         f"{OB_KEY} rows={len(df_prof)}"
     )
 
+def _add_time_reference_lines(ax):
+    """Useful reference lines (x-axis in years)."""
+
+    SEC_PER_YEAR = 365.0 * 24.0 * 3600.0
+    MIN_PER_YEAR = 365.0 * 24.0 * 60
+    HOUR_PER_YEAR = 365.0 * 24.0
+    WEEK_PER_YEAR = 52
+    DAY_PER_YEAR = 365.0
+    MONTH_PER_YEAR = 12.0
+
+    refs = [
+        (1.0 / SEC_PER_YEAR,   "1 s"),
+        (1.0 / MIN_PER_YEAR,   "1 m"),
+        (1.0 / HOUR_PER_YEAR,  "1 h"),
+        (1.0 / WEEK_PER_YEAR,  "1 w"),
+        (1.0 / DAY_PER_YEAR,   "1 d"),
+        (1.0 / MONTH_PER_YEAR, "4 w"),
+        (1.0,                 "1 y"),
+        (10.0,                "10 y"),
+        (100.0,               "100 y"),
+        (1000.0,              "1000 y"),
+    ]
+
+    for x, txt in refs:
+        ax.axvline(x, color="gray", linestyle="--", linewidth=1, alpha=0.6)
+        ax.text(
+            x,
+            0.98,
+            txt,
+            transform=ax.get_xaxis_transform(),
+            rotation=90,
+            va="top",
+            ha="right",
+            fontsize=8,
+            alpha=0.8,
+        )
+
+def _format_log_axes(ax):
+    """Cleaner log grid and ticks."""
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+    ax.grid(True, which="major", linewidth=0.8, alpha=0.35)
+    ax.grid(True, which="minor", linewidth=0.5, alpha=0.15)
+
+    ax.xaxis.set_minor_locator(mticker.LogLocator(base=10, subs=np.arange(2, 10) * 0.1))
+    ax.yaxis.set_minor_locator(mticker.LogLocator(base=10, subs=np.arange(2, 10) * 0.1))
+    ax.xaxis.set_minor_formatter(mticker.NullFormatter())
+    ax.yaxis.set_minor_formatter(mticker.NullFormatter())
+
 # ------------------------------------------------------------------
 # Plot 1A: plasma time series
 # ------------------------------------------------------------------
-plt.figure()
-plt.plot(time_s, dose_time_by_cell[int(plasma_vol_id)], label="Plasma (D1S)")
-plt.grid(True, which="both")
-plt.xscale("log")
-plt.yscale("log")
-plt.ylabel("Shutdown Dose (μSv/h)")
-plt.xlabel("Cooling Time [s]")
-plt.legend()
+# TODO: factor out these settings for the log-log time plots into a function that
+# is called both here and in depletion_post.py. Also check why the minor ticks are not
+# showing up properly on this plot
+SECONDS_PER_YEAR = 60*60*24*365
+t_rel_plot = [t / SECONDS_PER_YEAR for t in time_s]
+
+fig, ax = plt.subplots()
+_add_time_reference_lines(ax)
+_format_log_axes(ax)
+ax.plot(t_rel_plot, dose_time_by_cell[int(plasma_vol_id)])
+ax.axhline(0.1,  linestyle='--', color='k', linewidth=1.0)
+ax.axhline(10, linestyle='--', color='k', linewidth=1.0)
+ax.axhline(10000, linestyle='--', color='k', linewidth=1.0)
+ax.text(1e-9, 0.1*1.5, 'Natural background')
+ax.text(1e-9, 10*1.5, 'Hands-on limit')
+ax.text(1e-9, 10000*1.5, 'Remote recycling limit')
+ax.set_ylabel("Shutdown Dose [μSv/h]")
+ax.set_xlabel("Cooling Time [y]")
 plt.savefig(sdr_dir / "sdr_time_plasma.png", dpi=300, bbox_inches="tight")
-plt.close()
+plt.close(fig)
 
 # ------------------------------------------------------------------
 # Plot 1B: VV port-fill time series
@@ -322,7 +383,7 @@ plt.close()
 show_VV = False
 if show_VV:
     plt.figure()
-    plt.plot(time_s, dose_time_by_cell[int(vvportfill_vol_id)], label="VV port-fill (D1S)")
+    plt.plot(t_rel_plot, dose_time_by_cell[int(vvportfill_vol_id)], label="VV port-fill (D1S)")
     plt.grid(True, which="both")
     plt.xscale("log")
     plt.yscale("log")
