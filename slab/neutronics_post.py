@@ -34,11 +34,19 @@ import openmc
 # ----------------------------
 import neutronics_model as bm  
 
-# ----------------------------
-# User settings
-# ----------------------------
+# =============================================================================
+# PATH SETUP
+# =============================================================================
+
+SCRIPT_DIR = Path(__file__).resolve().parent        # cortex/slab
+PROJECT_ROOT = SCRIPT_DIR.parent                    # cortex
+BLUEMIRA_DIR = PROJECT_ROOT / "detailed_bluemira"  # cortex/detailed_bluemira
+
+# =============================================================================
+# USER INPUTS
+# =============================================================================
+INPUT_JSON = BLUEMIRA_DIR / "Tokamak_inputs.json"
 STATEPOINT_FILE = "statepoint.10.h5"
-INPUT_JSON = Path("Tokamak_inputs.json")
 
 BASE_DIR = Path(__file__).resolve().parent
 RESULTS_DIR = BASE_DIR / "neutronics_results"

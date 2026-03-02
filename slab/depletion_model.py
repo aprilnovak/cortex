@@ -59,8 +59,11 @@ from neutronics_model import (
 # -----------------------------------------------------------------------------
 # USER INPUTS
 # -----------------------------------------------------------------------------
-path_file = Path(__file__).resolve().parent
-INPUT_JSON = (path_file / "Tokamak_inputs.json").resolve()
+SCRIPT_DIR = Path(__file__).resolve().parent        # cortex/slab
+PROJECT_ROOT = SCRIPT_DIR.parent                    # cortex
+BLUEMIRA_DIR = PROJECT_ROOT / "detailed_bluemira"  # cortex/detailed_bluemira
+INPUT_JSON = BLUEMIRA_DIR / "Tokamak_inputs.json"
+
 OB_KEY = "OB_1_b6"
 
 # Chain file (base)

@@ -24,20 +24,26 @@ import pydagmc
 
 import os
 import sys
-module_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "materials"))
-sys.path.append(module_path)
-import materials
 
-# -----------------------------------------------------------------------------
-# Inputs
-# -----------------------------------------------------------------------------
-_DAGMC_MODEL_FILE = "eudemo_f_1_27a.h5m"
-INPUT_JSON = Path("Tokamak_inputs.json")
+# =============================================================================
+# PATH SETUP
+# =============================================================================
+
+SCRIPT_DIR = Path(__file__).resolve().parent        # cortex/slab
+PROJECT_ROOT = SCRIPT_DIR.parent                    # cortex
+BLUEMIRA_DIR = PROJECT_ROOT / "detailed_bluemira"  # cortex/detailed_bluemira
+
+# Add materials folder (if it lives in cortex/materials)
+module_path = PROJECT_ROOT / "materials"
+sys.path.append(str(module_path))
+import materials
 
 # =============================================================================
 # USER INPUTS
 # =============================================================================
-_DAGMC_MODEL_FILE = "eudemo_f_1_27a.h5m"
+
+_DAGMC_MODEL_FILE = BLUEMIRA_DIR / "eudemo_f_1_27a.h5m"
+INPUT_JSON = BLUEMIRA_DIR / "Tokamak_inputs.json"
 # Fixed-source run configuration
 SURF_SOURCE_FILE = "surface_source.h5" 
 
@@ -222,7 +228,7 @@ dagmc_universe = openmc.DAGMCUniverse(filename=_DAGMC_MODEL_FILE)
 pydagmc_model = pydagmc.Model(str(dagmc_universe.filename))
 
 mb = core.Core()
-mb.load_file(_DAGMC_MODEL_FILE)
+mb.load_file(str(_DAGMC_MODEL_FILE))  # convert here only
 
 # reserve IDs
 openmc.reserve_ids([v.id for v in pydagmc_model.volumes], cls=openmc.Cell)

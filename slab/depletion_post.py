@@ -24,9 +24,14 @@ import openmc.deplete
 # https://doi.org/10.1016/j.fusengdes.2021.112338
 # https://iopscience.iop.org/article/10.1088/1741-4326/aca61f
 
+# Json input
+SCRIPT_DIR = Path(__file__).resolve().parent        # cortex/slab
+PROJECT_ROOT = SCRIPT_DIR.parent                    # cortex
+BLUEMIRA_DIR = PROJECT_ROOT / "detailed_bluemira"  # cortex/detailed_bluemira
+INPUT_JSON = BLUEMIRA_DIR / "Tokamak_inputs.json"
+
 # parameters
 SECONDS_PER_YEAR = 365.25 * 24 * 3600.0
-INPUT_JSON = Path("Tokamak_inputs.json")
 
 def generate_colors(n):
     """Generates a smooth rainbow gradient of n RGB colors."""
