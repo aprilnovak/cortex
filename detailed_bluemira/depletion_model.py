@@ -124,9 +124,9 @@ to_mSv = 1e-9
 irradiation_time_y = np.array([5.0])
 irradiation_time = (irradiation_time_y * y_to_s).tolist()
 
-# cooling (1e-9 y to 1000 y)
+# cooling (1e-8 y to 1000 y)
 timesteps_years = np.concatenate([
-    np.logspace(-9, -4, 7),
+    np.logspace(-8, -4, 6),
     np.logspace(-4,  0, 8)[1:],  # drop 1e-4
     np.logspace( 0,  3, 14)[1:],  # drop 1e1
 ])
