@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from matplotlib import pyplot as plt
+import matplotlib.ticker as mticker
 import numpy as np
 import pandas as pd
 import openmc
@@ -8,39 +9,39 @@ import openmc.data
 import openmc.deplete
 from openmc.deplete import d1s
 
+import time
+from collections import OrderedDict
+
 import sys
 import os
 module_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "materials"))
 sys.path.append(module_path)
 import materials 
 
-# ------------------------------------------------------------------
-# Import from neutronics_model.py
-# ------------------------------------------------------------------
-from neutronics_model import (
-    neutron_source_rate,
-    model,
-    pydagmc_model,
-    all_cells,
-    build_breeder_chunks,
-)
+# --------------------
+# TIME CLASS
+# --------------------
 
-# -----------------------------------------------------------------------------
-# USER INPUTS
-# -----------------------------------------------------------------------------
-path_file = Path(__file__).resolve().parent
-INPUT_JSON = (path_file / "Tokamak_inputs.json").resolve()  
-OB_KEY = "OB_1_b6"
+class Timer:
+    def __init__(self):
+        self._start = {}
+        self.elapsed = OrderedDict()
 
-chunk_cells = build_breeder_chunks(INPUT_JSON, default_equatorial_ob_key=OB_KEY)
+    def start(self, name: str):
+        self._start[name] = time.perf_counter()
 
-ob_by_key = chunk_cells["ob_by_key"]
-ib_by_key = chunk_cells["ib_by_key"]
-OB_CHUNK_SIZE = chunk_cells["OB_CHUNK_SIZE"]
-IB_CHUNK_SIZE = chunk_cells["IB_CHUNK_SIZE"]
+    def stop(self, name: str):
+        if name not in self._start:
+            raise RuntimeError(f"Timer '{name}' was not started")
+        dt = time.perf_counter() - self._start.pop(name)
+        self.elapsed[name] = self.elapsed.get(name, 0.0) + dt
 
-cell_ids = chunk_cells["cell_ids_all"]
-cell_ids_equatorial_ob = chunk_cells["equatorial_ob_cell_ids"]
+    def summary(self):
+        total = sum(self.elapsed.values())
+        print("\n=== Timing summary ===")
+        for k, v in self.elapsed.items():
+            print(f"{k:30s}: {v:8.3f} s ({100*v/total:5.1f}%)")
+        print(f"{'TOTAL':30s}: {total:8.3f} s")
 
 # ------------------------------------------------------------------
 # Helper: bounding box
@@ -55,8 +56,51 @@ def dagmc_bounding_box(pydagmc_model, volume_id):
 
 
 # ------------------------------------------------------------------
+# Import from neutronics_model.py
+# ------------------------------------------------------------------
+timer = Timer()
+
+timer.start("Build neutronics model")
+from neutronics_model import (
+    neutron_source_rate,
+    model,
+    pydagmc_model,
+    all_cells,
+    build_breeder_chunks,
+)
+
+# -----------------------------------------------------------------------------
+# USER INPUTS
+# -----------------------------------------------------------------------------
+# Create SDR directory
+sdr_dir = Path("sdr")
+sdr_dir.mkdir(parents=True, exist_ok=True)
+
+# load geometry json input
+path_file = Path(__file__).resolve().parent
+INPUT_JSON = (path_file / "Tokamak_inputs.json").resolve()  
+OB_KEY = "OB_1_b6"
+
+chunk_cells = build_breeder_chunks(INPUT_JSON, default_equatorial_ob_key=OB_KEY)
+
+ob_by_key = chunk_cells["ob_by_key"]
+ib_by_key = chunk_cells["ib_by_key"]
+OB_CHUNK_SIZE = chunk_cells["OB_CHUNK_SIZE"]
+IB_CHUNK_SIZE = chunk_cells["IB_CHUNK_SIZE"]
+
+cell_ids = chunk_cells["cell_ids_all"]
+cell_ids_equatorial_ob = chunk_cells["equatorial_ob_cell_ids"]
+
+# TODO: why not have the D1S part be in the neutronics_model.py? I think it could be?
+# Let's check with Patrick
+timer.stop("Build neutronics model")
+
+
+# ------------------------------------------------------------------
 # Resolve chain file (ENDF/B-VIII.0)
 # ------------------------------------------------------------------
+timer.start("Build D1S model")
+
 chain_path = (Path(__file__).resolve().parent.parent / "depletion_chain" / "chain_endfb80_sfr.xml").resolve()
 if not chain_path.exists():
     raise FileNotFoundError(f"Chain file not found: {chain_path}")
@@ -103,8 +147,6 @@ xcentroids_ib = (0.1, 1.1, 6.0, 15.0, 25.0, 35.0, 45.0, 55.0, 65.0, 73.8, 108.0)
 # ------------------------------------------------------------------
 # Identify plasma and vv port-fill cells (last two cells)
 # ------------------------------------------------------------------
-vols = list(pydagmc_model.volumes)
-
 vols = list(pydagmc_model.volumes)
 if len(vols) < 2:
     raise RuntimeError(f"PyDAGMC model has only {len(vols)} volumes; expected >= 2.")
@@ -178,63 +220,72 @@ model.settings.use_decay_photons = True
 nuclides = d1s.prepare_tallies(model)
 factors = d1s.time_correction_factors(nuclides, timesteps, source_rates)
 
+timer.stop("Build D1S model")
+
 print("---------------------------")
 print("Performing D1S run")
 print("---------------------------")
+timer.start("D1S run")
 
 statepoint = model.run(output=False)
 
 with openmc.StatePoint(statepoint) as sp:
     tally = sp.get_tally(name="dose tally")
 
-# Apply time correction for each timestep index
-corrected_tallies = []
-for i in range(len(timesteps)):
-    corrected_tallies.append(d1s.apply_time_correction(tally, factors, i + 1))
+# Apply time correction
+corrected_tallies = [
+    d1s.apply_time_correction(tally, factors, i + 1)
+    for i in range(len(timesteps))
+]
 
 print("Displaying cell dose rates")
 
-# Storage:
-time_s = []  # cooling times (seconds), corresponds to timesteps[1:]
+# Storage
+time_s = []
 dose_time_by_cell = {plasma_vol_id: [], vvportfill_vol_id: []}
-profiles = []  # list of {"t_s":..., "df":...} for OB profile
+profiles = []
 
 for t_cool, ctally in zip(timesteps[1:], corrected_tallies[1:]):
     d1s_df = ctally.get_pandas_dataframe()
 
-    # identify cell column name
+    # Identify cell column
     if "cell" in d1s_df.columns:
         cell_col = "cell"
     elif "cell_id" in d1s_df.columns:
         cell_col = "cell_id"
     else:
-        raise KeyError(f"Could not find a cell column in tally dataframe. Columns: {list(d1s_df.columns)}")
+        raise KeyError(f"Could not find a cell column in tally dataframe.")
 
-    # normalize per cell
+    d1s_df[cell_col] = pd.to_numeric(d1s_df[cell_col]).astype(int)
+    d1s_df["mean"] = pd.to_numeric(d1s_df["mean"])
+
+    # Map volumes
     d1s_df["cell_volume"] = d1s_df[cell_col].map(vol_by_cell_all)
     if d1s_df["cell_volume"].isna().any():
         missing = d1s_df.loc[d1s_df["cell_volume"].isna(), cell_col].unique().tolist()
         raise KeyError(f"Missing volumes for cells: {missing}")
 
+    # Convert to dose rate
     d1s_df["μSv/h"] = d1s_df["mean"] * (s_to_h * to_μSv) / d1s_df["cell_volume"]
     d1s_df["mSv/h"] = d1s_df["mean"] * (s_to_h * to_mSv) / d1s_df["cell_volume"]
 
-    # -------------------------
-    # (A) time series: plasma & vvportfill
-    # -------------------------
+    # --------------------------------------------------
+    # (A) Time series: plasma & VV port-fill
+    # --------------------------------------------------
     df_time = d1s_df[d1s_df[cell_col].isin(dose_cells_time)].copy()
-    got = set(df_time[cell_col].tolist())
-    want = set(dose_cells_time)
-    if got != want:
-        raise RuntimeError(f"Time-series rows mismatch. Got {sorted(got)}, want {sorted(want)}")
 
     time_s.append(float(t_cool))
-    for cid in dose_cells_time:
-        dose_time_by_cell[cid].append(float(df_time.loc[df_time[cell_col] == cid, "μSv/h"].iloc[0]))
 
-    # -------------------------
-    # (B) spatial profile: OB_1_b6
-    # -------------------------
+    for cid in dose_cells_time:
+        cid = int(cid)
+        sub = df_time.loc[df_time[cell_col] == cid, "μSv/h"]
+        if len(sub) == 0:
+            raise RuntimeError(f"Missing μSv/h row for cid={cid} at t={t_cool:.3e}s")
+        dose_time_by_cell[cid].append(float(sub.iloc[0]))
+
+    # --------------------------------------------------
+    # (B) Spatial profile: OB_1_b6
+    # --------------------------------------------------
     df_prof = d1s_df[d1s_df[cell_col].isin(ob_1_b6_cells)].copy()
     df_prof["centers"] = df_prof[cell_col].map(center_by_cell_ob6)
 
@@ -246,41 +297,104 @@ for t_cool, ctally in zip(timesteps[1:], corrected_tallies[1:]):
     profiles.append({"t_s": float(t_cool), "df": df_prof.copy()})
 
     print(
-        f"Cooling {t_cool:.3e} s | plasma={dose_time_by_cell[plasma_vol_id][-1]:.3e} μSv/h | "
-        f"vvpf={dose_time_by_cell[vvportfill_vol_id][-1]:.3e} μSv/h | "
+        f"Cooling {t_cool:.3e} s | "
+        f"plasma={dose_time_by_cell[int(plasma_vol_id)][-1]:.3e} μSv/h | "
+        f"vvpf={dose_time_by_cell[int(vvportfill_vol_id)][-1]:.3e} μSv/h | "
         f"{OB_KEY} rows={len(df_prof)}"
     )
 
-# ------------------------------------------------------------------
-# Plot 1A: time series for plasma
-# ------------------------------------------------------------------
-plt.figure()
-plt.plot(time_s, dose_time_by_cell[plasma_vol_id], label="Plasma (D1S)")
-plt.grid()
-plt.xscale("log")
-plt.yscale("log")
-plt.ylabel("Shutdown Dose (μSv/h)")
-plt.xlabel("Cooling Time [s]")
-plt.legend()
-plt.savefig("sdr_time_plasma.png", dpi=300, bbox_inches="tight")
-plt.show()
+def _add_time_reference_lines(ax):
+    """Useful reference lines (x-axis in years)."""
+
+    SEC_PER_YEAR = 365.0 * 24.0 * 3600.0
+    MIN_PER_YEAR = 365.0 * 24.0 * 60
+    HOUR_PER_YEAR = 365.0 * 24.0
+    WEEK_PER_YEAR = 52
+    DAY_PER_YEAR = 365.0
+    MONTH_PER_YEAR = 12.0
+
+    refs = [
+        (1.0 / SEC_PER_YEAR,   "1 s"),
+        (1.0 / MIN_PER_YEAR,   "1 m"),
+        (1.0 / HOUR_PER_YEAR,  "1 h"),
+        (1.0 / WEEK_PER_YEAR,  "1 w"),
+        (1.0 / DAY_PER_YEAR,   "1 d"),
+        (1.0 / MONTH_PER_YEAR, "4 w"),
+        (1.0,                 "1 y"),
+        (10.0,                "10 y"),
+        (100.0,               "100 y"),
+        (1000.0,              "1000 y"),
+    ]
+
+    for x, txt in refs:
+        ax.axvline(x, color="gray", linestyle="--", linewidth=1, alpha=0.6)
+        ax.text(
+            x,
+            0.98,
+            txt,
+            transform=ax.get_xaxis_transform(),
+            rotation=90,
+            va="top",
+            ha="right",
+            fontsize=8,
+            alpha=0.8,
+        )
+
+def _format_log_axes(ax):
+    """Cleaner log grid and ticks."""
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+    ax.grid(True, which="major", linewidth=0.8, alpha=0.35)
+    ax.grid(True, which="minor", linewidth=0.5, alpha=0.15)
+
+    ax.xaxis.set_minor_locator(mticker.LogLocator(base=10, subs=np.arange(2, 10) * 0.1))
+    ax.yaxis.set_minor_locator(mticker.LogLocator(base=10, subs=np.arange(2, 10) * 0.1))
+    ax.xaxis.set_minor_formatter(mticker.NullFormatter())
+    ax.yaxis.set_minor_formatter(mticker.NullFormatter())
 
 # ------------------------------------------------------------------
-# Plot 1B: time series for VV port-fill
+# Plot 1A: plasma time series
 # ------------------------------------------------------------------
-plt.figure()
-plt.plot(time_s, dose_time_by_cell[vvportfill_vol_id], label="VV port-fill (D1S)")
-plt.grid()
-plt.xscale("log")
-plt.yscale("log")
-plt.ylabel("Shutdown Dose (μSv/h)")
-plt.xlabel("Cooling Time [s]")
-plt.legend()
-plt.savefig("sdr_time_vvportfill.png", dpi=300, bbox_inches="tight")
-plt.show()
+# TODO: factor out these settings for the log-log time plots into a function that
+# is called both here and in depletion_post.py. Also check why the minor ticks are not
+# showing up properly on this plot
+SECONDS_PER_YEAR = 60*60*24*365
+t_rel_plot = [t / SECONDS_PER_YEAR for t in time_s]
+
+fig, ax = plt.subplots()
+_add_time_reference_lines(ax)
+_format_log_axes(ax)
+ax.plot(t_rel_plot, dose_time_by_cell[int(plasma_vol_id)])
+ax.axhline(0.1,  linestyle='--', color='k', linewidth=1.0)
+ax.axhline(10, linestyle='--', color='k', linewidth=1.0)
+ax.axhline(10000, linestyle='--', color='k', linewidth=1.0)
+ax.text(1e-9, 0.1*1.5, 'Natural background')
+ax.text(1e-9, 10*1.5, 'Hands-on limit')
+ax.text(1e-9, 10000*1.5, 'Remote recycling limit')
+ax.set_ylabel("Shutdown Dose [μSv/h]")
+ax.set_xlabel("Cooling Time [y]")
+plt.savefig(sdr_dir / "sdr_time_plasma.png", dpi=300, bbox_inches="tight")
+plt.close(fig)
 
 # ------------------------------------------------------------------
-# Plot 2: spatial profiles for OB_1_b6 at a few representative cooling times
+# Plot 1B: VV port-fill time series
+# ------------------------------------------------------------------
+# TODO: SDR currently shows zero here. Checks are scheduled for the following weeks
+show_VV = False
+if show_VV:
+    plt.figure()
+    plt.plot(t_rel_plot, dose_time_by_cell[int(vvportfill_vol_id)], label="VV port-fill (D1S)")
+    plt.grid(True, which="both")
+    plt.xscale("log")
+    plt.yscale("log")
+    plt.ylabel("Shutdown Dose (μSv/h)")
+    plt.xlabel("Cooling Time [s]")
+    plt.legend()
+    plt.savefig(sdr_dir /"sdr_time_vvportfill.png", dpi=300, bbox_inches="tight")
+    plt.close()
+
+# ------------------------------------------------------------------
+# Plot 2: OB_1_b6 spatial profiles
 # ------------------------------------------------------------------
 if len(profiles) == 0:
     raise RuntimeError("profiles is empty: OB_1_b6 rows were never captured.")
@@ -292,17 +406,21 @@ plt.figure()
 for i in idxs:
     t_s_i = profiles[i]["t_s"]
     dfp = profiles[i]["df"]
-    plt.plot(dfp["centers"], dfp["μSv/h"], label=f"{t_s_i:.1e} s")
+    y = dfp["μSv/h"].to_numpy(float)
+    x = dfp["centers"].to_numpy(float)
+    plt.plot(x, y, label=f"{t_s_i:.1e} s")
 
-plt.grid()
+plt.grid(True, which="both")
 plt.yscale("log")
-plt.ylim(1e-6,1e12)
+plt.ylim(1e-6, 1e12)
 plt.ylabel("Shutdown Dose (μSv/h)")
 plt.xlabel("Radial Position [cm]")
 plt.title(f"D1S spatial profile: {OB_KEY}")
 plt.legend()
-plt.savefig(f"sdr_profile_{OB_KEY}.png", dpi=300)
-plt.show()
+plt.savefig(sdr_dir /f"sdr_profile_{OB_KEY}.png", dpi=300, bbox_inches="tight")
+plt.close()
+
+timer.stop("D1S run")
 
 # ------------------------------------------------------------------
 # Depletion 
@@ -310,6 +428,7 @@ plt.show()
 print("--------------------------------")
 print("Performing depletion")
 print("--------------------------------")
+timer.start("Set up depletion model")
 
 # Make sure the model's materials list matches the geometry
 model.materials = openmc.Materials(list(model.geometry.get_all_materials().values()))
@@ -356,7 +475,7 @@ mat_id_to_name = {str(mat.id): (mat.name or f"material_{mat.id}") for mat in dep
 
 # ---- Build + use reduced chain everywhere below ----
 initial_nuclides = model.geometry.get_all_nuclides()
-reduced_chain = chain.reduce(initial_nuclides, level=2)
+reduced_chain = chain.reduce(initial_nuclides, level=5)
 
 bluemira_chain = Path("bluemira_chain.xml").resolve()
 reduced_chain.export_to_xml(str(bluemira_chain))
@@ -386,9 +505,11 @@ integrator = openmc.deplete.PredictorIntegrator(
     timesteps,
     source_rates=source_rates,
 )
+timer.stop("Set up depletion model")
+
+timer.start("Depletion run")
 integrator.integrate()
 
-# ------------------------------------------------------------------
 # Post-processing: Results
 # ------------------------------------------------------------------
 results = openmc.deplete.Results("r2s/activation/depletion_results.h5")
@@ -396,6 +517,7 @@ results = openmc.deplete.Results("r2s/activation/depletion_results.h5")
 # -----------------------------------------------------------------
 # EXPORT CELL-MAT MAPPING FOR POST PROCESSING
 # -----------------------------------------------------------------
+
 rows = []
 for cid, mat in zip(dagmc_cell_ids, deplete_mats):
     rows.append({"cell_id": cid, "mat_id": int(mat.id), "material_name": mat.name})
@@ -403,7 +525,8 @@ for cid, mat in zip(dagmc_cell_ids, deplete_mats):
 df_map = pd.DataFrame(rows)
 df_map.to_csv("r2s/activation/cell_material_map.csv", index=False)
 print("Written r2s/activation/cell_material_map.csv")
-
+timer.stop("Depletion run")
+timer.summary()
 # -----------------------------------------------------------------
 # Introduce R2S decay-gamma run (placeholder)
 # -----------------------------------------------------------------

@@ -1,6 +1,3 @@
-statepoint.*
-*.txt
+*.xml
 *.h5
 *.png
-*.xml
-*.out
