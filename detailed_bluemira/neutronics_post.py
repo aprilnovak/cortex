@@ -179,6 +179,7 @@ def require_struct_maps(bm):
             "Expected you to compute these in neutronics_model.py via build_structural_maps_vo/build_structural_maps."
         )
 
+# CSV file with nuclides and structural fraction in each material
 def write_struct_origin_csv(
     outdir: Path,
     chunk_key: str,
@@ -203,6 +204,7 @@ def write_struct_origin_csv(
     df = pd.DataFrame(rows)
     df.to_csv(outdir / f"struct_origin_fractions_{chunk_key}.csv", index=False)
 
+# stract mean and std score for each nuclide in a tally
 def tally_mean_std_for_nuclide(t, *, score: str, nuclide: str) -> tuple[float, float]:
     """
     Return (mean, std) for a single nuclide for a score in an OpenMC Tally result object `t`.
@@ -211,6 +213,40 @@ def tally_mean_std_for_nuclide(t, *, score: str, nuclide: str) -> tuple[float, f
     mean = float(t.get_values(scores=[score], nuclides=[nuclide], value="mean").ravel()[0])
     std  = float(t.get_values(scores=[score], nuclides=[nuclide], value="std_dev").ravel()[0])
     return mean, std
+
+#Corrected summations (apply f_struct_origin)
+def corrected_sum_mean_std_getvalues(
+    t: openmc.Tally,
+    *,
+    score: str,
+    nuclides: list[str],
+    f_struct: Dict[str, float],
+    ) -> tuple[float, float]:
+    """
+    Return (mean, std) for Σ_n T(score, n) * f_struct_origin(n)
+    using tally_mean_std_for_nuclide() for the per-nuclide fetch.
+
+    Assumes nuclide contributions are uncorrelated for std (quadrature).
+    """
+    mean_tot = 0.0
+    var_tot = 0.0
+
+    for nuc in nuclides:
+        nuc = str(nuc)
+        w = float(f_struct.get(nuc, 0.0))
+        if w == 0.0:
+            continue
+
+        try:
+            m, sd = tally_mean_std_for_nuclide(t, score=score, nuclide=nuc)
+        except Exception:
+            # nuclide not present in results for this tally, etc.
+            continue
+
+        mean_tot += w * m
+        var_tot += (w * sd) ** 2
+
+    return mean_tot, math.sqrt(max(var_tot, 0.0))
 
 # ----------------------------
 # Load chunking + bin helpers from neutronics_model.py
@@ -242,6 +278,103 @@ colors = generate_colors(n_breeder)
 
 cell_ids_for_key   = _cells_chunk["cell_ids_for_key"]      # key -> list[int]
 radial_bins_for_key = _cells_chunk["radial_bins_for_key"]  # key -> (centroids,widths,edges)
+
+# CSV solution saving
+def make_chunk_base_df(
+    *,
+    chunk_key: str,
+    cell_ids: list[int],
+    labels: list[str],
+    xcent: np.ndarray,
+    xedges: np.ndarray,
+    extra_cols: dict[str, object] | None = None,
+    ) -> pd.DataFrame:
+    """
+    Create a base dataframe with common per-layer/per-cell radial info.
+    This is reused by every profile CSV.
+
+    Columns:
+      chunk_key, cell_id, layer_label, x_center_cm, x_left_cm, x_right_cm,
+    """
+    cell_ids = [int(c) for c in cell_ids]
+    xcent = np.asarray(xcent, float).ravel()
+    xedges = np.asarray(xedges, float).ravel()
+
+    n = len(cell_ids)
+    if len(labels) != n:
+        raise ValueError(f"{chunk_key}: labels length {len(labels)} != cell_ids length {n}")
+    if len(xcent) != n:
+        raise ValueError(f"{chunk_key}: len(xcent) {len(xcent)} != N {n}")
+    if len(xedges) != n + 1:
+        raise ValueError(f"{chunk_key}: len(xedges) {len(xedges)} != N+1 {n+1}")
+
+    df = pd.DataFrame(
+        {
+            "chunk_key": [chunk_key] * n,
+            "cell_id": cell_ids,
+            "layer_label": list(labels),
+            "x_center_cm": xcent,
+            "x_left_cm": xedges[:-1],
+            "x_right_cm": xedges[1:],
+        }
+    )
+
+    if extra_cols:
+        for k, v in extra_cols.items():
+            # allow scalar or per-row array-like
+            if np.isscalar(v) or isinstance(v, str):
+                df[k] = v
+            else:
+                vv = np.asarray(v)
+                if vv.shape[0] != n:
+                    raise ValueError(f"{chunk_key}: extra_cols[{k}] has length {vv.shape[0]} != {n}")
+                df[k] = vv
+
+    return df
+
+def save_profile_from_base(
+    base_df: pd.DataFrame,
+    outdir: Path,
+    *,
+    quantity: str,     # e.g. "heating", "dpa_fpy", "flux_total_neutron"
+    mean: np.ndarray,
+    std: np.ndarray,
+    units: str,
+    nonnegative_lower: bool = True,  
+    ) -> Path:
+    """
+    Save a per-layer profile CSV using base_df + mean/std arrays.
+    """
+    outdir = Path(outdir)
+    outdir.mkdir(parents=True, exist_ok=True)
+
+    n = len(base_df)
+    mean = np.asarray(mean, float).ravel()
+    std = np.asarray(std, float).ravel()
+    if len(mean) != n or len(std) != n:
+        raise ValueError(f"{quantity}: mean/std length mismatch with base_df ({len(mean)},{len(std)}) vs {n}")
+
+    df = base_df.copy()
+    df["quantity"] = quantity
+    df["units"] = units
+    df["mean"] = mean
+    df["std"] = std
+
+    lower = mean - std
+    if nonnegative_lower:
+        lower = np.maximum(lower, 0.0)
+
+    df["lower_1sigma"] = lower
+    df["upper_1sigma"] = mean + std
+
+    # nice deterministic order
+    if "x_left_cm" in df.columns:
+        df = df.sort_values(["x_left_cm", "cell_id"]).reset_index(drop=True)
+
+    chunk_key = str(df["chunk_key"].iloc[0])
+    csv_path = outdir / f"profile_{quantity}_{chunk_key}.csv"
+    df.to_csv(csv_path, index=False)
+    return csv_path
 
 # =============================================================================
 # build tally maps from the *statepoint*
@@ -810,42 +943,6 @@ def element_from_nuclide(nuc: str) -> str:
     return m.group(0) if m else nuc
 
 # =============================================================================
-# Corrected summations (apply f_struct_origin)
-# =============================================================================
-def corrected_sum_mean_std_getvalues(
-    t: openmc.Tally,
-    *,
-    score: str,
-    nuclides: list[str],
-    f_struct: Dict[str, float],
-    ) -> tuple[float, float]:
-    """
-    Return (mean, std) for Σ_n T(score, n) * f_struct_origin(n)
-    using tally_mean_std_for_nuclide() for the per-nuclide fetch.
-
-    Assumes nuclide contributions are uncorrelated for std (quadrature).
-    """
-    mean_tot = 0.0
-    var_tot = 0.0
-
-    for nuc in nuclides:
-        nuc = str(nuc)
-        w = float(f_struct.get(nuc, 0.0))
-        if w == 0.0:
-            continue
-
-        try:
-            m, sd = tally_mean_std_for_nuclide(t, score=score, nuclide=nuc)
-        except Exception:
-            # nuclide not present in results for this tally, etc.
-            continue
-
-        mean_tot += w * m
-        var_tot += (w * sd) ** 2
-
-    return mean_tot, math.sqrt(max(var_tot, 0.0))
-
-# =============================================================================
 # Core per-chunk
 # =============================================================================
 def process_chunk(
@@ -869,6 +966,14 @@ def process_chunk(
 
     labels = layer_names_for_chunk(cell_ids, region_tag)
     scaling = scaling_for_cells(cell_ids)
+
+    base_df = make_chunk_base_df(
+        chunk_key=chunk_key,
+        cell_ids=cell_ids,
+        labels=labels,
+        xcent=xcent,
+        xedges=xedges,
+    )
 
     # build & save structural-origin fractions for this chunk
     cell_struct_origin_frac = bm.cell_struct_origin_frac  # dict[cid] -> dict[nuc] -> f_origin
@@ -916,6 +1021,26 @@ def process_chunk(
     plt.savefig(outdir / f"p_flux_spectrum_{chunk_key}.png", dpi=300, bbox_inches="tight")
     plt.close()
 
+    # Save neutron spectrum to CSV
+    neutron_df = pd.DataFrame({"E_mid_eV": E_mid})
+    for i, lab in enumerate(labels):
+        neutron_df[f"{lab}"] = (
+            neutron_flux_chunk[i].flatten()
+            * scaling[int(cell_ids[i])]
+            / unit_lethargy
+        )
+    neutron_df.to_csv(outdir / f"neutron_spectrum_{chunk_key}.csv", index=False)
+
+    # Save photon spectrum to CSV
+    photon_df = pd.DataFrame({"E_mid_eV": E_mid})
+    for i, lab in enumerate(labels):
+        photon_df[f"{lab}"] = (
+            photon_flux_chunk[i].flatten()
+            * scaling[int(cell_ids[i])]
+            / unit_lethargy
+        )
+    photon_df.to_csv(outdir / f"photon_spectrum_{chunk_key}.csv", index=False)
+
     # ==========================================
     # Total flux (flux_tally_total)
     # ==========================================
@@ -954,6 +1079,12 @@ def process_chunk(
     fig.savefig(outdir / f"flux_total_{chunk_key}.png", dpi=300, bbox_inches="tight")
     plt.close(fig)
 
+    # total flux
+    save_profile_from_base(base_df, outdir, quantity="flux_total_neutron",
+                        mean=direct_total_neut, std=direct_total_neut_std, units="1/cm2/s")
+    save_profile_from_base(base_df, outdir, quantity="flux_total_photon",
+                        mean=direct_total_phot, std=direct_total_phot_std, units="1/cm2/s")
+
     # ==========================================
     # Heating (heating_tally)
     # ==========================================
@@ -983,6 +1114,11 @@ def process_chunk(
     #ax.legend()
     fig.savefig(outdir / f"heating_{chunk_key}.png", dpi=300, bbox_inches="tight")
     plt.close(fig)
+
+    # heating
+    save_profile_from_base(base_df, outdir, quantity="heating",
+                        mean=heat_w, std=heat_w_std, units="W/cm3")
+
 
     # ==========================================
     # H production -> appm/fpy 
@@ -1045,6 +1181,9 @@ def process_chunk(
     fig.savefig(outdir / f"h1_{chunk_key}.png", dpi=300, bbox_inches="tight")
     plt.close(fig)
 
+    save_profile_from_base(base_df, outdir, quantity="H_appm_fpy_struct_origin",
+                       mean=h_appm_y, std=h_appm_y_std, units="appm/fpy")
+    
     # ==========================================
     # He production -> appm/y 
     # ==========================================
@@ -1101,6 +1240,9 @@ def process_chunk(
     fig.savefig(outdir / f"he_{chunk_key}.png", dpi=300, bbox_inches="tight")
     plt.close(fig)
 
+    save_profile_from_base(base_df, outdir, quantity="He_appm_fpy_struct_origin",
+                       mean=he_appm_y, std=he_appm_y_std, units="appm/fpy")
+    
     # ==========================================
     # DPA per full power year -> DPA/fpy 
     # ==========================================
@@ -1169,9 +1311,9 @@ def process_chunk(
         dpa_by_nuclide[cid] = breakdown
 
         # print for  debugging or extra info (comment if undesired)
-        print(f"\n[DPA breakdown] cell {cid}")
-        for nuc, val in sorted(breakdown.items(), key=lambda x: x[1], reverse=True)[:10]:
-            print(f"  {nuc:>8s} : {val:.3e} DPA/y")
+        #print(f"\n[DPA breakdown] cell {cid}")
+        #for nuc, val in sorted(breakdown.items(), key=lambda x: x[1], reverse=True)[:10]:
+        #    print(f"  {nuc:>8s} : {val:.3e} DPA/y")
 
     
     lower= np.maximum(dpa_y - dpa_y_std, 1e-30)
@@ -1188,6 +1330,9 @@ def process_chunk(
     #ax.legend()
     fig.savefig(outdir / f"dpa_{chunk_key}.png", dpi=300, bbox_inches="tight")
     plt.close(fig)
+
+    save_profile_from_base(base_df, outdir, quantity="dpa_fpy_struct_origin",
+                       mean=dpa_y, std=dpa_y_std, units="DPA/fpy")
 
     # ==========================================
     # Albedo post-processing

@@ -423,7 +423,7 @@ model.settings = openmc.Settings()
 model.settings.dagmc = True
 model.settings.photon_transport = True
 model.settings.batches = 10
-model.settings.particles = 100_000
+model.settings.particles = 1_000_000
 model.settings.run_mode = "fixed source"
 model.settings.surf_source_read = {'path': SURF_SOURCE_FILE}
 
@@ -712,6 +712,38 @@ ev_fusion = 17.6e6
 convert_e = ev_to_joule * ev_fusion
 neutron_source_rate = section_power / convert_e
 s_in_y = (365 * 24 * 60 * 60)
+
+# Check surface_source.h5 file:
+with h5py.File(SURF_SOURCE_FILE, "r") as f:
+    bank = f["source_bank"]
+
+    particles = bank["particle"][:]   # particle type array
+
+total = len(particles)
+
+n_neutrons = np.sum(particles == 0)
+n_photons  = np.sum(particles == 1)
+
+ratio_neutrons =  n_neutrons / total if total > 0 else 0.0
+ratio_photons  =  n_photons  / total if total > 0 else 0.0
+
+neutron_ratio_source = (1.0 / ratio_neutrons)
+
+pct_neutrons = 100 * ratio_neutrons
+pct_photons = 100 * ratio_photons
+
+print("\n--- Surface Source Particle Composition ---\n")
+
+print(f"Source file : {SURF_SOURCE_FILE}")
+print(f"Total particles : {total:,}\n")
+
+print(f"Neutrons : {n_neutrons:,}  ({pct_neutrons:.2f} %)")
+print(f"Photons  : {n_photons:,}  ({pct_photons:.2f} %)\n")
+print(f"Neutron ratio source scaling: {neutron_ratio_source:,}")
+
+print("Sanity check:")
+print(f"Sum = {n_neutrons + n_photons:,}")
+# ------------------------------------------
 
 # Filters
 cell_filter = openmc.CellFilter(cell_ids)

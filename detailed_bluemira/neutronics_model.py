@@ -84,10 +84,6 @@ model.geometry = openmc.Geometry(root=[sector_cell])
 # TODO: need to review materials.py for correctness for all materials
 ss316   = materials.ss316Ln_ig(7.93)
 ccz     = materials.CuCrZr(8.9)
-
-# tungsten, density based on PNNL material compendium value
-w       = materials.W(19.3)
-
 h       = materials.Helium(0.0001785)
 nb3sn   = materials.Nb3Sn(5.7)
 epoxy   = materials.Epoxy(1.207)
@@ -95,6 +91,9 @@ bronze  = materials.Bronze(8.8775)
 nbti    = materials.NbTi(6.538)
 c       = materials.Cu(8.96)
 ss304_b4 = materials.ss304_b4(7.8)
+
+# tungsten, density based on PNNL material compendium value
+w       = materials.W(19.3)
 
 # Plasma Region
 plasma = openmc.Material()
@@ -269,12 +268,11 @@ my_source = tokamak_source(
 # SETTINGS
 # -----------------------------------------------------------------------------
 
-
 model.settings = openmc.Settings()
 model.settings.dagmc = True
 model.settings.photon_transport = True
 model.settings.batches = 10
-model.settings.particles = 100_000
+model.settings.particles = 10_000_000
 model.settings.run_mode = "fixed source"
 model.settings.source = my_source
 
@@ -287,7 +285,7 @@ model.settings.track = [(1, 1, random.randint(1, model.settings.particles))]
 # With that we could figure it out the cell and surface_id for this source without adding repetitive functions.
 model.settings.surf_source_write = {
     'surface_ids': [245],
-    'max_particles': 50_000,
+    'max_particles': 5_000_000,
     'cellto': 56
     }
 # -----------------------------------------------------------------------------
@@ -587,6 +585,22 @@ def build_breeder_chunks(
 
     equatorial_ob_cell_ids = ob_by_key.get(default_equatorial_ob_key, [])
 
+    # -------------------------
+    # Armor cell ids (ALL)
+    # -------------------------
+    ob_armor_idx = ob_n_layers
+    ib_armor_idx = ib_n_layers
+
+    armor_cell_ids = []
+
+    for chunk in ob_by_key.values():
+        if len(chunk) > ob_armor_idx:
+            armor_cell_ids.append(int(chunk[ob_armor_idx]))
+
+    for chunk in ib_by_key.values():
+        if len(chunk) > ib_armor_idx:
+            armor_cell_ids.append(int(chunk[ib_armor_idx]))
+
     # convenience callables
     def cell_ids_for_key(key: str) -> List[int]:
         side, _, _ = parse_key(key)
@@ -601,6 +615,7 @@ def build_breeder_chunks(
         "cell_ids_all": cell_ids_all,
         "ob_by_key": ob_by_key,
         "ib_by_key": ib_by_key,
+        "armor_cell_ids": armor_cell_ids,
         "ALL_KEYS": ALL_KEYS,
         "OB_CHUNK_SIZE": OB_CHUNK_SIZE,
         "IB_CHUNK_SIZE": IB_CHUNK_SIZE,
@@ -614,6 +629,7 @@ chunk_cells = build_breeder_chunks(INPUT_JSON, default_equatorial_ob_key="OB_1_b
 
 cell_ids = chunk_cells["cell_ids_all"]
 cell_ids_equatorial_ob = chunk_cells["equatorial_ob_cell_ids"]
+armor_cell_ids = chunk_cells["armor_cell_ids"]
 
 info, all_surface_ids, external_surface_ids, internal_surface_ids = dagmc_volume_surface_info(
     pydagmc_model, cell_ids_equatorial_ob

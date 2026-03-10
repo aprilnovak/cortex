@@ -28,6 +28,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
 import openmc
+import h5py
 
 # ----------------------------
 # Load neutronics model
@@ -64,7 +65,7 @@ ev_to_joule = 1.60218e-19
 ev_fusion = 17.6e6
 convert_e = ev_to_joule * ev_fusion
 SURFACE_SOURCE_POWER_RATIO = 7.171062e-02 # 0.0710619157080504
-neutron_source_rate = SURFACE_SOURCE_POWER_RATIO * section_power / convert_e
+neutron_source_rate = bm.neutron_ratio_source * SURFACE_SOURCE_POWER_RATIO * section_power / convert_e
 s_in_y = (365 * 24 * 60 * 60)
 
 
@@ -251,6 +252,102 @@ colors = generate_colors(n_breeder)
 
 cell_ids_for_key   = _cells_chunk["cell_ids_for_key"]      # key -> list[int]
 radial_bins_for_key = _cells_chunk["radial_bins_for_key"]  # key -> (centroids,widths,edges)
+
+def make_chunk_base_df(
+    *,
+    chunk_key: str,
+    cell_ids: list[int],
+    labels: list[str],
+    xcent: np.ndarray,
+    xedges: np.ndarray,
+    extra_cols: dict[str, object] | None = None,
+) -> pd.DataFrame:
+    """
+    Create a base dataframe with common per-layer/per-cell radial info.
+    This is reused by every profile CSV.
+
+    Columns:
+      chunk_key, cell_id, layer_label, x_center_cm, x_left_cm, x_right_cm, (optional extras)
+    """
+    cell_ids = [int(c) for c in cell_ids]
+    xcent = np.asarray(xcent, float).ravel()
+    xedges = np.asarray(xedges, float).ravel()
+
+    n = len(cell_ids)
+    if len(labels) != n:
+        raise ValueError(f"{chunk_key}: labels length {len(labels)} != cell_ids length {n}")
+    if len(xcent) != n:
+        raise ValueError(f"{chunk_key}: len(xcent) {len(xcent)} != N {n}")
+    if len(xedges) != n + 1:
+        raise ValueError(f"{chunk_key}: len(xedges) {len(xedges)} != N+1 {n+1}")
+
+    df = pd.DataFrame(
+        {
+            "chunk_key": [chunk_key] * n,
+            "cell_id": cell_ids,
+            "layer_label": list(labels),
+            "x_center_cm": xcent,
+            "x_left_cm": xedges[:-1],
+            "x_right_cm": xedges[1:],
+        }
+    )
+
+    if extra_cols:
+        for k, v in extra_cols.items():
+            # allow scalar or per-row array-like
+            if np.isscalar(v) or isinstance(v, str):
+                df[k] = v
+            else:
+                vv = np.asarray(v)
+                if vv.shape[0] != n:
+                    raise ValueError(f"{chunk_key}: extra_cols[{k}] has length {vv.shape[0]} != {n}")
+                df[k] = vv
+
+    return df
+
+def save_profile_from_base(
+    base_df: pd.DataFrame,
+    outdir: Path,
+    *,
+    quantity: str,     # e.g. "heating", "dpa_fpy", "flux_total_neutron"
+    mean: np.ndarray,
+    std: np.ndarray,
+    units: str,
+    nonnegative_lower: bool = True,  # good for log plots
+) -> Path:
+    """
+    Save a per-layer profile CSV using base_df + mean/std arrays (same data you plot).
+    """
+    outdir = Path(outdir)
+    outdir.mkdir(parents=True, exist_ok=True)
+
+    n = len(base_df)
+    mean = np.asarray(mean, float).ravel()
+    std = np.asarray(std, float).ravel()
+    if len(mean) != n or len(std) != n:
+        raise ValueError(f"{quantity}: mean/std length mismatch with base_df ({len(mean)},{len(std)}) vs {n}")
+
+    df = base_df.copy()
+    df["quantity"] = quantity
+    df["units"] = units
+    df["mean"] = mean
+    df["std"] = std
+
+    lower = mean - std
+    if nonnegative_lower:
+        lower = np.maximum(lower, 0.0)
+
+    df["lower_1sigma"] = lower
+    df["upper_1sigma"] = mean + std
+
+    # nice deterministic order
+    if "x_left_cm" in df.columns:
+        df = df.sort_values(["x_left_cm", "cell_id"]).reset_index(drop=True)
+
+    chunk_key = str(df["chunk_key"].iloc[0])
+    csv_path = outdir / f"profile_{quantity}_{chunk_key}.csv"
+    df.to_csv(csv_path, index=False)
+    return csv_path
 
 # =============================================================================
 # build tally maps from the *statepoint*
@@ -879,6 +976,14 @@ def process_chunk(
     labels = layer_names_for_chunk(cell_ids, region_tag)
     scaling = scaling_for_cells(cell_ids)
 
+    base_df = make_chunk_base_df(
+        chunk_key=chunk_key,
+        cell_ids=cell_ids,
+        labels=labels,
+        xcent=xcent,
+        xedges=xedges,
+    )
+
     # build & save structural-origin fractions for this chunk
     cell_struct_origin_frac = bm.cell_struct_origin_frac  # dict[cid] -> dict[nuc] -> f_origin
     write_struct_origin_csv(outdir, chunk_key, cell_ids, labels, cell_struct_origin_frac)
@@ -925,6 +1030,26 @@ def process_chunk(
     plt.savefig(outdir / f"p_flux_spectrum_{chunk_key}.png", dpi=300, bbox_inches="tight")
     plt.close()
 
+    # Save neutron spectrum to CSV
+    neutron_df = pd.DataFrame({"E_mid_eV": E_mid})
+    for i, lab in enumerate(labels):
+        neutron_df[f"{lab}"] = (
+            neutron_flux_chunk[i].flatten()
+            * scaling[int(cell_ids[i])]
+            / unit_lethargy
+        )
+    neutron_df.to_csv(outdir / f"neutron_spectrum_{chunk_key}.csv", index=False)
+
+    # Save photon spectrum to CSV
+    photon_df = pd.DataFrame({"E_mid_eV": E_mid})
+    for i, lab in enumerate(labels):
+        photon_df[f"{lab}"] = (
+            photon_flux_chunk[i].flatten()
+            * scaling[int(cell_ids[i])]
+            / unit_lethargy
+        )
+    photon_df.to_csv(outdir / f"photon_spectrum_{chunk_key}.csv", index=False)
+
     # ==========================================
     # Total flux (flux_tally_total)
     # ==========================================
@@ -963,6 +1088,10 @@ def process_chunk(
     fig.savefig(outdir / f"flux_total_{chunk_key}.png", dpi=300, bbox_inches="tight")
     plt.close(fig)
 
+    save_profile_from_base(base_df, outdir, quantity="flux_total_neutron",
+                        mean=direct_total_neut, std=direct_total_neut_std, units="1/cm2/s")
+    save_profile_from_base(base_df, outdir, quantity="flux_total_photon",
+                        mean=direct_total_phot, std=direct_total_phot_std, units="1/cm2/s")
     # ==========================================
     # Heating (heating_tally)
     # ==========================================
@@ -992,6 +1121,9 @@ def process_chunk(
     #ax.legend()
     fig.savefig(outdir / f"heating_{chunk_key}.png", dpi=300, bbox_inches="tight")
     plt.close(fig)
+
+    save_profile_from_base(base_df, outdir, quantity="heating",
+                    mean=heat_w, std=heat_w_std, units="W/cm3")
 
     # ==========================================
     # H production -> appm/fpy 
@@ -1054,6 +1186,9 @@ def process_chunk(
     fig.savefig(outdir / f"h1_{chunk_key}.png", dpi=300, bbox_inches="tight")
     plt.close(fig)
 
+    save_profile_from_base(base_df, outdir, quantity="H_appm_fpy_struct_origin",
+                       mean=h_appm_y, std=h_appm_y_std, units="appm/fpy")
+    
     # ==========================================
     # He production -> appm/y 
     # ==========================================
@@ -1110,6 +1245,9 @@ def process_chunk(
     fig.savefig(outdir / f"he_{chunk_key}.png", dpi=300, bbox_inches="tight")
     plt.close(fig)
 
+    save_profile_from_base(base_df, outdir, quantity="He_appm_fpy_struct_origin",
+                       mean=he_appm_y, std=he_appm_y_std, units="appm/fpy")
+    
     # ==========================================
     # DPA per full power year -> DPA/fpy 
     # ==========================================
@@ -1197,6 +1335,9 @@ def process_chunk(
     #ax.legend()
     fig.savefig(outdir / f"dpa_{chunk_key}.png", dpi=300, bbox_inches="tight")
     plt.close(fig)
+
+    save_profile_from_base(base_df, outdir, quantity="dpa_fpy_struct_origin",
+                       mean=dpa_y, std=dpa_y_std, units="DPA/fpy")    
 
     # ==========================================
     # Albedo post-processing

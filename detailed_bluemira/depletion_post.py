@@ -140,6 +140,49 @@ def ensure_chunk_outdir(base_out_dir: str | Path, chunk_key: str) -> Path:
     return out
 
 # -----------------------------
+# CSV export helpers
+# -----------------------------
+def _safe_csv_label(text: str) -> str:
+    return str(text).strip().replace(" ", "_").replace("/", "_")
+
+def save_total_timeseries_csv(
+    total_by_cell: Dict[int, Tuple[np.ndarray, np.ndarray]],
+    cell_id_to_name: Dict[int, str],
+    out_csv: str | Path,
+    value_label: str,
+    ) -> None:
+    """
+    Save total quantity over cooling time for all cells into one CSV.
+
+    Output columns:
+      Cooling_time_years,
+      <RegionName>__cell_<cid>, ...
+    """
+    if not total_by_cell:
+        return
+
+    # Build one dataframe per cell, then outer-merge on time
+    dfs = []
+    for cid, (t_rel_y, values) in total_by_cell.items():
+        region = cell_id_to_name.get(cid, str(cid))
+        col_name = f"{_safe_csv_label(region)}__cell_{cid}"
+
+        df_i = pd.DataFrame({
+            "Cooling_time_years": np.asarray(t_rel_y, dtype=float),
+            col_name: np.asarray(values, dtype=float),
+        })
+        dfs.append(df_i)
+
+    df_out = dfs[0]
+    for df_i in dfs[1:]:
+        df_out = df_out.merge(df_i, on="Cooling_time_years", how="outer")
+
+    df_out = df_out.sort_values("Cooling_time_years").reset_index(drop=True)
+    Path(out_csv).parent.mkdir(parents=True, exist_ok=True)
+    df_out.to_csv(out_csv, index=False)
+    print(f"[CSV] Wrote {value_label} totals to {out_csv}")
+
+# -----------------------------
 # Time utilities
 # -----------------------------
 def shutdown_index_from_source_rates(source_rates: np.ndarray, n_steps: int) -> int:
@@ -316,6 +359,8 @@ def _add_time_reference_lines(ax):
             fontsize=8,
             alpha=0.8,
         )
+
+
 
 # ============================================================
 # Activity
@@ -939,12 +984,21 @@ def run_chunk_postprocess(
             activity_units=activity_units,
             similarity_threshold=similarity_threshold,
         )
+
         plot_activity_all_cells(
             total_activity_all, cell_id_to_name,
             out_dir=out_dir,
             activity_units=activity_units,
             global_min_topn_edge=act_min_topn_edge,
         )
+
+        save_total_timeseries_csv(
+            total_activity_all,
+            cell_id_to_name,
+            out_dir / "activity_all_cells.csv",
+            value_label="activity",
+        )
+
         plot_activity_radial_profiles(
             total_activity_all, cell_ids, x,
             out_dir=out_dir,
@@ -962,6 +1016,7 @@ def run_chunk_postprocess(
             decayheat_units=decayheat_units,
             similarity_threshold=similarity_threshold,
         )
+        
         plot_decayheat_all_cells(
             total_heat_all, cell_id_to_name,
             max_decay_comb=max_decay_comb,
@@ -969,6 +1024,14 @@ def run_chunk_postprocess(
             decayheat_units=decayheat_units,
             global_min_topn_edge=dh_min_topn_edge,
         )
+
+        save_total_timeseries_csv(
+            total_heat_all,
+            cell_id_to_name,
+            out_dir / "decayheat_all_cells.csv",
+            value_label="decayheat",
+        )
+
         plot_decayheat_radial_profiles(
             total_heat_all, cell_ids, x,
             out_dir=out_dir,
