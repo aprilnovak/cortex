@@ -3,18 +3,32 @@
 # Sould be run from within the tea directory
 # ===========================================
 
-import tea_level1
-
-import sys
-import os
-module_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'materials'))
-sys.path.append(module_path)
-print(module_path)
-import materials
+print("Importing tea module... ")
+import tea
 
 #--------------------------------
 # Example usage of TEA Level 1
+#--------------------------------
+componet1_material = tea.ManufacturingMaterials_Database["Eurofer97"]   
+component1_Lv1_cost = componet1_material.price_mass
+print(f'Level 1 Cost: ${component1_Lv1_cost:.2f}/kg')
+
+#--------------------------------
+# Example usage of TEA Level 2
 #--------------------------------   
-eurofer97 = materials.eurofer97(8.0)  # density in g/cc
-eurofer97_cost = tea_level1.TEA_Lv1(eurofer97)
-print(f'Eurofer97 Cost: ${eurofer97_cost:.2f}/kg')
+# TODO: Convert cost to $/kg
+component1_process1 = tea.ManufacturingProcesses_Database["HCEM"]
+component1_process2 = tea.ManufacturingProcesses_Database["AM"] 
+component1 = tea.ManufacturingComponent(name = "Component1", 
+                                        volume_mm3 = 100000,
+                                        material = componet1_material,
+                                        processes = [component1_process1,component1_process2], 
+                                        production_qty = 1000,
+                                        cc=1.0, 
+                                        cs=1.0, 
+                                        ct=1.0, 
+                                        cf=1.0, 
+                                        waste_coeff=1.0
+                                        )
+component1_Lv2_cost = component1.manufacturing_cost()
+print(f'Level 2 Cost: ${component1_Lv2_cost:.2f}/$/kg')
