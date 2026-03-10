@@ -350,7 +350,7 @@ def build_materials():
         "SC": 1    
     }
     """
-
+    print('Adding Eurofer97 material...')
     eurofer97 = materials.eurofer97(8.0)   # density in g/cc
     eurofer97.name = "Eurofer97"
     eurofer97_MM = ManufacturingMaterial(
