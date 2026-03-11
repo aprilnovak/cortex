@@ -109,13 +109,13 @@ if OB_KEY not in ob_by_key:
 ob_cells_json = [int(x) for x in ob_by_key[OB_KEY]]
 
 # What cells actually exist in this reduced model geometry
-#present_cell_ids = set(int(c.id) for c in model.geometry.get_all_cells().values())
-#ob_cells = [cid for cid in ob_cells_json if cid in present_cell_ids]
+present_cell_ids = set(int(c.id) for c in model.geometry.get_all_cells().values())
+ob_cells = [cid for cid in ob_cells_json if cid in present_cell_ids]
 
 #print(f"[chunk] {OB_KEY}: {len(ob_cells_json)} from JSON, {len(ob_cells)} present in wrapper")
 #print(f"[chunk] present ids: {ob_cells}")
-#if len(ob_cells) == 0:
-#    raise RuntimeError(f"{OB_KEY}: none of the JSON chunk cells are present in model.geometry")
+if len(ob_cells) == 0:
+    raise RuntimeError(f"{OB_KEY}: none of the JSON chunk cells are present in model.geometry")
 
 # Radial binning (centroids/widths/edges) for OB_KEY
 centroids_cm, widths_cm, edges_cm = _cells_chunk["radial_bins_for_key"](OB_KEY)
