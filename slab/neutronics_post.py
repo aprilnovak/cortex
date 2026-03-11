@@ -197,6 +197,7 @@ def require_struct_maps(bm):
             "Expected you to compute these in neutronics_model.py via build_structural_maps_vo/build_structural_maps."
         )
 
+# CSV file with nuclides and structural fraction in each material
 def write_struct_origin_csv(
     outdir: Path,
     chunk_key: str,
@@ -221,6 +222,7 @@ def write_struct_origin_csv(
     df = pd.DataFrame(rows)
     df.to_csv(outdir / f"struct_origin_fractions_{chunk_key}.csv", index=False)
 
+# stract mean and std score for each nuclide in a tally
 def tally_mean_std_for_nuclide(t, *, score: str, nuclide: str) -> tuple[float, float]:
     """
     Return (mean, std) for a single nuclide for a score in an OpenMC Tally result object `t`.
@@ -229,6 +231,40 @@ def tally_mean_std_for_nuclide(t, *, score: str, nuclide: str) -> tuple[float, f
     mean = float(t.get_values(scores=[score], nuclides=[nuclide], value="mean").ravel()[0])
     std  = float(t.get_values(scores=[score], nuclides=[nuclide], value="std_dev").ravel()[0])
     return mean, std
+
+#Corrected summations (apply f_struct_origin)
+def corrected_sum_mean_std_getvalues(
+    t: openmc.Tally,
+    *,
+    score: str,
+    nuclides: list[str],
+    f_struct: Dict[str, float],
+    ) -> tuple[float, float]:
+    """
+    Return (mean, std) for Σ_n T(score, n) * f_struct_origin(n)
+    using tally_mean_std_for_nuclide() for the per-nuclide fetch.
+
+    Assumes nuclide contributions are uncorrelated for std (quadrature).
+    """
+    mean_tot = 0.0
+    var_tot = 0.0
+
+    for nuc in nuclides:
+        nuc = str(nuc)
+        w = float(f_struct.get(nuc, 0.0))
+        if w == 0.0:
+            continue
+
+        try:
+            m, sd = tally_mean_std_for_nuclide(t, score=score, nuclide=nuc)
+        except Exception:
+            # nuclide not present in results for this tally, etc.
+            continue
+
+        mean_tot += w * m
+        var_tot += (w * sd) ** 2
+
+    return mean_tot, math.sqrt(max(var_tot, 0.0))
 
 # ----------------------------
 # Load chunking + bin helpers from neutronics_model.py
@@ -922,42 +958,6 @@ def compute_albedo_for_chunk(
 def element_from_nuclide(nuc: str) -> str:
     m = re.match(r"[A-Za-z]+", nuc)
     return m.group(0) if m else nuc
-
-# =============================================================================
-# Corrected summations (apply f_struct_origin)
-# =============================================================================
-def corrected_sum_mean_std_getvalues(
-    t: openmc.Tally,
-    *,
-    score: str,
-    nuclides: list[str],
-    f_struct: Dict[str, float],
-    ) -> tuple[float, float]:
-    """
-    Return (mean, std) for Σ_n T(score, n) * f_struct_origin(n)
-    using tally_mean_std_for_nuclide() for the per-nuclide fetch.
-
-    Assumes nuclide contributions are uncorrelated for std (quadrature).
-    """
-    mean_tot = 0.0
-    var_tot = 0.0
-
-    for nuc in nuclides:
-        nuc = str(nuc)
-        w = float(f_struct.get(nuc, 0.0))
-        if w == 0.0:
-            continue
-
-        try:
-            m, sd = tally_mean_std_for_nuclide(t, score=score, nuclide=nuc)
-        except Exception:
-            # nuclide not present in results for this tally, etc.
-            continue
-
-        mean_tot += w * m
-        var_tot += (w * sd) ** 2
-
-    return mean_tot, math.sqrt(max(var_tot, 0.0))
 
 # =============================================================================
 # Core per-chunk
