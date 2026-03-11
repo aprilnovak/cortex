@@ -4,24 +4,14 @@ Post-process OpenMC statepoint and save plots/CSVs per requested chunk key.
 
 Outputs saved to:
   neutronics_results/<chunk_key>/
-
-Edit:
-  - STATEPOINT_FILE
-  - MODEL_MODULE (the module where your tallies/cell metadata live)
-
-  - Apply correction to:
-      * H, He appm/y: weight the production tallies by f_struct_origin for each nuclide
-      * DPA/y: weight damage-energy contribution by f_struct_origin for each nuclide
-
 """
 
 from __future__ import annotations
 
 import math
 import re
-import json
 from pathlib import Path
-from typing import Dict, List, Tuple, Optional, Set
+from typing import Dict, List, Tuple, Optional
 
 import numpy as np
 import pandas as pd
@@ -32,7 +22,7 @@ import openmc
 # ----------------------------
 # Load neutronics model
 # ----------------------------
-import neutronics_model as bm  
+import neutronics_model as bm
 
 # ----------------------------
 # User settings / paths
@@ -54,32 +44,46 @@ if not STATEPOINT_FILE.is_file():
     )
 
 # =============================================================================
-# Optional: exclude surfaces from albedo summary
-EXCLUDED_SURFACES = set()  
+# Choose which chunks to process
+# =============================================================================
+KEYS_TO_PROCESS = [
+    "OB_1_b6",
+]
 
+# layer poloidal analysis (region 1 only)
+vv_index = -1
+layers = [("Armor", 0), ("First_Wall", 1), ("VV", vv_index)]
+
+# =============================================================================
+# Optional: exclude surfaces from albedo summary
+# =============================================================================
+EXCLUDED_SURFACES = set()
+
+# =============================================================================
 # Source intensity -> scaling
-total_power = 2e9  # 2000 MW
+# =============================================================================
+total_power = 2e9
 number_sectors = 16
 section_power = total_power / number_sectors
 ev_to_joule = 1.60218e-19
 ev_fusion = 17.6e6
 convert_e = ev_to_joule * ev_fusion
 neutron_source_rate = section_power / convert_e
-s_in_y = (365 * 24 * 60 * 60)
-
+s_in_y = 365 * 24 * 60 * 60
 
 energies = openmc.mgxs.GROUP_STRUCTURES["CCFE-709"]
 unit_lethargy = np.array(
     [np.log(energies[i + 1] / energies[i]) for i in range(len(energies) - 1)],
     dtype=float,
 )
-E_mid = 0.5 * (np.asarray(energies[:-1], dtype=float) + np.asarray(energies[1:], dtype=float))
+E_mid = 0.5 * (
+    np.asarray(energies[:-1], dtype=float) + np.asarray(energies[1:], dtype=float)
+)
 
 # =============================================================================
 # Helpers
 # =============================================================================
 def subset_by_cells(data: np.ndarray, cell_bins: list[int], desired_cells: list[int]) -> np.ndarray:
-    """Return rows corresponding to desired_cells, preserving desired_cells order."""
     idx = [cell_bins.index(int(cid)) for cid in desired_cells]
     return data[idx]
 
@@ -88,9 +92,6 @@ def get_cell_bins_from_tally(tally: openmc.Tally) -> list[int]:
     return [int(x) for x in cf.bins]
 
 def scaling_for_cells(cell_ids: list[int]) -> dict[int, float]:
-    """
-    scaling[cid] = neutron_source_rate / volume_cm3
-    """
     scaling: dict[int, float] = {}
     all_cells = getattr(bm, "all_cells", None)
     if all_cells is None:
@@ -104,16 +105,41 @@ def scaling_for_cells(cell_ids: list[int]) -> dict[int, float]:
         scaling[cid] = neutron_source_rate / float(vol)
     return scaling
 
+def get_flux_spectrum_arrays(t_flux: openmc.Tally) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Return flux_mean, flux_std with shape:
+        (n_cells, n_particles, n_energy)
+
+    OpenMC may return extra trailing singleton axes, e.g.
+        (n_cells, n_particles, n_energy, 1, 1)
+    so remove them here.
+    """
+    flux_mean = np.asarray(t_flux.get_reshaped_data(value="mean"), dtype=float)
+    flux_std = np.asarray(t_flux.get_reshaped_data(value="std_dev"), dtype=float)
+
+    while flux_mean.ndim > 3 and flux_mean.shape[-1] == 1:
+        flux_mean = flux_mean[..., 0]
+    while flux_std.ndim > 3 and flux_std.shape[-1] == 1:
+        flux_std = flux_std[..., 0]
+
+    if flux_mean.ndim != 3 or flux_std.ndim != 3:
+        raise ValueError(
+            f"Unexpected flux tally shape after cleanup: "
+            f"mean={flux_mean.shape}, std={flux_std.shape}"
+        )
+
+    return flux_mean, flux_std
+
 def set_ylim_and_ticks(
     ax,
     ydata,
     ratio=0.3,
-    scale="auto",            # "auto" | "log" | "linear"
+    scale="auto",
     eps=1e-99,
     n_linear_ticks=6,
     log_threshold_decades=1.0,
     min_log_pad_decades=0.10,
-    ):
+):
     ratio = float(ratio)
     ratio = max(0.0, min(ratio, 0.95))
 
@@ -185,17 +211,17 @@ def require_struct_maps(bm):
     if missing:
         raise RuntimeError(
             f"Missing {missing} in neutronics_model module. "
-            "Expected you to compute these in neutronics_model.py via build_structural_maps_vo/build_structural_maps."
+            "Expected you to compute these in neutronics_model.py "
+            "via build_structural_maps_vo/build_structural_maps."
         )
 
-# CSV file with nuclides and structural fraction in each material
 def write_struct_origin_csv(
     outdir: Path,
     chunk_key: str,
     cell_ids: list[int],
     labels: list[str],
     cell_struct_origin_frac: Dict[int, Dict[str, float]],
-    ):
+):
     rows = []
     for cid, lab in zip(cell_ids, labels):
         cid = int(cid)
@@ -213,30 +239,18 @@ def write_struct_origin_csv(
     df = pd.DataFrame(rows)
     df.to_csv(outdir / f"struct_origin_fractions_{chunk_key}.csv", index=False)
 
-# stract mean and std score for each nuclide in a tally
 def tally_mean_std_for_nuclide(t, *, score: str, nuclide: str) -> tuple[float, float]:
-    """
-    Return (mean, std) for a single nuclide for a score in an OpenMC Tally result object `t`.
-    Works for a single cell filter bin (which is your case if `t` is already cell-specific).
-    """
     mean = float(t.get_values(scores=[score], nuclides=[nuclide], value="mean").ravel()[0])
-    std  = float(t.get_values(scores=[score], nuclides=[nuclide], value="std_dev").ravel()[0])
+    std = float(t.get_values(scores=[score], nuclides=[nuclide], value="std_dev").ravel()[0])
     return mean, std
 
-#Corrected summations (apply f_struct_origin)
 def corrected_sum_mean_std_getvalues(
     t: openmc.Tally,
     *,
     score: str,
     nuclides: list[str],
     f_struct: Dict[str, float],
-    ) -> tuple[float, float]:
-    """
-    Return (mean, std) for Σ_n T(score, n) * f_struct_origin(n)
-    using tally_mean_std_for_nuclide() for the per-nuclide fetch.
-
-    Assumes nuclide contributions are uncorrelated for std (quadrature).
-    """
+) -> tuple[float, float]:
     mean_tot = 0.0
     var_tot = 0.0
 
@@ -249,7 +263,6 @@ def corrected_sum_mean_std_getvalues(
         try:
             m, sd = tally_mean_std_for_nuclide(t, score=score, nuclide=nuc)
         except Exception:
-            # nuclide not present in results for this tally, etc.
             continue
 
         mean_tot += w * m
@@ -257,38 +270,27 @@ def corrected_sum_mean_std_getvalues(
 
     return mean_tot, math.sqrt(max(var_tot, 0.0))
 
-# ----------------------------
+# =============================================================================
 # Load chunking + bin helpers from neutronics_model.py
-# ----------------------------
+# =============================================================================
 _cells_chunk = bm.build_breeder_chunks(
     INPUT_JSON,
     default_equatorial_ob_key="OB_1_b6",
     gap_cm=2.0,
     start_cm=0.0,
-    )
+)
 
-# Pull the things your post script needs
-data      = _cells_chunk["data"]
-geom      = _cells_chunk["geom"]
+data = _cells_chunk["data"]
+geom = _cells_chunk["geom"]
 
-cell_ids  = _cells_chunk["cell_ids_all"]
+cell_ids_all = _cells_chunk["cell_ids_all"]
 ob_by_key = _cells_chunk["ob_by_key"]
 ib_by_key = _cells_chunk["ib_by_key"]
-n_breeder  = int(geom["n_breeder"])
+n_breeder = int(geom["n_breeder"])
 
-def generate_colors(n):
-    """Generates a smooth rainbow gradient of n RGB colors."""
-    nc = n + 1
-    cmap = plt.get_cmap('rainbow')
-    color_range = cmap(np.linspace(1, 0, nc))
-    return color_range
+cell_ids_for_key = _cells_chunk["cell_ids_for_key"]
+radial_bins_for_key = _cells_chunk["radial_bins_for_key"]
 
-colors = generate_colors(n_breeder)
-
-cell_ids_for_key   = _cells_chunk["cell_ids_for_key"]      # key -> list[int]
-radial_bins_for_key = _cells_chunk["radial_bins_for_key"]  # key -> (centroids,widths,edges)
-
-# CSV solution saving
 def make_chunk_base_df(
     *,
     chunk_key: str,
@@ -297,14 +299,7 @@ def make_chunk_base_df(
     xcent: np.ndarray,
     xedges: np.ndarray,
     extra_cols: dict[str, object] | None = None,
-    ) -> pd.DataFrame:
-    """
-    Create a base dataframe with common per-layer/per-cell radial info.
-    This is reused by every profile CSV.
-
-    Columns:
-      chunk_key, cell_id, layer_label, x_center_cm, x_left_cm, x_right_cm,
-    """
+) -> pd.DataFrame:
     cell_ids = [int(c) for c in cell_ids]
     xcent = np.asarray(xcent, float).ravel()
     xedges = np.asarray(xedges, float).ravel()
@@ -330,7 +325,6 @@ def make_chunk_base_df(
 
     if extra_cols:
         for k, v in extra_cols.items():
-            # allow scalar or per-row array-like
             if np.isscalar(v) or isinstance(v, str):
                 df[k] = v
             else:
@@ -345,15 +339,12 @@ def save_profile_from_base(
     base_df: pd.DataFrame,
     outdir: Path,
     *,
-    quantity: str,     # e.g. "heating", "dpa_fpy", "flux_total_neutron"
+    quantity: str,
     mean: np.ndarray,
     std: np.ndarray,
     units: str,
-    nonnegative_lower: bool = True,  
-    ) -> Path:
-    """
-    Save a per-layer profile CSV using base_df + mean/std arrays.
-    """
+    nonnegative_lower: bool = True,
+) -> Path:
     outdir = Path(outdir)
     outdir.mkdir(parents=True, exist_ok=True)
 
@@ -376,7 +367,6 @@ def save_profile_from_base(
     df["lower_1sigma"] = lower
     df["upper_1sigma"] = mean + std
 
-    # nice deterministic order
     if "x_left_cm" in df.columns:
         df = df.sort_values(["x_left_cm", "cell_id"]).reset_index(drop=True)
 
@@ -386,11 +376,11 @@ def save_profile_from_base(
     return csv_path
 
 # =============================================================================
-# build tally maps from the *statepoint*
+# build tally maps from the statepoint
 # =============================================================================
 DPA_SCORES = {"damage-energy"}
 GAS_SCORES_EXPLICIT = {"H1-production", "He3-production", "He4-production"}
-GAS_SCORES_REACTION  = {"(n,Xp)", "(n,X3He)", "(n,Xa)"}
+GAS_SCORES_REACTION = {"(n,Xp)", "(n,X3He)", "(n,Xa)"}
 
 def build_dpa_gas_map(sp: openmc.StatePoint) -> Dict[int, openmc.Tally]:
     out: Dict[int, openmc.Tally] = {}
@@ -944,8 +934,9 @@ def compute_albedo_for_chunk(
         excluded_surfaces=EXCLUDED_SURFACES,
     )
 
+
 # =============================================================================
-# DPA helper 
+# DPA helper
 # =============================================================================
 def element_from_nuclide(nuc: str) -> str:
     m = re.match(r"[A-Za-z]+", nuc)
@@ -963,7 +954,7 @@ def process_chunk(
     dpa_gas_map: Dict[int, openmc.Tally],
     xcentroids,
     xedges,
-    ):
+):
     outdir = RESULTS_DIR / chunk_key
     outdir.mkdir(parents=True, exist_ok=True)
 
@@ -985,7 +976,7 @@ def process_chunk(
     )
 
     # build & save structural-origin fractions for this chunk
-    cell_struct_origin_frac = bm.cell_struct_origin_frac  # dict[cid] -> dict[nuc] -> f_origin
+    cell_struct_origin_frac = bm.cell_struct_origin_frac
     write_struct_origin_csv(outdir, chunk_key, cell_ids, labels, cell_struct_origin_frac)
 
     # ==========================================
@@ -995,8 +986,7 @@ def process_chunk(
     t_flux = sp.get_tally(id=t_flux_id)
     cell_bins_flux = get_cell_bins_from_tally(t_flux)
 
-    flux_mean = t_flux.get_reshaped_data(value="mean")
-    flux_std = t_flux.get_reshaped_data(value="std_dev")
+    flux_mean, flux_std = get_flux_spectrum_arrays(t_flux)
 
     neutron_flux = flux_mean[:, 0, :]
     neutron_flux_std = flux_std[:, 0, :]
@@ -1004,13 +994,15 @@ def process_chunk(
     photon_flux_std = flux_std[:, 1, :]
 
     neutron_flux_chunk = subset_by_cells(neutron_flux, cell_bins_flux, cell_ids)
+    neutron_flux_std_chunk = subset_by_cells(neutron_flux_std, cell_bins_flux, cell_ids)
     photon_flux_chunk = subset_by_cells(photon_flux, cell_bins_flux, cell_ids)
+    photon_flux_std_chunk = subset_by_cells(photon_flux_std, cell_bins_flux, cell_ids)
 
     plt.figure()
     for i, cid in enumerate(cell_ids):
         flux_scaled = neutron_flux_chunk[i].flatten() * scaling[int(cid)] / unit_lethargy
-        plt.loglog(energies[:-1], flux_scaled, label=f"{labels[i]} (x = {xcent[i]:.1f} cm)", color=colors[i])
-    plt.legend(fontsize=8,ncol=2)
+        plt.loglog(energies[:-1], flux_scaled, label=f"{labels[i]} (x = {xcent[i]:.1f} cm)")
+    plt.legend(fontsize=8, ncol=2)
     plt.grid(True, which="both")
     plt.ylabel("Neutron flux per unit lethargy [1/cm$^2$/s]")
     plt.xlabel("Energy [eV]")
@@ -1021,8 +1013,8 @@ def process_chunk(
     plt.figure()
     for i, cid in enumerate(cell_ids):
         flux_scaled = photon_flux_chunk[i].flatten() * scaling[int(cid)] / unit_lethargy
-        plt.loglog(energies[:-1], flux_scaled, label=f"{labels[i]} (x={xcent[i]:.1f} cm)", color=colors[i])
-    plt.legend(fontsize=8,loc='lower left')
+        plt.loglog(energies[:-1], flux_scaled, label=f"{labels[i]} (x={xcent[i]:.1f} cm)")
+    plt.legend(fontsize=8, loc="lower left")
     plt.grid(True, which="both")
     plt.ylabel("Photon flux per unit lethargy [1/cm$^2$/s]")
     plt.xlabel("Energy [eV]")
@@ -1030,43 +1022,49 @@ def process_chunk(
     plt.savefig(outdir / f"p_flux_spectrum_{chunk_key}.png", dpi=300, bbox_inches="tight")
     plt.close()
 
-    # Save neutron spectrum to CSV
     neutron_df = pd.DataFrame({"E_mid_eV": E_mid})
     for i, lab in enumerate(labels):
-        neutron_df[f"{lab}"] = (
-            neutron_flux_chunk[i].flatten()
-            * scaling[int(cell_ids[i])]
-            / unit_lethargy
-        )
+        neutron_df[lab] = neutron_flux_chunk[i].flatten() * scaling[int(cell_ids[i])] / unit_lethargy
     neutron_df.to_csv(outdir / f"neutron_spectrum_{chunk_key}.csv", index=False)
 
-    # Save photon spectrum to CSV
     photon_df = pd.DataFrame({"E_mid_eV": E_mid})
     for i, lab in enumerate(labels):
-        photon_df[f"{lab}"] = (
-            photon_flux_chunk[i].flatten()
-            * scaling[int(cell_ids[i])]
-            / unit_lethargy
-        )
+        photon_df[lab] = photon_flux_chunk[i].flatten() * scaling[int(cell_ids[i])] / unit_lethargy
     photon_df.to_csv(outdir / f"photon_spectrum_{chunk_key}.csv", index=False)
 
     # ==========================================
-    # Total flux (flux_tally_total)
+    # Total flux reconstructed from spectrum
+    # Use the neutron_flux/photon_flux arrays above
     # ==========================================
-    t_flux_tot_id = require_tally_id(sp, bm.flux_tally_total, "total flux tally")
-    t_flux_tot = sp.get_tally(id=t_flux_tot_id)
-    cell_bins_tot = get_cell_bins_from_tally(t_flux_tot)
+    direct_total_neut = np.array(
+        [
+            np.sum(neutron_flux_chunk[i]) * scaling[int(cid)]
+            for i, cid in enumerate(cell_ids)
+        ],
+        dtype=float,
+    )
+    direct_total_neut_std = np.array(
+        [
+            np.sqrt(np.sum(neutron_flux_std_chunk[i] ** 2)) * scaling[int(cid)]
+            for i, cid in enumerate(cell_ids)
+        ],
+        dtype=float,
+    )
 
-    flux_tot_mean = t_flux_tot.get_reshaped_data(value="mean").squeeze()
-    flux_tot_std = t_flux_tot.get_reshaped_data(value="std_dev").squeeze()
-
-    tot_mean_chunk = subset_by_cells(flux_tot_mean, cell_bins_tot, cell_ids)
-    tot_std_chunk = subset_by_cells(flux_tot_std, cell_bins_tot, cell_ids)
-
-    direct_total_neut = np.array([tot_mean_chunk[i, 0] * scaling[int(cid)] for i, cid in enumerate(cell_ids)], dtype=float)
-    direct_total_neut_std = np.array([tot_std_chunk[i, 0] * scaling[int(cid)] for i, cid in enumerate(cell_ids)], dtype=float)
-    direct_total_phot = np.array([tot_mean_chunk[i, 1] * scaling[int(cid)] for i, cid in enumerate(cell_ids)], dtype=float)
-    direct_total_phot_std = np.array([tot_std_chunk[i, 1] * scaling[int(cid)] for i, cid in enumerate(cell_ids)], dtype=float)
+    direct_total_phot = np.array(
+        [
+            np.sum(photon_flux_chunk[i]) * scaling[int(cid)]
+            for i, cid in enumerate(cell_ids)
+        ],
+        dtype=float,
+    )
+    direct_total_phot_std = np.array(
+        [
+            np.sqrt(np.sum(photon_flux_std_chunk[i] ** 2)) * scaling[int(cid)]
+            for i, cid in enumerate(cell_ids)
+        ],
+        dtype=float,
+    )
 
     fig, ax = plt.subplots()
     neut_lower = np.maximum(direct_total_neut - direct_total_neut_std, 1e-30)
@@ -1075,10 +1073,22 @@ def process_chunk(
     phot_upper = direct_total_phot + direct_total_phot_std
 
     ax.step(xedges, np.r_[direct_total_neut, direct_total_neut[-1]], where="post", label="neutron")
-    ax.fill_between(xedges, np.r_[neut_lower, neut_lower[-1]], np.r_[neut_upper, neut_upper[-1]], step="post", alpha=0.15)
+    ax.fill_between(
+        xedges,
+        np.r_[neut_lower, neut_lower[-1]],
+        np.r_[neut_upper, neut_upper[-1]],
+        step="post",
+        alpha=0.15,
+    )
 
     ax.step(xedges, np.r_[direct_total_phot, direct_total_phot[-1]], where="post", label="photon")
-    ax.fill_between(xedges, np.r_[phot_lower, phot_lower[-1]], np.r_[phot_upper, phot_upper[-1]], step="post", alpha=0.15)
+    ax.fill_between(
+        xedges,
+        np.r_[phot_lower, phot_lower[-1]],
+        np.r_[phot_upper, phot_upper[-1]],
+        step="post",
+        alpha=0.15,
+    )
 
     ax.set_yscale("log")
     ax.set_ylabel("Total Flux [1/cm$^2$/s]")
@@ -1088,14 +1098,25 @@ def process_chunk(
     fig.savefig(outdir / f"flux_total_{chunk_key}.png", dpi=300, bbox_inches="tight")
     plt.close(fig)
 
-    # total flux
-    save_profile_from_base(base_df, outdir, quantity="flux_total_neutron",
-                        mean=direct_total_neut, std=direct_total_neut_std, units="1/cm2/s")
-    save_profile_from_base(base_df, outdir, quantity="flux_total_photon",
-                        mean=direct_total_phot, std=direct_total_phot_std, units="1/cm2/s")
+    save_profile_from_base(
+        base_df,
+        outdir,
+        quantity="flux_total_neutron",
+        mean=direct_total_neut,
+        std=direct_total_neut_std,
+        units="1/cm2/s",
+    )
+    save_profile_from_base(
+        base_df,
+        outdir,
+        quantity="flux_total_photon",
+        mean=direct_total_phot,
+        std=direct_total_phot_std,
+        units="1/cm2/s",
+    )
 
     # ==========================================
-    # Heating (heating_tally)
+    # Heating
     # ==========================================
     t_heat_id = require_tally_id(sp, bm.heating_tally, "heating tally")
     t_heat = sp.get_tally(id=t_heat_id)
@@ -1107,8 +1128,14 @@ def process_chunk(
     heat_mean_chunk = subset_by_cells(heat_mean, cell_bins_heat, cell_ids)
     heat_std_chunk = subset_by_cells(heat_std, cell_bins_heat, cell_ids)
 
-    heat_w = np.array([heat_mean_chunk[i] * scaling[int(cid)] * ev_to_joule for i, cid in enumerate(cell_ids)], dtype=float)
-    heat_w_std = np.array([heat_std_chunk[i] * scaling[int(cid)] * ev_to_joule for i, cid in enumerate(cell_ids)], dtype=float)
+    heat_w = np.array(
+        [heat_mean_chunk[i] * scaling[int(cid)] * ev_to_joule for i, cid in enumerate(cell_ids)],
+        dtype=float,
+    )
+    heat_w_std = np.array(
+        [heat_std_chunk[i] * scaling[int(cid)] * ev_to_joule for i, cid in enumerate(cell_ids)],
+        dtype=float,
+    )
 
     lower_h = np.maximum(heat_w - heat_w_std, 1e-30)
     upper_h = heat_w + heat_w_std
@@ -1120,17 +1147,13 @@ def process_chunk(
     ax.grid(True, which="both", linestyle="--", linewidth=0.5)
     ax.set_ylabel("Heating [W/cm³]")
     ax.set_xlabel("Radial Position [cm]")
-    #ax.legend()
     fig.savefig(outdir / f"heating_{chunk_key}.png", dpi=300, bbox_inches="tight")
     plt.close(fig)
 
-    # heating
-    save_profile_from_base(base_df, outdir, quantity="heating",
-                        mean=heat_w, std=heat_w_std, units="W/cm3")
-
+    save_profile_from_base(base_df, outdir, quantity="heating", mean=heat_w, std=heat_w_std, units="W/cm3")
 
     # ==========================================
-    # H production -> appm/fpy 
+    # H production
     # ==========================================
     h_appm_y = np.zeros(len(cell_ids), dtype=float)
     h_appm_y_std = np.zeros(len(cell_ids), dtype=float)
@@ -1156,7 +1179,6 @@ def process_chunk(
         f_struct = cell_struct_origin_frac.get(cid, {}) or {}
         nuclides = list(t.nuclides or [])
 
-        # Apply here the structural_nuclide_fraction
         h1_mean_corr, h1_std_corr = corrected_sum_mean_std_getvalues(
             t, score=h1_score, nuclides=nuclides, f_struct=f_struct
         )
@@ -1181,20 +1203,25 @@ def process_chunk(
 
     fig, ax = plt.subplots()
     ax.set_yscale("log")
-    ax.step(xedges, np.r_[h_appm_y, h_appm_y[-1]], where="post", label="H [appm/fpy] (struct-origin)")
+    ax.step(xedges, np.r_[h_appm_y, h_appm_y[-1]], where="post")
     ax.fill_between(xedges, np.r_[lower, lower[-1]], np.r_[upper, upper[-1]], step="post", alpha=0.3)
     ax.grid(True, which="both", linestyle="--", linewidth=0.5)
     ax.set_ylabel("H [appm/fpy]")
     ax.set_xlabel("Radial Position [cm]")
-    #ax.legend()
     fig.savefig(outdir / f"h1_{chunk_key}.png", dpi=300, bbox_inches="tight")
     plt.close(fig)
 
-    save_profile_from_base(base_df, outdir, quantity="H_appm_fpy_struct_origin",
-                       mean=h_appm_y, std=h_appm_y_std, units="appm/fpy")
-    
+    save_profile_from_base(
+        base_df,
+        outdir,
+        quantity="H_appm_fpy_struct_origin",
+        mean=h_appm_y,
+        std=h_appm_y_std,
+        units="appm/fpy",
+    )
+
     # ==========================================
-    # He production -> appm/y 
+    # He production
     # ==========================================
     he_appm_y = np.zeros(len(cell_ids), dtype=float)
     he_appm_y_std = np.zeros(len(cell_ids), dtype=float)
@@ -1218,7 +1245,6 @@ def process_chunk(
         f_struct = cell_struct_origin_frac.get(cid, {}) or {}
         nuclides = list(t.nuclides or [])
 
-        # Grab tally values and sum += score * structural_nuclide_fraction
         he3_mean_corr, he3_std_corr = corrected_sum_mean_std_getvalues(
             t, score=he3_score, nuclides=nuclides, f_struct=f_struct
         )
@@ -1240,26 +1266,28 @@ def process_chunk(
 
     fig, ax = plt.subplots()
     ax.set_yscale("log")
-    ax.step(xedges, np.r_[he_appm_y, he_appm_y[-1]], where="post", label="He [appm/fpy] (struct-origin)")
+    ax.step(xedges, np.r_[he_appm_y, he_appm_y[-1]], where="post")
     ax.fill_between(xedges, np.r_[lower, lower[-1]], np.r_[upper, upper[-1]], step="post", alpha=0.3)
     ax.grid(True, which="both", linestyle="--", linewidth=0.5)
     ax.set_ylabel("He [appm/fpy]")
     ax.set_xlabel("Radial Position [cm]")
-    #ax.legend()
     fig.savefig(outdir / f"he_{chunk_key}.png", dpi=300, bbox_inches="tight")
     plt.close(fig)
 
-    save_profile_from_base(base_df, outdir, quantity="He_appm_fpy_struct_origin",
-                       mean=he_appm_y, std=he_appm_y_std, units="appm/fpy")
-    
-    # ==========================================
-    # DPA per full power year -> DPA/fpy 
-    # ==========================================
+    save_profile_from_base(
+        base_df,
+        outdir,
+        quantity="He_appm_fpy_struct_origin",
+        mean=he_appm_y,
+        std=he_appm_y_std,
+        units="appm/fpy",
+    )
 
+    # ==========================================
+    # DPA
+    # ==========================================
     dpa_y = np.zeros(len(cell_ids), dtype=float)
     dpa_y_std = np.zeros(len(cell_ids), dtype=float)
-
-    dpa_by_nuclide = {} 
 
     for i, cid in enumerate(cell_ids):
         cid = int(cid)
@@ -1267,7 +1295,6 @@ def process_chunk(
         if t is None:
             continue
 
-        
         denom_atoms = float(bm.cell_total_atoms_struct.get(cid, 0.0))
         if denom_atoms <= 0.0:
             continue
@@ -1277,76 +1304,60 @@ def process_chunk(
 
         sum_mean = 0.0
         sum_var = 0.0
-        breakdown = {}
 
         for nuc in nuclides:
             nuc = str(nuc)
-
-            # get Tally values damage-energy per nuclide
             dmg_mean, dmg_std = tally_mean_std_for_nuclide(t, score="damage-energy", nuclide=nuc)
 
-            # Apply  *= structural_nuclide_fraction
             fs = float(f_struct.get(nuc, 0.0))
             dmg_mean *= fs
-            dmg_std  *= fs
+            dmg_std *= fs
 
-
-            # Find element Ed for the nuclide
             el = element_from_nuclide(nuc)
-            Ed = float(bm.materials.Ed(el)) # if not on list material default is 25 eV
+            Ed = float(bm.materials.Ed(el))
 
-            # NRT scaling per nuclide (Ed)
-            disp_scale = (0.8)/(2.0 * Ed)
-            
-            # Scale by source intensity
+            disp_scale = 0.8 / (2.0 * Ed)
             source_scale = neutron_source_rate * s_in_y
 
             disp_mean = disp_scale * source_scale * dmg_mean
-            disp_std = disp_scale  * source_scale * dmg_std
+            disp_std = disp_scale * source_scale * dmg_std
 
-            # Scale per total structurl atoms
             dpa_mean_per_nuclide = disp_mean / denom_atoms
             dpa_std_per_nuclide = disp_std / denom_atoms
 
-            breakdown[nuc] = dpa_mean_per_nuclide
-
-            # 'store' summed contributions for all different nuclides
             sum_mean += dpa_mean_per_nuclide
-            sum_var += dpa_std_per_nuclide**2
+            sum_var += dpa_std_per_nuclide ** 2
 
-    
         dpa_y[i] = sum_mean
         dpa_y_std[i] = math.sqrt(sum_var)
-        dpa_by_nuclide[cid] = breakdown
 
-        # print for  debugging or extra info (comment if undesired)
-        #print(f"\n[DPA breakdown] cell {cid}")
-        #for nuc, val in sorted(breakdown.items(), key=lambda x: x[1], reverse=True)[:10]:
-        #    print(f"  {nuc:>8s} : {val:.3e} DPA/y")
-
-    
-    lower= np.maximum(dpa_y - dpa_y_std, 1e-30)
+    lower = np.maximum(dpa_y - dpa_y_std, 1e-30)
     upper = dpa_y + dpa_y_std
-
 
     fig, ax = plt.subplots()
     ax.set_yscale("log")
-    ax.step(xedges, np.r_[dpa_y, dpa_y[-1]], where="post", label="NRT-dpa/y")
+    ax.step(xedges, np.r_[dpa_y, dpa_y[-1]], where="post")
     ax.fill_between(xedges, np.r_[lower, lower[-1]], np.r_[upper, upper[-1]], step="post", alpha=0.3)
     ax.grid(True, which="both", linestyle="--", linewidth=0.5)
     ax.set_ylabel("NRT-dpa/fpy")
     ax.set_xlabel("Radial Position [cm]")
-    #ax.legend()
     fig.savefig(outdir / f"dpa_{chunk_key}.png", dpi=300, bbox_inches="tight")
     plt.close(fig)
 
-    save_profile_from_base(base_df, outdir, quantity="dpa_fpy_struct_origin",
-                       mean=dpa_y, std=dpa_y_std, units="DPA/fpy")
+    save_profile_from_base(
+        base_df,
+        outdir,
+        quantity="dpa_fpy_struct_origin",
+        mean=dpa_y,
+        std=dpa_y_std,
+        units="DPA/fpy",
+    )
 
     # ==========================================
     # Albedo post-processing
     # ==========================================
-    DO_ALBEDO = True
+    # Albedo post-processing is currently off for slab
+    
     if DO_ALBEDO:
         compute_albedo_for_chunk(
             sp,
@@ -1387,6 +1398,7 @@ def layer_cells_first_region(ob_by_key, ib_by_key, layer_index, n_breeder, order
 
     return cell_ids_layer, chunk_labels
 
+
 def compute_dpa_layer_region1_only(
     sp: openmc.StatePoint,
     cell_ids_layer: list[int],
@@ -1400,10 +1412,6 @@ def compute_dpa_layer_region1_only(
 
       For each cell:
         DPA/fpy = (neutron_source_rate*s_in_y / N_struct) * Σ_n [ (0.8/(2*Ed(elem(n)))) * (damage-energy_n * f_struct_origin(n)) ]
-
-    - Applies f_struct_origin(n) per nuclide (structural-origin correction)
-    - Uses Ed per element per nuclide (NOT a single Ed_eff)
-    - Assumes nuclide contributions uncorrelated for std_dev (quadrature), consistent with method A
     """
     idx_map = {int(cid): i for i, cid in enumerate(cell_ids_layer)}
     n = len(cell_ids_layer)
@@ -1412,7 +1420,6 @@ def compute_dpa_layer_region1_only(
     dpa_y_std = np.zeros(n, dtype=float)
 
     cell_struct_origin_frac = bm.cell_struct_origin_frac
-
     source_scale = float(neutron_source_rate) * float(s_in_y)
 
     for cid in cell_ids_layer:
@@ -1434,37 +1441,31 @@ def compute_dpa_layer_region1_only(
         for nuc in nuclides:
             nuc = str(nuc)
 
-            # get Tally values damage-energy per nuclide
             try:
                 dmg_mean, dmg_std = tally_mean_std_for_nuclide(t, score="damage-energy", nuclide=nuc)
             except Exception:
-                # Nuclide may not have results for this score in this tally
                 continue
-            
-            # Apply  *= structural_nuclide_fraction
+
             fs = float(f_struct.get(nuc, 0.0))
             if fs == 0.0:
                 continue
+
             dmg_mean *= fs
             dmg_std *= fs
 
-            # element-specific displacement energy
             el = element_from_nuclide(nuc)
-            Ed = float(bm.materials.Ed(el))  
+            Ed = float(bm.materials.Ed(el))
 
-            # NRT scaling per nuclide (Ed)
             disp_scale = 0.8 / (2.0 * Ed)
 
             disp_mean = disp_scale * source_scale * dmg_mean
-            disp_std  = disp_scale * source_scale * dmg_std
+            disp_std = disp_scale * source_scale * dmg_std
 
-            # Scale per total structurl atoms
             dpa_mean = disp_mean / denom_atoms
-            dpa_std  = disp_std / denom_atoms
+            dpa_std = disp_std / denom_atoms
 
-            # 'store' summed contributions for all different nuclides
             sum_mean += dpa_mean
-            sum_var  += dpa_std ** 2
+            sum_var += dpa_std ** 2
 
         i = idx_map[cid]
         dpa_y[i] = sum_mean
@@ -1472,34 +1473,43 @@ def compute_dpa_layer_region1_only(
 
     return dpa_y, dpa_y_std
 
+
 def empty_poloidal_plot(x_data, num_pts):
-  fig, ax = plt.subplots(figsize=(8.5, 5.5))
+    fig, ax = plt.subplots(figsize=(8.5, 5.5))
 
-  split = n_breeder - 0.5
-  xticks = np.arange(num_pts)
+    split = n_breeder - 0.5
+    xticks = np.arange(num_pts)
 
-  ax.set_yscale("linear")
+    ax.set_yscale("linear")
+    ax.set_xlim([-0.5, len(x_data) - 2.5])
+    ax.axvline(split, linestyle="--", linewidth=1, color="k")
+    ax.text(
+        split - 0.15,
+        0.95,
+        "$\\leftarrow$ outboard   inboard $\\rightarrow$",
+        transform=ax.get_xaxis_transform(),
+        ha="center",
+        va="top",
+        fontsize=10,
+    )
 
-  ax.set_xlim([-0.5, len(x_data) - 2.5])
-  ax.axvline(split, linestyle="--", linewidth=1, color='k')
-  ax.text(split - 0.15, 0.95, "$\\leftarrow$ outboard   inboard $\\rightarrow$", transform=ax.get_xaxis_transform(),
-          ha="center", va="top", fontsize=10)
+    ax.set_xticks(xticks)
+    xlabels = [f"OB{i+1}" if i < n_breeder else f"IB{i+1-n_breeder}" for i in range(num_pts)]
+    ax.set_xticklabels(xlabels, rotation=45, ha="right", fontsize=9)
+    ax.set_xlabel("Poloidal regions", fontsize=11)
 
-  ax.set_xticks(xticks)
-  xlabels = [f"OB{i+1}" if i < n_breeder else f"IB{i+1-n_breeder}" for i in range(num_pts)]
-  ax.set_xticklabels(xlabels, rotation=45, ha="right", fontsize=9)
-  ax.set_xlabel("Poloidal regions", fontsize=11)
+    ax.grid(True, which="major", linestyle="--", linewidth=0.6, alpha=0.8)
+    ax.yaxis.grid(True, which="minor", linestyle=":", linewidth=0.4, alpha=0.5)
+    ax.minorticks_on()
+    plt.gca().tick_params(axis="x", which="minor", bottom=False)
+    fig.tight_layout()
 
-  ax.grid(True, which="major", linestyle="--", linewidth=0.6, alpha=0.8)
-  ax.yaxis.grid(True, which="minor", linestyle=":", linewidth=0.4, alpha=0.5)
-  ax.minorticks_on()
-  plt.gca().tick_params(axis='x', which='minor', bottom=False)
-  fig.tight_layout()
+    return fig, ax
 
-  return fig, ax
 
 def pad_poloidal_data(data):
-  return np.concatenate([[data[0]], data, [data[-1]]])
+    return np.concatenate([[data[0]], data, [data[-1]]])
+
 
 def process_layer_region1_only(
     sp: openmc.StatePoint,
@@ -1509,7 +1519,7 @@ def process_layer_region1_only(
     ib_by_key: dict,
     n_breeder: int,
     outdir: Path,
-    flux_tally_total_id: int,
+    flux_tally_id: int,
     heating_tally_id: int,
     *,
     dpa_gas_map: Dict[int, openmc.Tally],
@@ -1519,7 +1529,7 @@ def process_layer_region1_only(
     ylim_ratio: float = 0.3,
     yscale_mode: str = "auto",
     log_threshold_decades: float = 1.0,
-    ):
+):
     outdir = Path(outdir)
     outdir.mkdir(parents=True, exist_ok=True)
 
@@ -1533,12 +1543,10 @@ def process_layer_region1_only(
 
     scaling = scaling_for_cells(cell_ids_layer)
 
-    # array which will be used for plotting along the poloidal direction for the step plots.
-    # add extra dummy values so that the first and last step are same length as the other stair steps
+    # add extra dummy values so first and last step match the others
     x = np.arange(n)
     x = np.concatenate([[x[0] - 1], x, [x[-1] + 1]])
 
-    # Build struct-origin fractions for these cells (for gas correction below)
     cell_struct_origin_frac = bm.cell_struct_origin_frac
 
     def _apply_scale(ax, data, eps_for_log):
@@ -1568,15 +1576,23 @@ def process_layer_region1_only(
         )
         return scale_eff
 
-    # TOTAL FLUX
-    t_flux_tot = sp.get_tally(id=int(flux_tally_total_id))
-    cell_bins_tot = get_cell_bins_from_tally(t_flux_tot)
+    # ==========================================
+    # TOTAL FLUX reconstructed from spectrum tally
+    # ==========================================
+    t_flux = sp.get_tally(id=int(flux_tally_id))
+    cell_bins_flux = get_cell_bins_from_tally(t_flux)
 
-    flux_tot_mean = t_flux_tot.get_reshaped_data(value="mean").squeeze()
-    flux_tot_std = t_flux_tot.get_reshaped_data(value="std_dev").squeeze()
+    flux_mean, flux_std = get_flux_spectrum_arrays(t_flux)
 
-    tot_mean_layer = subset_by_cells(flux_tot_mean, cell_bins_tot, cell_ids_layer)
-    tot_std_layer = subset_by_cells(flux_tot_std, cell_bins_tot, cell_ids_layer)
+    neutron_flux = flux_mean[:, 0, :]
+    neutron_flux_std = flux_std[:, 0, :]
+    photon_flux = flux_mean[:, 1, :]
+    photon_flux_std = flux_std[:, 1, :]
+
+    neutron_flux_layer = subset_by_cells(neutron_flux, cell_bins_flux, cell_ids_layer)
+    neutron_flux_std_layer = subset_by_cells(neutron_flux_std, cell_bins_flux, cell_ids_layer)
+    photon_flux_layer = subset_by_cells(photon_flux, cell_bins_flux, cell_ids_layer)
+    photon_flux_std_layer = subset_by_cells(photon_flux_std, cell_bins_flux, cell_ids_layer)
 
     neut = np.zeros(n, dtype=float)
     neut_std = np.zeros(n, dtype=float)
@@ -1585,10 +1601,10 @@ def process_layer_region1_only(
 
     for i, cid in enumerate(cell_ids_layer):
         s = scaling[int(cid)]
-        neut[i] = tot_mean_layer[i, 0] * s
-        neut_std[i] = tot_std_layer[i, 0] * s
-        phot[i] = tot_mean_layer[i, 1] * s
-        phot_std[i] = tot_std_layer[i, 1] * s
+        neut[i] = np.sum(neutron_flux_layer[i]) * s
+        neut_std[i] = np.sqrt(np.sum(neutron_flux_std_layer[i] ** 2)) * s
+        phot[i] = np.sum(photon_flux_layer[i]) * s
+        phot_std[i] = np.sqrt(np.sum(photon_flux_std_layer[i] ** 2)) * s
 
     fig, ax = empty_poloidal_plot(x, n)
 
@@ -1617,7 +1633,9 @@ def process_layer_region1_only(
     fig.savefig(outdir / f"flux_total_{layer_tag}.png", dpi=300, bbox_inches="tight")
     plt.close(fig)
 
+    # ==========================================
     # HEATING
+    # ==========================================
     t_heat = sp.get_tally(id=int(heating_tally_id))
     cell_bins_heat = get_cell_bins_from_tally(t_heat)
 
@@ -1652,7 +1670,9 @@ def process_layer_region1_only(
     fig.savefig(outdir / f"heating_{layer_tag}.png", dpi=300, bbox_inches="tight")
     plt.close(fig)
 
+    # ==========================================
     # DPA/y
+    # ==========================================
     if dpa:
         dpa_y, dpa_y_std = compute_dpa_layer_region1_only(
             sp=sp,
@@ -1662,7 +1682,6 @@ def process_layer_region1_only(
             dpa_gas_map=dpa_gas_map,
         )
 
-        # TODO (optional): would be nice to have the uncertainty plotted as shaded region
         fig, ax = empty_poloidal_plot(x, n)
         dpa_plot = pad_poloidal_data(np.asarray(dpa_y, dtype=float))
         dpa_plot_std = pad_poloidal_data(np.asarray(dpa_y_std, dtype=float))
@@ -1680,7 +1699,9 @@ def process_layer_region1_only(
         fig.savefig(outdir / f"dpa_{layer_tag}.png", dpi=300, bbox_inches="tight")
         plt.close(fig)
 
+    # ==========================================
     # H production
+    # ==========================================
     if hprod:
         h_appm_y = np.zeros(n, dtype=float)
         h_appm_y_std = np.zeros(n, dtype=float)
@@ -1729,7 +1750,9 @@ def process_layer_region1_only(
         fig.savefig(outdir / f"h1_{layer_tag}.png", dpi=300, bbox_inches="tight")
         plt.close(fig)
 
+    # ==========================================
     # He production
+    # ==========================================
     if heprod:
         he_appm_y = np.zeros(n, dtype=float)
         he_appm_y_std = np.zeros(n, dtype=float)
@@ -1775,7 +1798,7 @@ def process_layer_region1_only(
         eps_he = 1e-30
         he_plot = np.clip(he_appm_y, eps_he, None)
         he_low = np.clip(he_appm_y - he_appm_y_std, eps_he, None)
-        he_high = np.clip(he_appm_y + he_appm_y_std, eps_h, None)
+        he_high = np.clip(he_appm_y + he_appm_y_std, eps_he, None)
 
         ax.step(x, he_plot, where="mid", linewidth=2)
         ax.fill_between(x, he_low, he_high, step="mid", alpha=0.15)
@@ -1787,19 +1810,7 @@ def process_layer_region1_only(
         fig.savefig(outdir / f"he_{layer_tag}.png", dpi=300, bbox_inches="tight")
         plt.close(fig)
 
-# =============================================================================
-# Choose which chunks to process
-# =============================================================================
-KEYS_TO_PROCESS = [
- #   "OB_3_b1",
-    "OB_1_b6",
- #   "OB_1_b10",
- #   "IB_1_b4",
-]
 
-# layer poloidal analysis (region 1 only)
-vv_index = -1
-layers = [("Armor", 0), ("First_Wall", 1), ("VV", vv_index)]
 
 # =============================================================================
 # Run
@@ -1807,6 +1818,7 @@ layers = [("Armor", 0), ("First_Wall", 1), ("VV", vv_index)]
 with openmc.StatePoint(str(STATEPOINT_FILE)) as sp:
     dpa_gas_map = build_dpa_gas_map(sp)
     require_struct_maps(bm)
+    DO_ALBEDO = False
 
     for key in KEYS_TO_PROCESS:
         if key in ob_by_key:
@@ -1824,7 +1836,10 @@ with openmc.StatePoint(str(STATEPOINT_FILE)) as sp:
             continue
 
         process_chunk(
-            sp, key, chunk_cells, bm.pydagmc_model,
+            sp=sp,
+            chunk_key=key,
+            cell_ids=chunk_cells,
+            pydagmc_model=bm.pydagmc_model,
             dpa_gas_map=dpa_gas_map,
             xcentroids=xcentroids,
             xedges=x_edges,
@@ -1839,7 +1854,7 @@ with openmc.StatePoint(str(STATEPOINT_FILE)) as sp:
             ib_by_key=ib_by_key,
             n_breeder=n_breeder,
             outdir=RESULTS_DIR / f"layer_{layer_tag}_region1_only",
-            flux_tally_total_id=bm.flux_tally_total.id,
+            flux_tally_id=bm.flux_tally.id,
             heating_tally_id=bm.heating_tally.id,
             dpa_gas_map=dpa_gas_map,
             dpa=True,

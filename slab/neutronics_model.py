@@ -429,7 +429,7 @@ model.settings = openmc.Settings()
 model.settings.dagmc = True
 model.settings.photon_transport = True
 model.settings.batches = 10
-model.settings.particles = 100_000
+model.settings.particles = 1_000_000
 model.settings.run_mode = "fixed source"
 model.settings.surf_source_read = {"path": str(SURF_SOURCE_FILE)}
 
@@ -772,10 +772,10 @@ model.tallies.append(flux_tally)
 
 # TODO: this does not need to be its own tally, you have all the information in flux_tally already
 # (REPLY): You are correct! (I will remove this soon)
-flux_tally_total = openmc.Tally()
-flux_tally_total.filters = [cell_filter, particle_filter]
-flux_tally_total.scores = ["flux"]
-model.tallies.append(flux_tally_total)
+#flux_tally_total = openmc.Tally()
+#flux_tally_total.filters = [cell_filter, particle_filter]
+#flux_tally_total.scores = ["flux"]
+#model.tallies.append(flux_tally_total)
 
 # Turn it off current tallies for albedo in the slab model
 DO_ALBEDO = False

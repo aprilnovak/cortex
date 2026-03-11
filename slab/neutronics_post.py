@@ -113,6 +113,31 @@ def scaling_for_cells(cell_ids: list[int]) -> dict[int, float]:
         scaling[cid] = neutron_source_rate / float(vol)
     return scaling
 
+def get_flux_spectrum_arrays(t_flux: openmc.Tally) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Return flux_mean, flux_std with shape:
+        (n_cells, n_particles, n_energy)
+
+    OpenMC may return extra trailing singleton axes, e.g.
+        (n_cells, n_particles, n_energy, 1, 1)
+    so remove them here.
+    """
+    flux_mean = np.asarray(t_flux.get_reshaped_data(value="mean"), dtype=float)
+    flux_std = np.asarray(t_flux.get_reshaped_data(value="std_dev"), dtype=float)
+
+    while flux_mean.ndim > 3 and flux_mean.shape[-1] == 1:
+        flux_mean = flux_mean[..., 0]
+    while flux_std.ndim > 3 and flux_std.shape[-1] == 1:
+        flux_std = flux_std[..., 0]
+
+    if flux_mean.ndim != 3 or flux_std.ndim != 3:
+        raise ValueError(
+            f"Unexpected flux tally shape after cleanup: "
+            f"mean={flux_mean.shape}, std={flux_std.shape}"
+        )
+
+    return flux_mean, flux_std
+
 def set_ylim_and_ticks(
     ax,
     ydata,
@@ -1003,8 +1028,7 @@ def process_chunk(
     t_flux = sp.get_tally(id=t_flux_id)
     cell_bins_flux = get_cell_bins_from_tally(t_flux)
 
-    flux_mean = t_flux.get_reshaped_data(value="mean")
-    flux_std = t_flux.get_reshaped_data(value="std_dev")
+    flux_mean, flux_std = get_flux_spectrum_arrays(t_flux)
 
     neutron_flux = flux_mean[:, 0, :]
     neutron_flux_std = flux_std[:, 0, :]
@@ -1012,13 +1036,15 @@ def process_chunk(
     photon_flux_std = flux_std[:, 1, :]
 
     neutron_flux_chunk = subset_by_cells(neutron_flux, cell_bins_flux, cell_ids)
+    neutron_flux_std_chunk = subset_by_cells(neutron_flux_std, cell_bins_flux, cell_ids)
     photon_flux_chunk = subset_by_cells(photon_flux, cell_bins_flux, cell_ids)
+    photon_flux_std_chunk = subset_by_cells(photon_flux_std, cell_bins_flux, cell_ids)
 
     plt.figure()
     for i, cid in enumerate(cell_ids):
         flux_scaled = neutron_flux_chunk[i].flatten() * scaling[int(cid)] / unit_lethargy
         plt.loglog(energies[:-1], flux_scaled, label=f"{labels[i]} (x = {xcent[i]:.1f} cm)", color=colors[i])
-    plt.legend(fontsize=8,ncol=2)
+    plt.legend(fontsize=8, ncol=2)
     plt.grid(True, which="both")
     plt.ylabel("Neutron flux per unit lethargy [1/cm$^2$/s]")
     plt.xlabel("Energy [eV]")
@@ -1030,7 +1056,7 @@ def process_chunk(
     for i, cid in enumerate(cell_ids):
         flux_scaled = photon_flux_chunk[i].flatten() * scaling[int(cid)] / unit_lethargy
         plt.loglog(energies[:-1], flux_scaled, label=f"{labels[i]} (x={xcent[i]:.1f} cm)", color=colors[i])
-    plt.legend(fontsize=8,loc='lower left')
+    plt.legend(fontsize=8, loc="lower left")
     plt.grid(True, which="both")
     plt.ylabel("Photon flux per unit lethargy [1/cm$^2$/s]")
     plt.xlabel("Energy [eV]")
@@ -1059,22 +1085,37 @@ def process_chunk(
     photon_df.to_csv(outdir / f"photon_spectrum_{chunk_key}.csv", index=False)
 
     # ==========================================
-    # Total flux (flux_tally_total)
+    # Total flux reconstructed from spectrum
     # ==========================================
-    t_flux_tot_id = require_tally_id(sp, bm.flux_tally_total, "total flux tally")
-    t_flux_tot = sp.get_tally(id=t_flux_tot_id)
-    cell_bins_tot = get_cell_bins_from_tally(t_flux_tot)
+    direct_total_neut = np.array(
+        [
+            np.sum(neutron_flux_chunk[i]) * scaling[int(cid)]
+            for i, cid in enumerate(cell_ids)
+        ],
+        dtype=float,
+    )
+    direct_total_neut_std = np.array(
+        [
+            np.sqrt(np.sum(neutron_flux_std_chunk[i] ** 2)) * scaling[int(cid)]
+            for i, cid in enumerate(cell_ids)
+        ],
+        dtype=float,
+    )
 
-    flux_tot_mean = t_flux_tot.get_reshaped_data(value="mean").squeeze()
-    flux_tot_std = t_flux_tot.get_reshaped_data(value="std_dev").squeeze()
-
-    tot_mean_chunk = subset_by_cells(flux_tot_mean, cell_bins_tot, cell_ids)
-    tot_std_chunk = subset_by_cells(flux_tot_std, cell_bins_tot, cell_ids)
-
-    direct_total_neut = np.array([tot_mean_chunk[i, 0] * scaling[int(cid)] for i, cid in enumerate(cell_ids)], dtype=float)
-    direct_total_neut_std = np.array([tot_std_chunk[i, 0] * scaling[int(cid)] for i, cid in enumerate(cell_ids)], dtype=float)
-    direct_total_phot = np.array([tot_mean_chunk[i, 1] * scaling[int(cid)] for i, cid in enumerate(cell_ids)], dtype=float)
-    direct_total_phot_std = np.array([tot_std_chunk[i, 1] * scaling[int(cid)] for i, cid in enumerate(cell_ids)], dtype=float)
+    direct_total_phot = np.array(
+        [
+            np.sum(photon_flux_chunk[i]) * scaling[int(cid)]
+            for i, cid in enumerate(cell_ids)
+        ],
+        dtype=float,
+    )
+    direct_total_phot_std = np.array(
+        [
+            np.sqrt(np.sum(photon_flux_std_chunk[i] ** 2)) * scaling[int(cid)]
+            for i, cid in enumerate(cell_ids)
+        ],
+        dtype=float,
+    )
 
     fig, ax = plt.subplots()
     neut_lower = np.maximum(direct_total_neut - direct_total_neut_std, 1e-30)
@@ -1083,10 +1124,22 @@ def process_chunk(
     phot_upper = direct_total_phot + direct_total_phot_std
 
     ax.step(xedges, np.r_[direct_total_neut, direct_total_neut[-1]], where="post", label="neutron")
-    ax.fill_between(xedges, np.r_[neut_lower, neut_lower[-1]], np.r_[neut_upper, neut_upper[-1]], step="post", alpha=0.15)
+    ax.fill_between(
+        xedges,
+        np.r_[neut_lower, neut_lower[-1]],
+        np.r_[neut_upper, neut_upper[-1]],
+        step="post",
+        alpha=0.15,
+    )
 
     ax.step(xedges, np.r_[direct_total_phot, direct_total_phot[-1]], where="post", label="photon")
-    ax.fill_between(xedges, np.r_[phot_lower, phot_lower[-1]], np.r_[phot_upper, phot_upper[-1]], step="post", alpha=0.15)
+    ax.fill_between(
+        xedges,
+        np.r_[phot_lower, phot_lower[-1]],
+        np.r_[phot_upper, phot_upper[-1]],
+        step="post",
+        alpha=0.15,
+    )
 
     ax.set_yscale("log")
     ax.set_ylabel("Total Flux [1/cm$^2$/s]")
@@ -1096,10 +1149,14 @@ def process_chunk(
     fig.savefig(outdir / f"flux_total_{chunk_key}.png", dpi=300, bbox_inches="tight")
     plt.close(fig)
 
-    save_profile_from_base(base_df, outdir, quantity="flux_total_neutron",
-                        mean=direct_total_neut, std=direct_total_neut_std, units="1/cm2/s")
-    save_profile_from_base(base_df, outdir, quantity="flux_total_photon",
-                        mean=direct_total_phot, std=direct_total_phot_std, units="1/cm2/s")
+    save_profile_from_base(
+        base_df, outdir, quantity="flux_total_neutron",
+        mean=direct_total_neut, std=direct_total_neut_std, units="1/cm2/s"
+    )
+    save_profile_from_base(
+        base_df, outdir, quantity="flux_total_photon",
+        mean=direct_total_phot, std=direct_total_phot_std, units="1/cm2/s"
+    )
     # ==========================================
     # Heating (heating_tally)
     # ==========================================
@@ -1514,7 +1571,7 @@ def process_layer_region1_only(
     ib_by_key: dict,
     n_breeder: int,
     outdir: Path,
-    flux_tally_total_id: int,
+    flux_tally_id: int,
     heating_tally_id: int,
     *,
     dpa_gas_map: Dict[int, openmc.Tally],
@@ -1524,7 +1581,7 @@ def process_layer_region1_only(
     ylim_ratio: float = 0.3,
     yscale_mode: str = "auto",
     log_threshold_decades: float = 1.0,
-    ):
+):
     outdir = Path(outdir)
     outdir.mkdir(parents=True, exist_ok=True)
 
@@ -1538,12 +1595,9 @@ def process_layer_region1_only(
 
     scaling = scaling_for_cells(cell_ids_layer)
 
-    # array which will be used for plotting along the poloidal direction for the step plots.
-    # add extra dummy values so that the first and last step are same length as the other stair steps
     x = np.arange(n)
     x = np.concatenate([[x[0] - 1], x, [x[-1] + 1]])
 
-    # Build struct-origin fractions for these cells (for gas correction below)
     cell_struct_origin_frac = bm.cell_struct_origin_frac
 
     def _apply_scale(ax, data, eps_for_log):
@@ -1573,15 +1627,21 @@ def process_layer_region1_only(
         )
         return scale_eff
 
-    # TOTAL FLUX
-    t_flux_tot = sp.get_tally(id=int(flux_tally_total_id))
-    cell_bins_tot = get_cell_bins_from_tally(t_flux_tot)
+    # TOTAL FLUX from spectrum tally
+    t_flux = sp.get_tally(id=int(flux_tally_id))
+    cell_bins_flux = get_cell_bins_from_tally(t_flux)
 
-    flux_tot_mean = t_flux_tot.get_reshaped_data(value="mean").squeeze()
-    flux_tot_std = t_flux_tot.get_reshaped_data(value="std_dev").squeeze()
+    flux_mean, flux_std = get_flux_spectrum_arrays(t_flux)
 
-    tot_mean_layer = subset_by_cells(flux_tot_mean, cell_bins_tot, cell_ids_layer)
-    tot_std_layer = subset_by_cells(flux_tot_std, cell_bins_tot, cell_ids_layer)
+    neutron_flux = flux_mean[:, 0, :]
+    neutron_flux_std = flux_std[:, 0, :]
+    photon_flux = flux_mean[:, 1, :]
+    photon_flux_std = flux_std[:, 1, :]
+
+    neutron_flux_layer = subset_by_cells(neutron_flux, cell_bins_flux, cell_ids_layer)
+    neutron_flux_std_layer = subset_by_cells(neutron_flux_std, cell_bins_flux, cell_ids_layer)
+    photon_flux_layer = subset_by_cells(photon_flux, cell_bins_flux, cell_ids_layer)
+    photon_flux_std_layer = subset_by_cells(photon_flux_std, cell_bins_flux, cell_ids_layer)
 
     neut = np.zeros(n, dtype=float)
     neut_std = np.zeros(n, dtype=float)
@@ -1590,10 +1650,10 @@ def process_layer_region1_only(
 
     for i, cid in enumerate(cell_ids_layer):
         s = scaling[int(cid)]
-        neut[i] = tot_mean_layer[i, 0] * s
-        neut_std[i] = tot_std_layer[i, 0] * s
-        phot[i] = tot_mean_layer[i, 1] * s
-        phot_std[i] = tot_std_layer[i, 1] * s
+        neut[i] = np.sum(neutron_flux_layer[i]) * s
+        neut_std[i] = np.sqrt(np.sum(neutron_flux_std_layer[i] ** 2)) * s
+        phot[i] = np.sum(photon_flux_layer[i]) * s
+        phot_std[i] = np.sqrt(np.sum(photon_flux_std_layer[i] ** 2)) * s
 
     fig, ax = empty_poloidal_plot(x, n)
 
@@ -1667,7 +1727,6 @@ def process_layer_region1_only(
             dpa_gas_map=dpa_gas_map,
         )
 
-        # TODO (optional): would be nice to have the uncertainty plotted as shaded region
         fig, ax = empty_poloidal_plot(x, n)
         dpa_plot = pad_poloidal_data(np.asarray(dpa_y, dtype=float))
         dpa_plot_std = pad_poloidal_data(np.asarray(dpa_y_std, dtype=float))
@@ -1780,7 +1839,7 @@ def process_layer_region1_only(
         eps_he = 1e-30
         he_plot = np.clip(he_appm_y, eps_he, None)
         he_low = np.clip(he_appm_y - he_appm_y_std, eps_he, None)
-        he_high = np.clip(he_appm_y + he_appm_y_std, eps_h, None)
+        he_high = np.clip(he_appm_y + he_appm_y_std, eps_he, None)
 
         ax.step(x, he_plot, where="mid", linewidth=2)
         ax.fill_between(x, he_low, he_high, step="mid", alpha=0.15)

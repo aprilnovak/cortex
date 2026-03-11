@@ -676,10 +676,10 @@ model.tallies.append(flux_tally)
 
 # TODO: this does not need to be its own tally, you have all the information in flux_tally already
 # (REPLY): You are correct! (I will remove this soon)
-flux_tally_total = openmc.Tally()
-flux_tally_total.filters = [cell_filter, particle_filter]
-flux_tally_total.scores = ["flux"]
-model.tallies.append(flux_tally_total)
+#flux_tally_total = openmc.Tally()
+#flux_tally_total.filters = [cell_filter, particle_filter]
+#flux_tally_total.scores = ["flux"]
+#model.tallies.append(flux_tally_total)
 
 # TODO: why is this only looking at the neutrons? I guess we are only computing the albedos for the neutrons?
 # (REPLY) I have been checked neutrons only. But I agree this should have been more in depth explored with photons.
