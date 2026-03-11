@@ -14,10 +14,22 @@ from collections import OrderedDict
 
 import sys
 import os
-module_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "materials"))
-sys.path.append(module_path)
-import materials 
 
+BASE_DIR = Path(__file__).resolve().parent
+NEUTRONICS_RUN_DIR = (BASE_DIR / "neutronics_run").resolve()
+DEPLETION_RUN_DIR = (BASE_DIR / "depletion_run").resolve()
+DEPLETION_RUN_DIR.mkdir(parents=True, exist_ok=True)
+
+D1S_DIR = DEPLETION_RUN_DIR / "d1s"
+D1S_DIR.mkdir(parents=True, exist_ok=True)
+
+R2S_DIR = DEPLETION_RUN_DIR / "r2s"
+R2S_ACTIVATION_DIR = R2S_DIR / "activation"
+R2S_ACTIVATION_DIR.mkdir(parents=True, exist_ok=True)
+
+module_path = (BASE_DIR.parent / "materials").resolve()
+sys.path.append(str(module_path))
+import materials
 # --------------------
 # TIME CLASS
 # --------------------
@@ -72,15 +84,13 @@ from neutronics_model import (
 # -----------------------------------------------------------------------------
 # USER INPUTS
 # -----------------------------------------------------------------------------
-# Create SDR directory
-sdr_dir = Path("sdr")
+# Create SDR directory inside depletion_run
+sdr_dir = D1S_DIR / "sdr"
 sdr_dir.mkdir(parents=True, exist_ok=True)
 
-# load geometry json input
-path_file = Path(__file__).resolve().parent
-INPUT_JSON = (path_file / "Tokamak_inputs.json").resolve()  
+# load geometry json input from parent folder
+INPUT_JSON = (BASE_DIR / "Tokamak_inputs.json").resolve()
 OB_KEY = "OB_1_b6"
-
 chunk_cells = build_breeder_chunks(INPUT_JSON, default_equatorial_ob_key=OB_KEY)
 
 ob_by_key = chunk_cells["ob_by_key"]
@@ -101,7 +111,7 @@ timer.stop("Build neutronics model")
 # ------------------------------------------------------------------
 timer.start("Build D1S model")
 
-chain_path = (Path(__file__).resolve().parent.parent / "depletion_chain" / "chain_endfb80_sfr.xml").resolve()
+chain_path = (BASE_DIR.parent / "depletion_chain" / "chain_endfb80_sfr.xml").resolve()
 if not chain_path.exists():
     raise FileNotFoundError(f"Chain file not found: {chain_path}")
 
@@ -227,7 +237,7 @@ print("Performing D1S run")
 print("---------------------------")
 timer.start("D1S run")
 
-statepoint = model.run(output=False)
+statepoint = model.run(cwd=str(D1S_DIR), output=False)
 
 with openmc.StatePoint(statepoint) as sp:
     tally = sp.get_tally(name="dose tally")
@@ -477,7 +487,7 @@ mat_id_to_name = {str(mat.id): (mat.name or f"material_{mat.id}") for mat in dep
 initial_nuclides = model.geometry.get_all_nuclides()
 reduced_chain = chain.reduce(initial_nuclides, level=5)
 
-bluemira_chain = Path("bluemira_chain.xml").resolve()
+bluemira_chain = (DEPLETION_RUN_DIR / "bluemira_chain.xml").resolve()
 reduced_chain.export_to_xml(str(bluemira_chain))
 print(f"[info] Wrote reduced chain: {bluemira_chain}")
 
@@ -488,7 +498,7 @@ fluxes, micros = openmc.deplete.get_microxs_and_flux(
     model,
     deplete_mats,
     chain_file=str(bluemira_chain),
-    run_kwargs={"output": False},
+    run_kwargs={"cwd": str(DEPLETION_RUN_DIR), "output": False},
 )
 
 operator = openmc.deplete.IndependentOperator(
@@ -498,7 +508,7 @@ operator = openmc.deplete.IndependentOperator(
     chain_file=str(bluemira_chain),
     normalization_mode="source-rate",
 )
-operator.output_dir = "r2s/activation"
+operator.output_dir = str(R2S_ACTIVATION_DIR)
 
 integrator = openmc.deplete.PredictorIntegrator(
     operator,
@@ -512,7 +522,7 @@ integrator.integrate()
 
 # Post-processing: Results
 # ------------------------------------------------------------------
-results = openmc.deplete.Results("r2s/activation/depletion_results.h5")
+results = openmc.deplete.Results(str(R2S_ACTIVATION_DIR / "depletion_results.h5"))
 
 # -----------------------------------------------------------------
 # EXPORT CELL-MAT MAPPING FOR POST PROCESSING
@@ -523,8 +533,9 @@ for cid, mat in zip(dagmc_cell_ids, deplete_mats):
     rows.append({"cell_id": cid, "mat_id": int(mat.id), "material_name": mat.name})
 
 df_map = pd.DataFrame(rows)
-df_map.to_csv("r2s/activation/cell_material_map.csv", index=False)
-print("Written r2s/activation/cell_material_map.csv")
+cell_map_csv = R2S_ACTIVATION_DIR / "cell_material_map.csv"
+df_map.to_csv(cell_map_csv, index=False)
+print(f"Written {cell_map_csv}")
 timer.stop("Depletion run")
 timer.summary()
 # -----------------------------------------------------------------

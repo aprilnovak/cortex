@@ -43,15 +43,23 @@ SCRIPT_DIR = Path(__file__).resolve().parent        # cortex/slab
 PROJECT_ROOT = SCRIPT_DIR.parent                    # cortex
 BLUEMIRA_DIR = PROJECT_ROOT / "detailed_bluemira"  # cortex/detailed_bluemira
 
+RUN_DIR = (SCRIPT_DIR / "neutronics_run").resolve()
+RESULTS_DIR = (SCRIPT_DIR / "neutronics_results").resolve()
+
+RUN_DIR.mkdir(parents=True, exist_ok=True)
+RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+
 # =============================================================================
 # USER INPUTS
 # =============================================================================
-INPUT_JSON = BLUEMIRA_DIR / "Tokamak_inputs.json"
-STATEPOINT_FILE = "statepoint.10.h5"
+INPUT_JSON = (BLUEMIRA_DIR / "Tokamak_inputs.json").resolve()
+STATEPOINT_FILE = (RUN_DIR / "statepoint.10.h5").resolve()
 
-BASE_DIR = Path(__file__).resolve().parent
-RESULTS_DIR = BASE_DIR / "neutronics_results"
-RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+if not STATEPOINT_FILE.is_file():
+    raise FileNotFoundError(
+        f"Statepoint file not found: {STATEPOINT_FILE}\n"
+        f"Expected slab OpenMC output inside: {RUN_DIR}"
+    )
 
 # =============================================================================
 # Optional: exclude surfaces from albedo summary
@@ -1316,9 +1324,9 @@ def process_chunk(
         dpa_by_nuclide[cid] = breakdown
 
         # print for  debugging or extra info (comment if undesired)
-        print(f"\n[DPA breakdown] cell {cid}")
-        for nuc, val in sorted(breakdown.items(), key=lambda x: x[1], reverse=True)[:10]:
-            print(f"  {nuc:>8s} : {val:.3e} DPA/y")
+        #print(f"\n[DPA breakdown] cell {cid}")
+        #for nuc, val in sorted(breakdown.items(), key=lambda x: x[1], reverse=True)[:10]:
+        #    print(f"  {nuc:>8s} : {val:.3e} DPA/y")
 
     
     lower= np.maximum(dpa_y - dpa_y_std, 1e-30)
@@ -1798,7 +1806,7 @@ layers = [("Armor", 0), ("First_Wall", 1), ("VV", vv_index)]
 # =============================================================================
 # Run
 # =============================================================================
-with openmc.StatePoint(STATEPOINT_FILE) as sp:
+with openmc.StatePoint(str(STATEPOINT_FILE)) as sp:
     dpa_gas_map = build_dpa_gas_map(sp)
     require_struct_maps(bm)
     DO_ALBEDO = False

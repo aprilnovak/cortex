@@ -14,31 +14,40 @@ import math
 import re
 import json
 from pathlib import Path
+import os
+import sys
 
 import openmc
 import numpy as np
 from openmc_plasma_source import tokamak_source
 import pydagmc
 
-import os
-import sys
-module_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "materials"))
-sys.path.append(module_path)
-import materials
+# -----------------------------------------------------------------------------
+# Inputs / paths
+# -----------------------------------------------------------------------------
+BASE_DIR = Path(__file__).resolve().parent
 
-# -----------------------------------------------------------------------------
-# Inputs
-# -----------------------------------------------------------------------------
-_DAGMC_MODEL_FILE = "eudemo_f_1_27a.h5m"
-INPUT_JSON = Path("Tokamak_inputs.json")
+_DAGMC_MODEL_FILE = (BASE_DIR / "eudemo_f_1_27a.h5m").resolve()
+INPUT_JSON = (BASE_DIR / "Tokamak_inputs.json").resolve()
+
+RUN_DIR = (BASE_DIR / "neutronics_run").resolve()
+RUN_DIR.mkdir(parents=True, exist_ok=True)
+
+NEUTRONICS_MODEL_XML = RUN_DIR / "model.xml"
+SURFACE_SOURCE_FILE = RUN_DIR / "surface_source.h5"
 
 model = openmc.Model()
+
+# Load materials compositions
+module_path = (BASE_DIR.parent / "materials").resolve()
+sys.path.append(str(module_path))
+import materials
 
 # -----------------------------------------------------------------------------
 # GEOMETRY
 # -----------------------------------------------------------------------------
-dagmc_universe = openmc.DAGMCUniverse(filename=_DAGMC_MODEL_FILE)
-pydagmc_model = pydagmc.Model(str(dagmc_universe.filename))
+dagmc_universe = openmc.DAGMCUniverse(filename=str(_DAGMC_MODEL_FILE))
+pydagmc_model = pydagmc.Model(str(_DAGMC_MODEL_FILE))
 
 # reserve IDs
 openmc.reserve_ids([v.id for v in pydagmc_model.volumes], cls=openmc.Cell)
@@ -272,7 +281,7 @@ model.settings = openmc.Settings()
 model.settings.dagmc = True
 model.settings.photon_transport = True
 model.settings.batches = 10
-model.settings.particles = 10_000_000
+model.settings.particles = 50_000
 model.settings.run_mode = "fixed source"
 model.settings.source = my_source
 
@@ -284,10 +293,10 @@ model.settings.track = [(1, 1, random.randint(1, model.settings.particles))]
 # (TOMAS REPLY):planning to perform most of the geometry pre/post-processing in an initial .py file.
 # With that we could figure it out the cell and surface_id for this source without adding repetitive functions.
 model.settings.surf_source_write = {
-    'surface_ids': [245],
-    'max_particles': 5_000_000,
-    'cellto': 56
-    }
+    "surface_ids": [245],
+    "max_particles": 10_000,
+    "cellto": 56,
+}
 # -----------------------------------------------------------------------------
 # DAGMC volume sync so cells have volumes
 # -----------------------------------------------------------------------------
@@ -874,12 +883,18 @@ for cid in cell_ids:
 # -----------------------------------------------------------------------------
 # Export
 # -----------------------------------------------------------------------------
-model.export_to_model_xml(path="neutronics_model.xml")
+model.export_to_model_xml(path=NEUTRONICS_MODEL_XML)
 
 # TODO: is this necessary? How would these come to exist? Suggest to remove if not needed
 # remove redundant defaults
 # (REPLY): I think the model.init_lib(output=False) is creating these outputs (not the tallies)
-redundant_files = ["geometry.xml", "materials.xml", "settings.xml", "tallies.xml"]
+redundant_files = [
+    RUN_DIR / "geometry.xml",
+    RUN_DIR / "materials.xml",
+    RUN_DIR / "settings.xml",
+    RUN_DIR / "tallies.xml",
+]
+
 for f in redundant_files:
-    if os.path.exists(f):
-        os.remove(f)
+    if f.exists():
+        f.unlink()

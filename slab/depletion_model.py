@@ -37,12 +37,33 @@ import openmc.deplete
 from openmc.deplete import d1s
 
 # -----------------------------------------------------------------------------
+# PATH SETUP
+# -----------------------------------------------------------------------------
+SCRIPT_DIR = Path(__file__).resolve().parent        # cortex/slab
+PROJECT_ROOT = SCRIPT_DIR.parent                    # cortex
+BLUEMIRA_DIR = PROJECT_ROOT / "detailed_bluemira"  # cortex/detailed_bluemira
+
+DEPLETION_RUN_DIR = (SCRIPT_DIR / "depletion_run").resolve()
+DEPLETION_RUN_DIR.mkdir(parents=True, exist_ok=True)
+
+D1S_DIR = (DEPLETION_RUN_DIR / "d1s").resolve()
+D1S_DIR.mkdir(parents=True, exist_ok=True)
+
+R2S_DIR = (DEPLETION_RUN_DIR / "r2s").resolve()
+R2S_ACTIVATION_DIR = (R2S_DIR / "activation").resolve()
+R2S_ACTIVATION_DIR.mkdir(parents=True, exist_ok=True)
+
+BLUEMIRA_CHAIN_XML = (DEPLETION_RUN_DIR / "bluemira_chain.xml").resolve()
+CELL_MATERIAL_MAP_CSV = (R2S_ACTIVATION_DIR / "cell_material_map.csv").resolve()
+DEPLETION_RESULTS_H5 = (R2S_ACTIVATION_DIR / "depletion_results.h5").resolve()
+
+# -----------------------------------------------------------------------------
 # materials module path (your setup)
 # -----------------------------------------------------------------------------
-module_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "materials"))
-if module_path not in sys.path:
-    sys.path.append(module_path)
-import materials  
+module_path = (PROJECT_ROOT / "materials").resolve()
+if str(module_path) not in sys.path:
+    sys.path.append(str(module_path))
+import materials
 
 # -----------------------------------------------------------------------------
 # Import from neutronics_model.py
@@ -51,7 +72,7 @@ from neutronics_model import (
     neutron_source_rate,
     sector_cell,
     model,
-    pydagmc_model, 
+    pydagmc_model,
     all_cells,
     build_breeder_chunks,
 )
@@ -59,15 +80,12 @@ from neutronics_model import (
 # -----------------------------------------------------------------------------
 # USER INPUTS
 # -----------------------------------------------------------------------------
-SCRIPT_DIR = Path(__file__).resolve().parent        # cortex/slab
-PROJECT_ROOT = SCRIPT_DIR.parent                    # cortex
-BLUEMIRA_DIR = PROJECT_ROOT / "detailed_bluemira"  # cortex/detailed_bluemira
-INPUT_JSON = BLUEMIRA_DIR / "Tokamak_inputs.json"
+INPUT_JSON = (BLUEMIRA_DIR / "Tokamak_inputs.json").resolve()
 
 OB_KEY = "OB_1_b6"
 
 # Chain file (base)
-chain_path = (Path(__file__).resolve().parent.parent / "depletion_chain" / "chain_endfb80_sfr.xml").resolve()
+chain_path = (PROJECT_ROOT / "depletion_chain" / "chain_endfb80_sfr.xml").resolve()
 if not chain_path.exists():
     raise FileNotFoundError(f"Chain file not found: {chain_path}")
 chain = openmc.deplete.Chain.from_xml(str(chain_path))
@@ -89,26 +107,24 @@ if OB_KEY not in ob_by_key:
 # Cells from JSON mapping
 ob_cells_json = [int(x) for x in ob_by_key[OB_KEY]]
 
-# What cells actually exist in this *reduced* model geometry
-present_cell_ids = set(int(c.id) for c in model.geometry.get_all_cells().values())
-# Restrict to those present
-ob_cells = [cid for cid in ob_cells_json if cid in present_cell_ids]
+# What cells actually exist in this reduced model geometry
+#present_cell_ids = set(int(c.id) for c in model.geometry.get_all_cells().values())
+#ob_cells = [cid for cid in ob_cells_json if cid in present_cell_ids]
 
-print(f"[chunk] {OB_KEY}: {len(ob_cells_json)} from JSON, {len(ob_cells)} present in wrapper")
-print(f"[chunk] present ids: {ob_cells}")
-if len(ob_cells) == 0:
-    raise RuntimeError(f"{OB_KEY}: none of the JSON chunk cells are present in model.geometry")
+#print(f"[chunk] {OB_KEY}: {len(ob_cells_json)} from JSON, {len(ob_cells)} present in wrapper")
+#print(f"[chunk] present ids: {ob_cells}")
+#if len(ob_cells) == 0:
+#    raise RuntimeError(f"{OB_KEY}: none of the JSON chunk cells are present in model.geometry")
 
 # Radial binning (centroids/widths/edges) for OB_KEY
 centroids_cm, widths_cm, edges_cm = _cells_chunk["radial_bins_for_key"](OB_KEY)
 
-# Sanity checks: binning returns per-layer for one OB chunk
 if len(ob_cells_json) != OB_CHUNK_SIZE:
     raise ValueError(f"{OB_KEY}: JSON chunk size {len(ob_cells_json)} != OB_CHUNK_SIZE {OB_CHUNK_SIZE}")
 if len(centroids_cm) != OB_CHUNK_SIZE:
     raise ValueError(f"{OB_KEY}: len(centroids_cm)={len(centroids_cm)} != OB_CHUNK_SIZE={OB_CHUNK_SIZE}")
 
-# Map cell_id -> radial center 
+# Map cell_id -> radial center
 center_by_cell_full = dict(zip(ob_cells_json, map(float, centroids_cm)))
 
 # -----------------------------------------------------------------------------
@@ -126,8 +142,8 @@ irradiation_time = (irradiation_time_y * y_to_s).tolist()
 # cooling (1e-9 y to 1000 y)
 timesteps_years = np.concatenate([
     np.logspace(-9, -4, 7),
-    np.logspace(-4,  0, 8)[1:],  # drop 1e-4
-    np.logspace( 0,  3, 14)[1:],  # drop 1e1
+    np.logspace(-4,  0, 8)[1:],
+    np.logspace( 0,  3, 14)[1:],
 ])
 cooling_times = (timesteps_years * y_to_s).tolist()
 
@@ -140,7 +156,11 @@ source_rates = [constant_power_ratio * neutron_source_rate] * len(irradiation_ti
 # -----------------------------------------------------------------------------
 # Volumes from DAGMC cells (already synced in neutronics_model.py)
 # -----------------------------------------------------------------------------
-vol_by_cell = {int(cid): float(cell.volume) for cid, cell in all_cells.items() if getattr(cell, "volume", None) is not None}
+vol_by_cell = {
+    int(cid): float(cell.volume)
+    for cid, cell in all_cells.items()
+    if getattr(cell, "volume", None) is not None
+}
 
 # -----------------------------------------------------------------------------
 # D1S: Build dose tally for ONLY the present OB cells
@@ -182,9 +202,9 @@ print("---------------------------")
 print("Performing D1S run")
 print("---------------------------")
 
-statepoint = model.run(output=False)
+statepoint = model.run(cwd=str(D1S_DIR), output=False)
 
-with openmc.StatePoint(statepoint) as sp:
+with openmc.StatePoint(str(statepoint)) as sp:
     tally = sp.get_tally(name="dose tally")
 
 corrected_tallies = [d1s.apply_time_correction(tally, factors, i + 1) for i in range(len(timesteps))]
@@ -241,10 +261,8 @@ plt.ylabel("Shutdown Dose (μSv/h)")
 plt.xlabel("Radial Position [cm]")
 plt.title(f"D1S spatial profile: {OB_KEY}")
 plt.legend()
-plt.savefig(f"sdr_profile_{OB_KEY}.png", dpi=300)
-plt.show()
-
-
+plt.savefig(D1S_DIR / f"sdr_profile_{OB_KEY}.png", dpi=300, bbox_inches="tight")
+plt.close()
 
 # -----------------------------------------------------------------------------
 # Depletion
@@ -252,21 +270,21 @@ plt.show()
 print("--------------------------------")
 print("Performing depletion")
 print("--------------------------------")
+
 # -----------------------------------------------------------------------------
 # 1. Prepare Geometry & Materials
 # -----------------------------------------------------------------------------
-# Differentiate only what is necessary
 model.differentiate_mats("match cell", depletable_only=True)
 
 # Synchronize the model materials after differentiation
 model.materials = openmc.Materials(model.geometry.get_all_materials().values())
 
 # -----------------------------------------------------------------------------
-# 2. Build Target Lists (Cells 55-66)
+# 2. Build Target Lists (cells in OB_KEY present in wrapper)
 # -----------------------------------------------------------------------------
-target_ids = sorted([int(cid) for cid in ob_cells]) # Ensure sorted order
+target_ids = sorted([int(cid) for cid in ob_cells])
 deplete_mats = []
-dagmc_cell_ids = [] # Store this alongside materials
+dagmc_cell_ids = []
 
 all_cells = model.geometry.get_all_cells()
 
@@ -274,16 +292,15 @@ for cid in target_ids:
     cell = all_cells.get(cid)
     if cell and isinstance(cell.fill, openmc.Material):
         mat = cell.fill
-        
-        # Ensure volume is set
+
         if mat.volume is None:
-            mat.volume = getattr(cell, 'volume', None)
-            
+            mat.volume = getattr(cell, "volume", None)
+
         if mat.volume is None:
             print(f"[Warning] Cell {cid} has no volume assigned. Results will be 0.")
 
         mat.depletable = True
-        
+
         deplete_mats.append(mat)
         dagmc_cell_ids.append(cid)
 
@@ -297,14 +314,13 @@ print(f"Targeting {len(deplete_mats)} cells/materials for depletion.")
 # -----------------------------------------------------------------------------
 initial_nuclides = model.geometry.get_all_nuclides()
 reduced_chain = chain.reduce(initial_nuclides, level=2)
-reduced_chain.export_to_xml("bluemira_chain.xml")
+reduced_chain.export_to_xml(str(BLUEMIRA_CHAIN_XML))
 
-# Run MicroXS calculation
 fluxes, micros = openmc.deplete.get_microxs_and_flux(
     model,
-    deplete_mats, 
-    chain_file="bluemira_chain.xml",
-    run_kwargs={"output": True} # Threads=1 helps debug SEGV
+    deplete_mats,
+    chain_file=str(BLUEMIRA_CHAIN_XML),
+    run_kwargs={"cwd": str(DEPLETION_RUN_DIR), "output": True},
 )
 
 # -----------------------------------------------------------------------------
@@ -314,10 +330,10 @@ operator = openmc.deplete.IndependentOperator(
     deplete_mats,
     fluxes,
     micros,
-    chain_file="bluemira_chain.xml",
+    chain_file=str(BLUEMIRA_CHAIN_XML),
     normalization_mode="source-rate",
 )
-operator.output_dir = "r2s/activation"
+operator.output_dir = str(R2S_ACTIVATION_DIR)
 
 integrator = openmc.deplete.PredictorIntegrator(
     operator,
@@ -329,15 +345,14 @@ integrator.integrate()
 # -----------------------------------------------------------------------------
 # Post-processing: results + cell-material map
 # -----------------------------------------------------------------------------
-results = openmc.deplete.Results("r2s/activation/depletion_results.h5")
+results = openmc.deplete.Results(str(DEPLETION_RESULTS_H5))
 
 rows = []
 for cid, mat in zip(dagmc_cell_ids, deplete_mats):
     rows.append({"cell_id": int(cid), "mat_id": int(mat.id), "material_name": mat.name})
 
-Path("r2s/activation").mkdir(parents=True, exist_ok=True)
 df_map = pd.DataFrame(rows)
-df_map.to_csv("r2s/activation/cell_material_map.csv", index=False)
-print("Written r2s/activation/cell_material_map.csv")
+df_map.to_csv(CELL_MATERIAL_MAP_CSV, index=False)
+print(f"Written {CELL_MATERIAL_MAP_CSV}")
 
 print("[done] depletion_model.py finished successfully")

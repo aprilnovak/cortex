@@ -35,14 +35,23 @@ import openmc
 import neutronics_model as bm  
 
 # ----------------------------
-# User settings
+# User settings / paths
 # ----------------------------
-STATEPOINT_FILE = "statepoint.10.h5"
-INPUT_JSON = Path("Tokamak_inputs.json")
-
 BASE_DIR = Path(__file__).resolve().parent
+
+RUN_DIR = (BASE_DIR / "neutronics_run").resolve()
+STATEPOINT_FILE = RUN_DIR / "statepoint.10.h5"
+
+INPUT_JSON = (BASE_DIR / "Tokamak_inputs.json").resolve()
+
 RESULTS_DIR = BASE_DIR / "neutronics_results"
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+
+if not STATEPOINT_FILE.is_file():
+    raise FileNotFoundError(
+        f"Statepoint file not found: {STATEPOINT_FILE}\n"
+        f"Expected neutronics output inside: {RUN_DIR}"
+    )
 
 # =============================================================================
 # Optional: exclude surfaces from albedo summary
@@ -1795,7 +1804,7 @@ layers = [("Armor", 0), ("First_Wall", 1), ("VV", vv_index)]
 # =============================================================================
 # Run
 # =============================================================================
-with openmc.StatePoint(STATEPOINT_FILE) as sp:
+with openmc.StatePoint(str(STATEPOINT_FILE)) as sp:
     dpa_gas_map = build_dpa_gas_map(sp)
     require_struct_maps(bm)
 

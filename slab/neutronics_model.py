@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 
 """
-Generates a wedge of the EU DEMO tokamak, based on a CAD file generated from the
-BlueMira/Process codes.
+Slab model based on Bluemira/Tokamak wedge dagmc model
 """
 
 from __future__ import annotations
@@ -33,8 +32,13 @@ SCRIPT_DIR = Path(__file__).resolve().parent        # cortex/slab
 PROJECT_ROOT = SCRIPT_DIR.parent                    # cortex
 BLUEMIRA_DIR = PROJECT_ROOT / "detailed_bluemira"  # cortex/detailed_bluemira
 
+SLAB_RUN_DIR = (SCRIPT_DIR / "neutronics_run").resolve()
+SLAB_RUN_DIR.mkdir(parents=True, exist_ok=True)
+
+SLAB_MODEL_XML = SLAB_RUN_DIR / "model.xml"
+
 # Add materials folder (if it lives in cortex/materials)
-module_path = PROJECT_ROOT / "materials"
+module_path = (PROJECT_ROOT / "materials").resolve()
 sys.path.append(str(module_path))
 import materials
 
@@ -42,10 +46,12 @@ import materials
 # USER INPUTS
 # =============================================================================
 
-_DAGMC_MODEL_FILE = BLUEMIRA_DIR / "eudemo_f_1_27a.h5m"
-INPUT_JSON = BLUEMIRA_DIR / "Tokamak_inputs.json"
+_DAGMC_MODEL_FILE = (BLUEMIRA_DIR / "eudemo_f_1_27a.h5m").resolve()
+INPUT_JSON = (BLUEMIRA_DIR / "Tokamak_inputs.json").resolve()
+
 # Fixed-source run configuration
-SURF_SOURCE_FILE = "surface_source.h5" 
+# Read the surface source written by the detailed_bluemira neutronics run
+SURF_SOURCE_FILE = (BLUEMIRA_DIR / "surface_source.h5").resolve()
 
 TARGET_VOL_ID = 66
 
@@ -224,11 +230,11 @@ model = openmc.Model()
 # =============================================================================
 # GEOMETRY
 # =============================================================================
-dagmc_universe = openmc.DAGMCUniverse(filename=_DAGMC_MODEL_FILE)
-pydagmc_model = pydagmc.Model(str(dagmc_universe.filename))
+dagmc_universe = openmc.DAGMCUniverse(filename=str(_DAGMC_MODEL_FILE))
+pydagmc_model = pydagmc.Model(str(_DAGMC_MODEL_FILE))
 
 mb = core.Core()
-mb.load_file(str(_DAGMC_MODEL_FILE))  # convert here only
+mb.load_file(str(_DAGMC_MODEL_FILE))
 
 # reserve IDs
 openmc.reserve_ids([v.id for v in pydagmc_model.volumes], cls=openmc.Cell)
@@ -423,9 +429,9 @@ model.settings = openmc.Settings()
 model.settings.dagmc = True
 model.settings.photon_transport = True
 model.settings.batches = 10
-model.settings.particles = 1_000_000
+model.settings.particles = 100_000
 model.settings.run_mode = "fixed source"
-model.settings.surf_source_read = {'path': SURF_SOURCE_FILE}
+model.settings.surf_source_read = {"path": str(SURF_SOURCE_FILE)}
 
 # -----------------------------------------------------------------------------
 # DAGMC volume sync so cells have volumes
@@ -690,15 +696,15 @@ info, all_surface_ids, external_surface_ids, internal_surface_ids = dagmc_volume
 )
 OB_KEY = "OB_1_b6"
 
-present = sorted(int(cid) for cid in dagmc_universe.get_all_cells().keys())
-print(f"[present] dagmc_universe cells present: {len(present)}")
-print(f"[present] min/max: {present[0]}..{present[-1]}")
-print(f"[present] sample: {present[:20]}")
+#present = sorted(int(cid) for cid in dagmc_universe.get_all_cells().keys())
+#print(f"[present] dagmc_universe cells present: {len(present)}")
+#print(f"[present] min/max: {present[0]}..{present[-1]}")
+#print(f"[present] sample: {present[:20]}")
 
 ob_cells = _cells_chunk["cell_ids_for_key"](OB_KEY)
-ob_present = [cid for cid in ob_cells if cid in present]
-print(f"[chunk] {OB_KEY}: {len(ob_cells)} from JSON, {len(ob_present)} present in wrapper")
-print(f"[chunk] present ids: {ob_present}")
+#ob_present = [cid for cid in ob_cells if cid in present]
+#print(f"[chunk] {OB_KEY}: {len(ob_cells)} from JSON, {len(ob_present)} present in wrapper")
+#print(f"[chunk] present ids: {ob_present}")
 # -----------------------------------------------------------------------------
 # TALLIES
 # -----------------------------------------------------------------------------
@@ -714,7 +720,10 @@ neutron_source_rate = section_power / convert_e
 s_in_y = (365 * 24 * 60 * 60)
 
 # Check surface_source.h5 file:
-with h5py.File(SURF_SOURCE_FILE, "r") as f:
+if not SURF_SOURCE_FILE.is_file():
+    raise FileNotFoundError(f"Surface source file not found: {SURF_SOURCE_FILE}")
+
+with h5py.File(str(SURF_SOURCE_FILE), "r") as f:
     bank = f["source_bank"]
 
     particles = bank["particle"][:]   # particle type array
@@ -970,12 +979,18 @@ for cid in cell_ids:
 # -----------------------------------------------------------------------------
 # Export
 # -----------------------------------------------------------------------------
-model.export_to_model_xml(path="neutronics_model.xml")
+model.export_to_model_xml(path=SLAB_MODEL_XML)
 
 # TODO: is this necessary? How would these come to exist? Suggest to remove if not needed
 # remove redundant defaults
 # (REPLY): I think the model.init_lib(output=False) is creating these outputs (not the tallies)
-redundant_files = ["geometry.xml", "materials.xml", "settings.xml", "tallies.xml"]
+redundant_files = [
+    SLAB_RUN_DIR / "geometry.xml",
+    SLAB_RUN_DIR / "materials.xml",
+    SLAB_RUN_DIR / "settings.xml",
+    SLAB_RUN_DIR / "tallies.xml",
+]
+
 for f in redundant_files:
-    if os.path.exists(f):
-        os.remove(f)
+    if f.exists():
+        f.unlink()
