@@ -70,6 +70,7 @@ import materials
 # -----------------------------------------------------------------------------
 from neutronics_model import (
     neutron_source_rate,
+    neutron_ratio_source,
     sector_cell,
     model,
     pydagmc_model,
@@ -150,7 +151,7 @@ cooling_times = (timesteps_years * y_to_s).tolist()
 timesteps = irradiation_time + cooling_times
 
 SURFACE_SOURCE_POWER_RATIO = 7.171062e-02
-constant_power_ratio = 0.3 * SURFACE_SOURCE_POWER_RATIO
+constant_power_ratio = 0.3 * SURFACE_SOURCE_POWER_RATIO * neutron_ratio_source
 source_rates = [constant_power_ratio * neutron_source_rate] * len(irradiation_time) + [0.0] * len(cooling_times)
 
 # -----------------------------------------------------------------------------
