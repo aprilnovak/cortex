@@ -607,7 +607,7 @@ def compute_albedo_for_chunk(
     chunk_key: str,
     pydagmc_model,
     EXCLUDED_SURFACES: Optional[set[int]] = None,
-    ) -> Dict[str, object]:
+) -> Dict[str, object]:
     outdir = Path(outdir)
     outdir.mkdir(parents=True, exist_ok=True)
     EXCLUDED_SURFACES = set(EXCLUDED_SURFACES or set())
@@ -618,6 +618,12 @@ def compute_albedo_for_chunk(
         print(f"[warn] {chunk_key}: skipping albedo (bm missing: {missing})")
         return {}
 
+    if len(labels) != len(cell_ids):
+        raise ValueError(f"{chunk_key}: labels length {len(labels)} != cell_ids length {len(cell_ids)}")
+
+    PARTICLES = ("neutron", "photon")
+    eps = 1e-15
+
     info = bm.info
     ext_ids = [int(x) for x in bm.external_surface_ids]
     int_ids = [int(x) for x in bm.internal_surface_ids]
@@ -626,10 +632,8 @@ def compute_albedo_for_chunk(
     ext_set = set(ext_ids)
     int_set = set(int_ids)
     all_set = set(all_ids)
-
     chunk_cell_set = set(int(x) for x in cell_ids)
-    if len(labels) != len(cell_ids):
-        raise ValueError(f"{chunk_key}: labels length {len(labels)} != cell_ids length {len(cell_ids)}")
+    idx_map = {int(cid): i for i, cid in enumerate(cell_ids)}
 
     def _cell_surfaces(cid: int, which: str) -> List[dict]:
         x = info.get(int(cid), {})
@@ -637,6 +641,18 @@ def compute_albedo_for_chunk(
             return list(x.get(which, []) or [])
         return list(x or [])
 
+    def _read_current_df_map(tally) -> Dict[tuple[int, str], tuple[float, float]]:
+        df = tally.get_pandas_dataframe()
+        out = {}
+        for _, r in df.iterrows():
+            sid = int(r["surface"])
+            part = str(r["particle"]).lower()
+            out[(sid, part)] = (float(r["mean"]), float(r["std. dev."]))
+        return out
+
+    # --------------------------------------------------
+    # Surface -> chunk cells map
+    # --------------------------------------------------
     surf_to_cells: Dict[int, set[int]] = {}
     for cid in cell_ids:
         cid = int(cid)
@@ -651,20 +667,19 @@ def compute_albedo_for_chunk(
         print(f"[warn] {chunk_key}: no surfaces mapped from bm.info; skipping albedo.")
         return {}
 
-    Jnet_by_sid: Dict[int, Tuple[float, float]] = {}
+    # --------------------------------------------------
+    # Total current map: (surface_id, particle) -> (mean, std)
+    # --------------------------------------------------
+    Jnet_by_sid_particle: Dict[tuple[int, str], tuple[float, float]] = {}
     try:
         t_tot = sp.get_tally(id=bm.t_current_tally.id)
-        t_sfilter = next(f for f in t_tot.filters if isinstance(f, openmc.SurfaceFilter))
-        surf_ids_tot = [int(x) for x in t_sfilter.bins]
-        Jnet_mean = np.atleast_1d(t_tot.mean.squeeze()).astype(float)
-        Jnet_std = np.atleast_1d(t_tot.std_dev.squeeze()).astype(float)
-
-        for i, sid in enumerate(surf_ids_tot):
-            if i < len(Jnet_mean) and i < len(Jnet_std):
-                Jnet_by_sid[int(sid)] = (float(Jnet_mean[i]), float(Jnet_std[i]))
+        Jnet_by_sid_particle = _read_current_df_map(t_tot)
     except Exception as e:
         print(f"[warn] {chunk_key}: could not read total current tally; external albedo limited. ({e})")
 
+    # --------------------------------------------------
+    # Special surfaces
+    # --------------------------------------------------
     allowed_surface_ids = set(all_set)
 
     special: Dict[str, int] = {}
@@ -693,8 +708,10 @@ def compute_albedo_for_chunk(
     else:
         print(f"[warn] {chunk_key}: chunk has only {len(cell_ids)} cells; skipping special selection.")
 
-    partial_mean: Dict[Tuple[int, int], float] = {}
-    partial_std: Dict[Tuple[int, int], float] = {}
+    # --------------------------------------------------
+    # Partial current map: (cell_id, surface_id, particle) -> (mean, std)
+    # --------------------------------------------------
+    partial_by_cell_sid_particle: Dict[tuple[int, int, str], tuple[float, float]] = {}
 
     for cid, tt in bm.p_current_tallies.items():
         cid = int(cid)
@@ -702,203 +719,11 @@ def compute_albedo_for_chunk(
             continue
         try:
             tally = sp.get_tally(id=tt.id)
-        except Exception:
-            continue
-        try:
-            sfilter = next(f for f in tally.filters if isinstance(f, openmc.SurfaceFilter))
-        except StopIteration:
-            continue
-
-        sids = [int(x) for x in sfilter.bins]
-        mean = np.atleast_1d(tally.mean.squeeze()).astype(float)
-        std = np.atleast_1d(tally.std_dev.squeeze()).astype(float)
-
-        for sid, m, s in zip(sids, mean, std):
-            partial_mean[(cid, sid)] = float(m)
-            partial_std[(cid, sid)] = float(s)
-
-    rows: List[dict] = []
-    eps = 1e-15
-
-    for sid in ext_ids:
-        cset = (surf_to_cells.get(int(sid), set()) & chunk_cell_set)
-        if not cset:
-            continue
-        cid = sorted(cset)[0]
-
-        if int(sid) not in Jnet_by_sid:
-            continue
-
-        Jnet_m, Jnet_s = Jnet_by_sid[int(sid)]
-        Jout_m = partial_mean.get((cid, int(sid)), 0.0)
-        Jout_s = partial_std.get((cid, int(sid)), 0.0)
-
-        Jnet = abs(Jnet_m)
-        Jout = abs(Jout_m)
-        Jin = abs(Jout - Jnet)
-
-        if Jout < eps:
-            A_mean, A_std = 0.0, 0.0
-        else:
-            A_mean = Jin / Jout
-            dA_dJout = Jnet / (Jout**2)
-            dA_dJnet = -1.0 / Jout
-            A_var = (dA_dJout**2) * (Jout_s**2) + (dA_dJnet**2) * (Jnet_s**2)
-            A_std = math.sqrt(max(A_var, 0.0))
-
-        rows.append(
-            dict(
-                surface_id=int(sid),
-                cell_id=int(cid),
-                kind="external",
-                J_total_mean=float(Jnet_m),
-                J_total_std=float(Jnet_s),
-                J_out_mean=float(Jout_m),
-                J_out_std=float(Jout_s),
-                albedo_mean=float(A_mean),
-                albedo_std=float(A_std),
-            )
-        )
-
-    for sid in int_ids:
-        cset = (surf_to_cells.get(int(sid), set()) & chunk_cell_set)
-        if len(cset) != 2:
-            continue
-        c1, c2 = sorted(cset)
-
-        Jout1_m = float(partial_mean.get((c1, int(sid)), 0.0))
-        Jout2_m = float(partial_mean.get((c2, int(sid)), 0.0))
-
-        Jout1_s = float(partial_std.get((c1, int(sid)), 0.0))
-        Jout2_s = float(partial_std.get((c2, int(sid)), 0.0))
-
-        J1 = abs(Jout1_m)
-        J2 = abs(Jout2_m)
-        s1 = abs(Jout1_s)
-        s2 = abs(Jout2_s)
-
-        if J1 <= eps or J2 <= eps:
-            A1 = np.nan
-            A2 = np.nan
-            A1_std = np.nan
-            A2_std = np.nan
-        else:
-            A1 = J2 / J1
-            dA1_dJ2 = 1.0 / J1
-            dA1_dJ1 = -J2 / (J1 ** 2)
-            A1_var = (dA1_dJ2 ** 2) * (s2 ** 2) + (dA1_dJ1 ** 2) * (s1 ** 2)
-            A1_std = math.sqrt(max(A1_var, 0.0))
-
-            A2 = J1 / J2
-            dA2_dJ1 = 1.0 / J2
-            dA2_dJ2 = -J1 / (J2 ** 2)
-            A2_var = (dA2_dJ1 ** 2) * (s1 ** 2) + (dA2_dJ2 ** 2) * (s2 ** 2)
-            A2_std = math.sqrt(max(A2_var, 0.0))
-
-        rows.append(dict(
-            surface_id=int(sid),
-            cell_id=int(c1),
-            kind="internal",
-            J_total_mean=np.nan,
-            J_total_std=np.nan,
-            J_out_mean=float(Jout1_m),
-            J_out_std=float(Jout1_s),
-            albedo_mean=float(A1) if np.isfinite(A1) else np.nan,
-            albedo_std=float(A1_std) if np.isfinite(A1_std) else np.nan,
-        ))
-        rows.append(dict(
-            surface_id=int(sid),
-            cell_id=int(c2),
-            kind="internal",
-            J_total_mean=np.nan,
-            J_total_std=np.nan,
-            J_out_mean=float(Jout2_m),
-            J_out_std=float(Jout2_s),
-            albedo_mean=float(A2) if np.isfinite(A2) else np.nan,
-            albedo_std=float(A2_std) if np.isfinite(A2_std) else np.nan,
-        ))
-
-    if not rows:
-        print(f"[warn] {chunk_key}: no albedo rows created; skipping outputs.")
-        return {}
-
-    df_alb = pd.DataFrame(rows).sort_values(["kind", "surface_id", "cell_id"])
-    df_alb.to_csv(outdir / f"surface_albedo_all_{chunk_key}.csv", index=False)
-
-    special_rows = []
-    for key, sid in special.items():
-        sid = int(sid)
-        want_cid = int(special_owner_cell.get(key, -1))
-
-        cand = df_alb[df_alb["surface_id"] == sid]
-        if want_cid != -1:
-            cand2 = cand[cand["cell_id"] == want_cid]
-            if not cand2.empty:
-                cand = cand2
-
-        if cand.empty:
-            continue
-
-        r = cand.iloc[0].to_dict()
-        r["special_key"] = key
-        special_rows.append(r)
-
-    df_special = (
-        pd.DataFrame(special_rows)
-        if special_rows
-        else pd.DataFrame(columns=list(df_alb.columns) + ["special_key"])
-    )
-    df_special.to_csv(outdir / f"surface_albedo_special_{chunk_key}.csv", index=False)
-
-    df_external_rest = df_alb[
-        (df_alb["kind"] == "external")
-        & (~df_alb["surface_id"].isin(EXCLUDED_SURFACES))
-        & (~df_alb["surface_id"].isin(special_surface_ids))
-    ].copy()
-    df_external_rest.to_csv(outdir / f"surface_albedo_external_filtered_{chunk_key}.csv", index=False)
-
-    idx_map = {int(cid): i for i, cid in enumerate(cell_ids)}
-
-    cell_rows = []
-    for cid, grp in df_external_rest.groupby("cell_id"):
-        cid = int(cid)
-        A_mean = float(grp["albedo_mean"].mean()) if len(grp) else float("nan")
-        st = grp["albedo_std"].to_numpy(dtype=float)
-        A_std = float(np.sqrt(np.nansum(st * st)) / max(len(st), 1)) if len(st) else float("nan")
-        layer_label = labels[idx_map[cid]] if cid in idx_map else f"cell_{cid}"
-
-        cell_rows.append(
-            dict(
-                cell_id=cid,
-                layer_label=layer_label,
-                albedo_mean=A_mean,
-                albedo_std=A_std,
-                n_surfaces=int(len(grp)),
-            )
-        )
-
-    df_cell = (
-        pd.DataFrame(cell_rows).sort_values("cell_id")
-        if cell_rows
-        else pd.DataFrame(columns=["cell_id", "layer_label", "albedo_mean", "albedo_std", "n_surfaces"])
-    )
-    df_cell.to_csv(outdir / f"cell_albedo_summary_external_{chunk_key}.csv", index=False)
-
-    xpos = np.arange(len(labels))
-    y = np.full(len(labels), np.nan, dtype=float)
-    e = np.full(len(labels), np.nan, dtype=float)
-
-    for _, row in df_cell.iterrows():
-        cid = int(row["cell_id"])
-        if cid not in idx_map:
-            continue
-        i = idx_map[cid]
-        y[i] = float(row["albedo_mean"]) if pd.notna(row["albedo_mean"]) else np.nan
-        e[i] = float(row["albedo_std"]) if pd.notna(row["albedo_std"]) else np.nan
-
-    plt.figure(figsize=(11, 6))
-    plt.errorbar(xpos, y, yerr=e, fmt="none", elinewidth=1, capsize=4)
-    plt.scatter(xpos, y, marker="x", s=90, linewidths=2, label="Cell avg (external, excluding specials)")
+            d = _read_current_df_map(tally)
+            for (sid, part), (m, s) in d.items():
+                partial_by_cell_sid_particle[(cid, sid, part)] = (m, s)
+        except Exception as e:
+            print(f"[warn] {chunk_key}: failed reading partial tally for cell {cid}: {e}")
 
     special_labels = {
         "Armor_front_ext": "Armor Front",
@@ -915,67 +740,251 @@ def compute_albedo_for_chunk(
         "VV_face_2": "tab:olive",
     }
     special_markers = {k: "x" for k in special_labels.keys()}
-
-    used_labels = set()
     MIN_VISIBLE_YERR = 1e-4
 
-    if not df_special.empty:
-        for _, r in df_special.iterrows():
-            key = str(r.get("special_key", "special"))
-            cid = int(r["cell_id"])
+    results_by_particle: Dict[str, Dict[str, object]] = {}
+
+    for particle in PARTICLES:
+        rows: List[dict] = []
+
+        # ---------------------------
+        # External surfaces
+        # ---------------------------
+        for sid in ext_ids:
+            cset = surf_to_cells.get(int(sid), set()) & chunk_cell_set
+            if not cset:
+                continue
+
+            cid = sorted(cset)[0]
+
+            if (sid, particle) not in Jnet_by_sid_particle:
+                continue
+
+            Jnet_m, Jnet_s = Jnet_by_sid_particle[(sid, particle)]
+            Jout_m, Jout_s = partial_by_cell_sid_particle.get((cid, sid, particle), (0.0, 0.0))
+
+            Jnet = abs(Jnet_m)
+            Jout = abs(Jout_m)
+            Jin = abs(Jout - Jnet)
+
+            if Jout < eps:
+                A_mean, A_std = 0.0, 0.0
+            else:
+                A_mean = Jin / Jout
+                dA_dJout = Jnet / (Jout ** 2)
+                dA_dJnet = -1.0 / Jout
+                A_var = (dA_dJout ** 2) * (Jout_s ** 2) + (dA_dJnet ** 2) * (Jnet_s ** 2)
+                A_std = math.sqrt(max(A_var, 0.0))
+
+            rows.append({
+                "particle": particle,
+                "surface_id": sid,
+                "cell_id": cid,
+                "kind": "external",
+                "J_total_mean": float(Jnet_m),
+                "J_total_std": float(Jnet_s),
+                "J_out_mean": float(Jout_m),
+                "J_out_std": float(Jout_s),
+                "albedo_mean": float(A_mean),
+                "albedo_std": float(A_std),
+            })
+
+        # ---------------------------
+        # Internal surfaces
+        # ---------------------------
+        for sid in int_ids:
+            cset = surf_to_cells.get(int(sid), set()) & chunk_cell_set
+            if len(cset) != 2:
+                continue
+
+            c1, c2 = sorted(cset)
+
+            Jout1_m, Jout1_s = partial_by_cell_sid_particle.get((c1, sid, particle), (0.0, 0.0))
+            Jout2_m, Jout2_s = partial_by_cell_sid_particle.get((c2, sid, particle), (0.0, 0.0))
+
+            J1 = abs(Jout1_m)
+            J2 = abs(Jout2_m)
+            s1 = abs(Jout1_s)
+            s2 = abs(Jout2_s)
+
+            if J1 <= eps or J2 <= eps:
+                A1 = np.nan
+                A2 = np.nan
+                A1_std = np.nan
+                A2_std = np.nan
+            else:
+                A1 = J2 / J1
+                dA1_dJ2 = 1.0 / J1
+                dA1_dJ1 = -J2 / (J1 ** 2)
+                A1_var = (dA1_dJ2 ** 2) * (s2 ** 2) + (dA1_dJ1 ** 2) * (s1 ** 2)
+                A1_std = math.sqrt(max(A1_var, 0.0))
+
+                A2 = J1 / J2
+                dA2_dJ1 = 1.0 / J2
+                dA2_dJ2 = -J1 / (J2 ** 2)
+                A2_var = (dA2_dJ1 ** 2) * (s1 ** 2) + (dA2_dJ2 ** 2) * (s2 ** 2)
+                A2_std = math.sqrt(max(A2_var, 0.0))
+
+            rows.append({
+                "particle": particle,
+                "surface_id": sid,
+                "cell_id": c1,
+                "kind": "internal",
+                "J_total_mean": np.nan,
+                "J_total_std": np.nan,
+                "J_out_mean": float(Jout1_m),
+                "J_out_std": float(Jout1_s),
+                "albedo_mean": float(A1) if np.isfinite(A1) else np.nan,
+                "albedo_std": float(A1_std) if np.isfinite(A1_std) else np.nan,
+            })
+            rows.append({
+                "particle": particle,
+                "surface_id": sid,
+                "cell_id": c2,
+                "kind": "internal",
+                "J_total_mean": np.nan,
+                "J_total_std": np.nan,
+                "J_out_mean": float(Jout2_m),
+                "J_out_std": float(Jout2_s),
+                "albedo_mean": float(A2) if np.isfinite(A2) else np.nan,
+                "albedo_std": float(A2_std) if np.isfinite(A2_std) else np.nan,
+            })
+
+        if not rows:
+            print(f"[warn] {chunk_key}: no albedo rows created for {particle}; skipping outputs.")
+            continue
+
+        df_alb = pd.DataFrame(rows).sort_values(["kind", "surface_id", "cell_id"])
+        df_alb.to_csv(outdir / f"surface_albedo_all_{particle}_{chunk_key}.csv", index=False)
+
+        special_rows = []
+        for key, sid in special.items():
+            want_cid = int(special_owner_cell.get(key, -1))
+            cand = df_alb[df_alb["surface_id"] == int(sid)]
+            if want_cid != -1:
+                cand2 = cand[cand["cell_id"] == want_cid]
+                if not cand2.empty:
+                    cand = cand2
+            if cand.empty:
+                continue
+            r = cand.iloc[0].to_dict()
+            r["special_key"] = key
+            special_rows.append(r)
+
+        df_special = (
+            pd.DataFrame(special_rows)
+            if special_rows
+            else pd.DataFrame(columns=list(df_alb.columns) + ["special_key"])
+        )
+        df_special.to_csv(outdir / f"surface_albedo_special_{particle}_{chunk_key}.csv", index=False)
+
+        df_external_rest = df_alb[
+            (df_alb["kind"] == "external")
+            & (~df_alb["surface_id"].isin(EXCLUDED_SURFACES))
+            & (~df_alb["surface_id"].isin(special_surface_ids))
+        ].copy()
+        df_external_rest.to_csv(outdir / f"surface_albedo_external_filtered_{particle}_{chunk_key}.csv", index=False)
+
+        cell_rows = []
+        for cid, grp in df_external_rest.groupby("cell_id"):
+            cid = int(cid)
+            A_mean = float(grp["albedo_mean"].mean()) if len(grp) else float("nan")
+            st = grp["albedo_std"].to_numpy(dtype=float)
+            A_std = float(np.sqrt(np.nansum(st * st)) / max(len(st), 1)) if len(st) else float("nan")
+            layer_label = labels[idx_map[cid]] if cid in idx_map else f"cell_{cid}"
+
+            cell_rows.append({
+                "particle": particle,
+                "cell_id": cid,
+                "layer_label": layer_label,
+                "albedo_mean": A_mean,
+                "albedo_std": A_std,
+                "n_surfaces": int(len(grp)),
+            })
+
+        df_cell = (
+            pd.DataFrame(cell_rows).sort_values("cell_id")
+            if cell_rows
+            else pd.DataFrame(columns=["particle", "cell_id", "layer_label", "albedo_mean", "albedo_std", "n_surfaces"])
+        )
+        df_cell.to_csv(outdir / f"cell_albedo_summary_external_{particle}_{chunk_key}.csv", index=False)
+
+        xpos = np.arange(len(labels))
+        y = np.full(len(labels), np.nan, dtype=float)
+        e = np.full(len(labels), np.nan, dtype=float)
+
+        for _, row in df_cell.iterrows():
+            cid = int(row["cell_id"])
             if cid not in idx_map:
                 continue
+            i = idx_map[cid]
+            y[i] = float(row["albedo_mean"]) if pd.notna(row["albedo_mean"]) else np.nan
+            e[i] = float(row["albedo_std"]) if pd.notna(row["albedo_std"]) else np.nan
 
-            x0 = idx_map[cid]
-            y0 = float(r["albedo_mean"]) if pd.notna(r["albedo_mean"]) else np.nan
-            e0 = float(r["albedo_std"]) if pd.notna(r["albedo_std"]) else np.nan
-            if not np.isfinite(y0):
-                continue
+        plt.figure(figsize=(11, 6))
+        plt.errorbar(xpos, y, yerr=e, fmt="none", elinewidth=1, capsize=4)
+        plt.scatter(xpos, y, marker="x", s=90, linewidths=2,
+                    label=f"{particle.capitalize()} cell avg (external, excluding specials)")
 
-            color = special_colors.get(key, "black")
-            label = special_labels.get(key, key)
-            marker = special_markers.get(key, "x")
-            plot_label = None if label in used_labels else label
-            used_labels.add(label)
+        used_labels = set()
+        if not df_special.empty:
+            for _, r in df_special.iterrows():
+                key = str(r.get("special_key", "special"))
+                cid = int(r["cell_id"])
+                if cid not in idx_map:
+                    continue
 
-            if np.isfinite(e0) and e0 > 0:
-                e_vis = max(e0, MIN_VISIBLE_YERR)
-                plt.errorbar(
-                    [x0], [y0],
-                    yerr=[[e_vis], [e_vis]],
-                    fmt="none",
-                    ecolor=color,
-                    elinewidth=2,
-                    capsize=6,
-                    capthick=2,
-                    zorder=5,
-                )
+                x0 = idx_map[cid]
+                y0 = float(r["albedo_mean"]) if pd.notna(r["albedo_mean"]) else np.nan
+                e0 = float(r["albedo_std"]) if pd.notna(r["albedo_std"]) else np.nan
+                if not np.isfinite(y0):
+                    continue
 
-            plt.scatter([x0], [y0], marker=marker, s=120, color=color, zorder=6, label=plot_label)
+                color = special_colors.get(key, "black")
+                label = special_labels.get(key, key)
+                marker = special_markers.get(key, "x")
+                plot_label = None if label in used_labels else label
+                used_labels.add(label)
 
-    plt.xticks(xpos, labels, rotation=45, fontsize=11)
-    plt.xlabel("Layer", fontsize=12)
-    plt.ylabel("Albedo", fontsize=12)
-    plt.title(f"Albedo per Layer: {chunk_key}", fontsize=15)
-    plt.grid(axis="y", linestyle="--", alpha=0.6)
-    plt.tight_layout()
-    plt.legend()
-    plt.savefig(outdir / f"albedo_layers_{chunk_key}.png", dpi=300)
-    plt.close()
+                if np.isfinite(e0) and e0 > 0:
+                    e_vis = max(e0, MIN_VISIBLE_YERR)
+                    plt.errorbar([x0], [y0], yerr=[[e_vis], [e_vis]],
+                                 fmt="none", ecolor=color, elinewidth=2,
+                                 capsize=6, capthick=2, zorder=5)
 
-    print(f"[ok] {chunk_key}: albedo done")
+                plt.scatter([x0], [y0], marker=marker, s=120, color=color, zorder=6, label=plot_label)
 
-    return dict(
-        df_albedo=df_alb,
-        df_albedo_external_filtered=df_external_rest,
-        df_special=df_special,
-        df_cell_summary=df_cell,
-        special=special,
-        special_surface_ids=special_surface_ids,
-        special_owner_cell=special_owner_cell,
-        special_debug=special_debug,
-        excluded_surfaces=EXCLUDED_SURFACES,
-    )
+        plt.xticks(xpos, labels, rotation=45, fontsize=11)
+        plt.xlabel("Layer", fontsize=12)
+        plt.ylabel("Albedo", fontsize=12)
+        plt.title(f"{particle.capitalize()} Albedo per Layer: {chunk_key}", fontsize=15)
+        plt.grid(axis="y", linestyle="--", alpha=0.6)
+        plt.tight_layout()
+        plt.legend()
+        plt.savefig(outdir / f"albedo_layers_{particle}_{chunk_key}.png", dpi=300)
+        plt.close()
+
+        results_by_particle[particle] = {
+            "df_albedo": df_alb,
+            "df_albedo_external_filtered": df_external_rest,
+            "df_special": df_special,
+            "df_cell_summary": df_cell,
+        }
+
+    if not results_by_particle:
+        print(f"[warn] {chunk_key}: no particle-specific albedo outputs were created.")
+        return {}
+
+    print(f"[ok] {chunk_key}: albedo done for particles = {list(results_by_particle.keys())}")
+
+    return {
+        "by_particle": results_by_particle,
+        "special": special,
+        "special_surface_ids": special_surface_ids,
+        "special_owner_cell": special_owner_cell,
+        "special_debug": special_debug,
+        "excluded_surfaces": EXCLUDED_SURFACES,
+    }
 
 # =============================================================================
 # DPA helper 

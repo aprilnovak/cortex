@@ -685,7 +685,7 @@ model.tallies.append(flux_tally)
 # (REPLY) I have been checked neutrons only. But I agree this should have been more in depth explored with photons.
 # I will introduce Photons analysis after 2/26/2026.
 t_current_tally = openmc.Tally()
-t_current_tally.filters = [t_surf_filter, n_particle_filter]
+t_current_tally.filters = [t_surf_filter, particle_filter]
 t_current_tally.scores = ["current"]
 model.tallies.append(t_current_tally)
 
@@ -700,7 +700,7 @@ for cid in cell_ids_equatorial_ob:
     surf_filter = openmc.SurfaceFilter(surf_ids_for_cell)
 
     p_current_tally = openmc.Tally()
-    p_current_tally.filters = [cell_from_filter, surf_filter, n_particle_filter]
+    p_current_tally.filters = [cell_from_filter, surf_filter, particle_filter]
     p_current_tally.scores = ["current"]
 
     model.tallies.append(p_current_tally)

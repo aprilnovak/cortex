@@ -781,7 +781,7 @@ model.tallies.append(flux_tally)
 DO_ALBEDO = False
 if DO_ALBEDO:
     t_current_tally = openmc.Tally()
-    t_current_tally.filters = [t_surf_filter, n_particle_filter]
+    t_current_tally.filters = [t_surf_filter, particle_filter]
     t_current_tally.scores = ["current"]
     model.tallies.append(t_current_tally)
 
@@ -796,7 +796,7 @@ if DO_ALBEDO:
         surf_filter = openmc.SurfaceFilter(surf_ids_for_cell)
 
         p_current_tally = openmc.Tally()
-        p_current_tally.filters = [cell_from_filter, surf_filter, n_particle_filter]
+        p_current_tally.filters = [cell_from_filter, surf_filter, particle_filter]
         p_current_tally.scores = ["current"]
 
         model.tallies.append(p_current_tally)
