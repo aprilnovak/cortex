@@ -38,6 +38,7 @@ model = openmc.Model()
 # GEOMETRY
 # -----------------------------------------------------------------------------
 dagmc_universe = openmc.DAGMCUniverse(filename=_DAGMC_MODEL_FILE)
+
 pydagmc_model = pydagmc.Model(str(dagmc_universe.filename))
 
 # reserve IDs
@@ -867,3 +868,26 @@ redundant_files = ["geometry.xml", "materials.xml", "settings.xml", "tallies.xml
 for f in redundant_files:
     if os.path.exists(f):
         os.remove(f)
+
+# Check if any of the source sites overlap with the material regions; this can be commented
+# out to make the model run faster but is helpful to make sure the plasma source is
+# behaving as we expect
+openmc.lib.init(output=False, args=["neutronics_model.xml"])
+n_samples = 100000
+particles = openmc.lib.sample_external_source(n_samples=n_samples)
+
+in_cells = {}
+for p in particles:
+  c = openmc.lib.find_cell([p.r[0], p.r[1], p.r[2]])
+  i = c[0].id
+  if (i not in in_cells):
+    in_cells[i] = 1
+  else:
+    in_cells[i] += 1
+
+print('\nPercent of source sites in each cell: ')
+for k, v in in_cells.items():
+  print("Cell : ", k, " % Sites: ", v/n_samples * 100)
+openmc.lib.finalize()
+
+# end check on source site overlaps
