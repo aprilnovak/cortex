@@ -48,6 +48,14 @@ CMAKE_ARGS="-DENABLE_HDF5=ON -DENABLE_NETCDF=ON" python -m pip install .
 
 ## Instructions for Improv
 
+Put these in your bashrc before you begin anything (change for XS location as appropriate).
+
+```
+export OPENMC_CROSS_SECTIONS=$HOME_DIRECTORY_SYM_LINK/cross_sections/endfb-vii.1-hdf5/cross_sections.xml
+export ENABLE_DAGMC=true
+export PATH=$PATH:$DIRECTORY_WHERE_YOU_HAVE_CARDINAL/cardinal/build/openmc/bin
+```
+
 Example job script:
 
 ```
