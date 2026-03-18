@@ -2,6 +2,8 @@
 
 import openmc
 import materials as fusion_mats
+import matplotlib.pyplot as plt
+import numpy as np
 
 steel = fusion_mats.ss316(7.8)
 steel.id=1
@@ -63,13 +65,23 @@ settings.source = source
 settings.run_mode = 'fixed source'
 settings.photon_transport = False
 
-# Turn on dagmc
-settings.dagmc = True
 settings.batches = 10
-settings.particles = 1000000
+settings.particles = 10000
 
 # add a volume calculation
-#vol_calc = openmc.VolumeCalculation()
+nl = 70
+dx = 69.5 / nl
+vol_calcs = []
+x = []
+for l in range(nl):
+  zmax = 69.5 - l*dx
+  zmin = 69.5 - (l+1)*dx
+  x.append(0.5*(zmin+zmax))
+  print('Range in z: ', zmin, ' to ', zmax)
+  vc = openmc.VolumeCalculation(pyne_mats, samples=1_000_000, lower_left=(-23.1, -83.5, zmin), upper_right=(23.1, 83.5, zmax))
+  vol_calcs.append(vc)
+settings.volume_calculations = vol_calcs
+layer_volume = 23.1*2*83.5*2*69.5/nl
 
 settings.export_to_xml()
 print("Created settings.xml")
@@ -87,3 +99,54 @@ tally.estimator = 'collision'
 tallies = openmc.Tallies([tally])
 tallies.export_to_xml()
 print("Created tallies.xml")
+
+openmc.calculate_volumes()
+steel = np.zeros(len(vol_calcs))
+breeder = np.zeros(len(vol_calcs))
+tungsten = np.zeros(len(vol_calcs))
+helium = np.zeros(len(vol_calcs))
+
+idx = 1
+max_err = 0
+for ii, v in enumerate(vol_calcs):
+  i = len(vol_calcs) - 1 - ii
+  v.load_results('volume_' + str(idx) + '.h5')
+  steel[i] = v.volumes[1].n/layer_volume
+  breeder[i] = v.volumes[2].n/layer_volume
+  tungsten[i] = v.volumes[3].n/layer_volume
+  leftover = (layer_volume - v.volumes[1].n - v.volumes[2].n - v.volumes[3].n)/layer_volume
+  helium[i] = max(leftover, 0.0)
+
+  if (v.volumes[1].n > 0):
+    err1 = v.volumes[1].s/v.volumes[1].n
+  else:
+    err1 = 0
+  if (v.volumes[2].n > 0):
+    err2 = v.volumes[2].s/v.volumes[2].n
+  else:
+    err2 = 0
+  if (v.volumes[3].n > 0):
+    err3 = v.volumes[3].s/v.volumes[3].n
+  else:
+    err3 = 0
+
+  max_err = max(max_err, err1)
+  max_err = max(max_err, err2)
+  max_err = max(max_err, err3)
+
+  idx += 1
+
+print('Max err: ', max_err)
+print('Total volume: ', 23.1*2*83.5*2*69.5)
+print('Volume of each layer: ', layer_volume)
+print('dx: ', dx)
+plt.bar(x, steel, label='Structural', color='gray', width=1)
+plt.bar(x, breeder, bottom=steel, label='PbLi', color='cyan',width=1)
+plt.bar(x, helium, bottom=breeder+steel, label='Helium', color='blue',width=1)
+plt.bar(x, tungsten, bottom=helium+breeder+steel, label='First Wall', color='magenta',width=1)
+plt.legend(loc='lower right')
+plt.xlabel('Distance from Plasma')
+plt.xlim([0, 100])
+plt.ylabel('Fraction of Volume')
+plt.savefig('hcll_layers.png', bbox_inches="tight")
+plt.close()
