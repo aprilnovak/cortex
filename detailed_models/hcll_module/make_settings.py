@@ -18,7 +18,7 @@ def createPlots(mats_dict):
     p_xz.origin = (0.,0.412,0.)
     p_xz.color_by = 'material'
     p_xz.colors = mats_dict
-    p_xz.basis = 'xz'
+    p_xz.basis = 'xz'   
     plots = openmc.Plots([p_xz])
     plots.export_to_xml()
     print("Created plots.xml")
@@ -37,7 +37,7 @@ def createSettings( suppressOutput=True ):
     settings.source = src
     settings.run_mode = 'fixed source'
     settings.photon_transport = False
-
+    
     # Turn on dagmc
     settings.dagmc = True
     settings.batches = 10
@@ -45,17 +45,17 @@ def createSettings( suppressOutput=True ):
 
     ## Interpolate temperatures
     #settings.temperature['method'] = 'interpolation'
-
+    
     settings.export_to_xml()
     print("Created settings.xml")
 
 def createTallies():
 
     # Unstructured mesh to calculate tallies upon
-    #meshname = "hcpb-mod.h5m"
+    #meshname = "hcpb-mod.h5m"    
     #umesh = openmc.UnstructuredMesh(meshname, library='moab')
     meshname = "HCLL-cm.e"
-    umesh = openmc.UnstructuredMesh(meshname, library='libmesh')
+    umesh = openmc.UnstructuredMesh(meshname, library='libmesh')    
     mesh_filter = openmc.MeshFilter(umesh)
 
     # Tallies

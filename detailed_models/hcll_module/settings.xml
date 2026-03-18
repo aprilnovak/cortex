@@ -1,0 +1,20 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<settings>
+  <run_mode>fixed source</run_mode>
+  <particles>1000000</particles>
+  <batches>10</batches>
+  <source type="independent" strength="1.0" particle="neutron">
+    <space type="cartesian">
+      <x type="uniform" parameters="-23.1 23.1"/>
+      <y type="uniform" parameters="-83.5 83.5"/>
+      <z type="discrete">
+        <parameters>69.5 1.0</parameters>
+      </z>
+    </space>
+    <angle type="monodirectional" reference_uvw="0.0 0.0 -1.0"/>
+    <energy type="discrete">
+      <parameters>14000000.0 1.0</parameters>
+    </energy>
+  </source>
+  <photon_transport>false</photon_transport>
+</settings>
