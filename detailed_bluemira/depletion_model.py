@@ -91,7 +91,7 @@ sdr_dir.mkdir(parents=True, exist_ok=True)
 # load geometry json input from parent folder
 INPUT_JSON = (BASE_DIR / "Tokamak_inputs.json").resolve()
 OB_KEY = "OB_1_b6"
-chunk_cells = build_breeder_chunks(INPUT_JSON, default_equatorial_ob_key=OB_KEY)
+chunk_cells = build_breeder_chunks(INPUT_JSON, default_chunk_key=OB_KEY)
 
 ob_by_key = chunk_cells["ob_by_key"]
 ib_by_key = chunk_cells["ib_by_key"]
@@ -99,7 +99,7 @@ OB_CHUNK_SIZE = chunk_cells["OB_CHUNK_SIZE"]
 IB_CHUNK_SIZE = chunk_cells["IB_CHUNK_SIZE"]
 
 cell_ids = chunk_cells["cell_ids_all"]
-cell_ids_equatorial_ob = chunk_cells["equatorial_ob_cell_ids"]
+cell_ids_selected_chunk = chunk_cells["selected_chunk_cell_ids"]
 
 # TODO: why not have the D1S part be in the neutronics_model.py? I think it could be?
 # Let's check with Patrick
@@ -151,9 +151,7 @@ source_rates = [constant_power_ratio * neutron_source_rate] * len(irradiation_ti
 # ------------------------------------------------------------------
 vol_by_cell = {cid: cell.volume for cid, cell in all_cells.items()}
 
-# TO BE UPDATED:
-xcentroids_ob = (0.1, 1.1, 6.0, 15.0, 25.0, 35.0, 45.0, 55.0, 65.0, 84.4, 156.0)
-xcentroids_ib = (0.1, 1.1, 6.0, 15.0, 25.0, 35.0, 45.0, 55.0, 65.0, 73.8, 108.0)
+
 # ------------------------------------------------------------------
 # Identify plasma and vv port-fill cells (last two cells)
 # ------------------------------------------------------------------
@@ -173,18 +171,20 @@ if OB_KEY not in ob_by_key:
     raise KeyError(f"{OB_KEY} not found in ob_by_key. Available (sample): {list(ob_by_key)[:10]}")
 
 ob_1_b6_cells = ob_by_key[OB_KEY]
+# TO BE UPDATED:
+#xcentroids_ob = (0.1, 1.1, 6.0, 15.0, 25.0, 35.0, 45.0, 55.0, 65.0, 84.4, 156.0)
+#xcentroids_ib = (0.1, 1.1, 6.0, 15.0, 25.0, 35.0, 45.0, 55.0, 65.0, 73.8, 108.0)
+
+radial_bins_for_key = chunk_cells["radial_bins_for_key"]
+xcentroids_ob, _, _ = radial_bins_for_key(OB_KEY)
+
+# xcentroids_ib available if needed:
+# xcentroids_ib, _, _ = radial_bins_for_key("IB_1_b4")
 
 # xcentroids_ob is per-layer for one OB chunk: [Armor, FW, OB1..OBn, VV]
-if len(xcentroids_ob) != OB_CHUNK_SIZE:
-    raise ValueError(
-        f"len(xcentroids_ob)={len(xcentroids_ob)} but OB_CHUNK_SIZE={OB_CHUNK_SIZE}. "
-        "xcentroids_ob must have one entry per item in the OB chunk "
-        "(Armor, FW, OB layers..., VV)."
-    )
 if len(ob_1_b6_cells) != OB_CHUNK_SIZE:
     raise ValueError(
-        f"len(ob_1_b6_cells)={len(ob_1_b6_cells)} but OB_CHUNK_SIZE={OB_CHUNK_SIZE}. "
-        "OB_1_b6 chunk size mismatch."
+        f"len(ob_1_b6_cells)={len(ob_1_b6_cells)} but OB_CHUNK_SIZE={OB_CHUNK_SIZE}."
     )
 
 # Map OB_1_b6 cell_id -> radial center [cm]

@@ -13,7 +13,6 @@ import re
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional, Set
 
-
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -48,6 +47,7 @@ if not STATEPOINT_FILE.is_file():
 # Choose which chunks to process
 # =============================================================================
 KEYS_TO_PROCESS = [
+    "IB_1_b4",
     "OB_1_b6",
 ]
 
@@ -276,7 +276,7 @@ def corrected_sum_mean_std_getvalues(
 # =============================================================================
 _cells_chunk = bm.build_breeder_chunks(
     INPUT_JSON,
-    default_equatorial_ob_key="OB_1_b6",
+    default_chunk_key="OB_1_b6",
     gap_cm=2.0,
     start_cm=0.0,
 )
@@ -429,7 +429,7 @@ def layer_names_for_chunk(chunk_cells: list[int], region_tag: str) -> list[str]:
     return labels
 
 # =============================================================================
-# Albedo calculation 
+# Albedo calculation
 # =============================================================================
 def _pydagmc_surface(pydagmc_model, sid: int):
     return pydagmc_model.surfaces_by_id[int(sid)]
@@ -470,12 +470,12 @@ def build_special_surfaces(
     bm_info_flat: dict,
     *,
     armor_cell_id: int,
-    obN_cell_id: int,
+    breeder_back_cell_id: int,
     vv_cell_id: int,
     allowed_surface_ids: Set[int],
     external_surface_ids: Set[int],
     internal_surface_ids: Set[int],
-    ) -> Tuple[Dict[str, int], Set[int], Dict[str, int], Dict[str, object]]:
+) -> Tuple[Dict[str, int], Set[int], Dict[str, int], Dict[str, object]]:
     allowed = set(int(x) for x in allowed_surface_ids)
     ext_set = set(int(x) for x in external_surface_ids)
     int_set = set(int(x) for x in internal_surface_ids)
@@ -510,16 +510,24 @@ def build_special_surfaces(
         owner["Armor_back_int"] = int(armor_cell_id)
         special_ids.add(int(armor_back))
 
-    ob_sids = [sid for sid in _cell_surface_ids_from_info_flat(bm_info_flat, obN_cell_id) if sid in allowed]
-    ob_ranked = _rank_sids_by_area(pydagmc_model, ob_sids)
-    ob_ext = next((sid for sid in ob_ranked if sid in ext_set), None)
+    breeder_sids = [
+        sid
+        for sid in _cell_surface_ids_from_info_flat(bm_info_flat, breeder_back_cell_id)
+        if sid in allowed
+    ]
+    breeder_ranked = _rank_sids_by_area(pydagmc_model, breeder_sids)
+    breeder_ext = next((sid for sid in breeder_ranked if sid in ext_set), None)
 
-    debug["obN"] = {"cell_id": int(obN_cell_id), "ranked_top": ob_ranked[:8], "picked_largest_ext": ob_ext}
+    debug["breeder_back"] = {
+        "cell_id": int(breeder_back_cell_id),
+        "ranked_top": breeder_ranked[:8],
+        "picked_largest_ext": breeder_ext,
+    }
 
-    if ob_ext is not None:
-        special["OBN_face_ext"] = int(ob_ext)
-        owner["OBN_face_ext"] = int(obN_cell_id)
-        special_ids.add(int(ob_ext))
+    if breeder_ext is not None:
+        special["Breeder_back_ext"] = int(breeder_ext)
+        owner["Breeder_back_ext"] = int(breeder_back_cell_id)
+        special_ids.add(int(breeder_ext))
 
     vv_sids = [sid for sid in _cell_surface_ids_from_info_flat(bm_info_flat, vv_cell_id) if sid in allowed]
     vv_ranked = _rank_sids_by_area(pydagmc_model, vv_sids)
@@ -608,9 +616,6 @@ def compute_albedo_for_chunk(
             out[(sid, part)] = (float(r["mean"]), float(r["std. dev."]))
         return out
 
-    # --------------------------------------------------
-    # Surface -> chunk cells map
-    # --------------------------------------------------
     surf_to_cells: Dict[int, set[int]] = {}
     for cid in cell_ids:
         cid = int(cid)
@@ -625,9 +630,6 @@ def compute_albedo_for_chunk(
         print(f"[warn] {chunk_key}: no surfaces mapped from bm.info; skipping albedo.")
         return {}
 
-    # --------------------------------------------------
-    # Total current map: (surface_id, particle) -> (mean, std)
-    # --------------------------------------------------
     Jnet_by_sid_particle: Dict[tuple[int, str], tuple[float, float]] = {}
     try:
         t_tot = sp.get_tally(id=bm.t_current_tally.id)
@@ -635,9 +637,6 @@ def compute_albedo_for_chunk(
     except Exception as e:
         print(f"[warn] {chunk_key}: could not read total current tally; external albedo limited. ({e})")
 
-    # --------------------------------------------------
-    # Special surfaces
-    # --------------------------------------------------
     allowed_surface_ids = set(all_set)
 
     special: Dict[str, int] = {}
@@ -647,7 +646,7 @@ def compute_albedo_for_chunk(
 
     if len(cell_ids) >= 3:
         armor_cell_id = int(cell_ids[0])
-        obN_cell_id = int(cell_ids[-2])
+        breeder_back_cell_id = int(cell_ids[-2])
         vv_cell_id = int(cell_ids[-1])
 
         bm_info_flat = {int(cid): _cell_surfaces(int(cid), "all_surfaces") for cid in cell_ids}
@@ -656,7 +655,7 @@ def compute_albedo_for_chunk(
             pydagmc_model,
             bm_info_flat,
             armor_cell_id=armor_cell_id,
-            obN_cell_id=obN_cell_id,
+            breeder_back_cell_id=breeder_back_cell_id,
             vv_cell_id=vv_cell_id,
             allowed_surface_ids=allowed_surface_ids,
             external_surface_ids=ext_set,
@@ -666,9 +665,6 @@ def compute_albedo_for_chunk(
     else:
         print(f"[warn] {chunk_key}: chunk has only {len(cell_ids)} cells; skipping special selection.")
 
-    # --------------------------------------------------
-    # Partial current map: (cell_id, surface_id, particle) -> (mean, std)
-    # --------------------------------------------------
     partial_by_cell_sid_particle: Dict[tuple[int, int, str], tuple[float, float]] = {}
 
     for cid, tt in bm.p_current_tallies.items():
@@ -686,14 +682,14 @@ def compute_albedo_for_chunk(
     special_labels = {
         "Armor_front_ext": "Armor Front",
         "Armor_back_int": "Armor Back",
-        "OBN_face_ext": "OB_N Back",
+        "Breeder_back_ext": "Breeder Back",
         "VV_face_1": "VV Back",
         "VV_face_2": "VV Front",
     }
     special_colors = {
         "Armor_front_ext": "tab:red",
         "Armor_back_int": "tab:orange",
-        "OBN_face_ext": "tab:purple",
+        "Breeder_back_ext": "tab:purple",
         "VV_face_1": "tab:green",
         "VV_face_2": "tab:olive",
     }
@@ -705,9 +701,6 @@ def compute_albedo_for_chunk(
     for particle in PARTICLES:
         rows: List[dict] = []
 
-        # ---------------------------
-        # External surfaces
-        # ---------------------------
         for sid in ext_ids:
             cset = surf_to_cells.get(int(sid), set()) & chunk_cell_set
             if not cset:
@@ -747,9 +740,6 @@ def compute_albedo_for_chunk(
                 "albedo_std": float(A_std),
             })
 
-        # ---------------------------
-        # Internal surfaces
-        # ---------------------------
         for sid in int_ids:
             cset = surf_to_cells.get(int(sid), set()) & chunk_cell_set
             if len(cset) != 2:
@@ -881,8 +871,10 @@ def compute_albedo_for_chunk(
 
         plt.figure(figsize=(11, 6))
         plt.errorbar(xpos, y, yerr=e, fmt="none", elinewidth=1, capsize=4)
-        plt.scatter(xpos, y, marker="x", s=90, linewidths=2,
-                    label=f"{particle.capitalize()} cell avg (external, excluding specials)")
+        plt.scatter(
+            xpos, y, marker="x", s=90, linewidths=2,
+            label=f"{particle.capitalize()} cell avg (external, excluding specials)"
+        )
 
         used_labels = set()
         if not df_special.empty:
@@ -906,9 +898,16 @@ def compute_albedo_for_chunk(
 
                 if np.isfinite(e0) and e0 > 0:
                     e_vis = max(e0, MIN_VISIBLE_YERR)
-                    plt.errorbar([x0], [y0], yerr=[[e_vis], [e_vis]],
-                                 fmt="none", ecolor=color, elinewidth=2,
-                                 capsize=6, capthick=2, zorder=5)
+                    plt.errorbar(
+                        [x0], [y0],
+                        yerr=[[e_vis], [e_vis]],
+                        fmt="none",
+                        ecolor=color,
+                        elinewidth=2,
+                        capsize=6,
+                        capthick=2,
+                        zorder=5,
+                    )
 
                 plt.scatter([x0], [y0], marker=marker, s=120, color=color, zorder=6, label=plot_label)
 
@@ -943,7 +942,6 @@ def compute_albedo_for_chunk(
         "special_debug": special_debug,
         "excluded_surfaces": EXCLUDED_SURFACES,
     }
-
 
 # =============================================================================
 # DPA helper
@@ -985,7 +983,6 @@ def process_chunk(
         xedges=xedges,
     )
 
-    # build & save structural-origin fractions for this chunk
     cell_struct_origin_frac = bm.cell_struct_origin_frac
     write_struct_origin_csv(outdir, chunk_key, cell_ids, labels, cell_struct_origin_frac)
 
@@ -1044,35 +1041,22 @@ def process_chunk(
 
     # ==========================================
     # Total flux reconstructed from spectrum
-    # Use the neutron_flux/photon_flux arrays above
     # ==========================================
     direct_total_neut = np.array(
-        [
-            np.sum(neutron_flux_chunk[i]) * scaling[int(cid)]
-            for i, cid in enumerate(cell_ids)
-        ],
+        [np.sum(neutron_flux_chunk[i]) * scaling[int(cid)] for i, cid in enumerate(cell_ids)],
         dtype=float,
     )
     direct_total_neut_std = np.array(
-        [
-            np.sqrt(np.sum(neutron_flux_std_chunk[i] ** 2)) * scaling[int(cid)]
-            for i, cid in enumerate(cell_ids)
-        ],
+        [np.sqrt(np.sum(neutron_flux_std_chunk[i] ** 2)) * scaling[int(cid)] for i, cid in enumerate(cell_ids)],
         dtype=float,
     )
 
     direct_total_phot = np.array(
-        [
-            np.sum(photon_flux_chunk[i]) * scaling[int(cid)]
-            for i, cid in enumerate(cell_ids)
-        ],
+        [np.sum(photon_flux_chunk[i]) * scaling[int(cid)] for i, cid in enumerate(cell_ids)],
         dtype=float,
     )
     direct_total_phot_std = np.array(
-        [
-            np.sqrt(np.sum(photon_flux_std_chunk[i] ** 2)) * scaling[int(cid)]
-            for i, cid in enumerate(cell_ids)
-        ],
+        [np.sqrt(np.sum(photon_flux_std_chunk[i] ** 2)) * scaling[int(cid)] for i, cid in enumerate(cell_ids)],
         dtype=float,
     )
 
@@ -1109,20 +1093,12 @@ def process_chunk(
     plt.close(fig)
 
     save_profile_from_base(
-        base_df,
-        outdir,
-        quantity="flux_total_neutron",
-        mean=direct_total_neut,
-        std=direct_total_neut_std,
-        units="1/cm2/s",
+        base_df, outdir, quantity="flux_total_neutron",
+        mean=direct_total_neut, std=direct_total_neut_std, units="1/cm2/s",
     )
     save_profile_from_base(
-        base_df,
-        outdir,
-        quantity="flux_total_photon",
-        mean=direct_total_phot,
-        std=direct_total_phot_std,
-        units="1/cm2/s",
+        base_df, outdir, quantity="flux_total_photon",
+        mean=direct_total_phot, std=direct_total_phot_std, units="1/cm2/s",
     )
 
     # ==========================================
@@ -1222,12 +1198,9 @@ def process_chunk(
     plt.close(fig)
 
     save_profile_from_base(
-        base_df,
-        outdir,
+        base_df, outdir,
         quantity="H_appm_fpy_struct_origin",
-        mean=h_appm_y,
-        std=h_appm_y_std,
-        units="appm/fpy",
+        mean=h_appm_y, std=h_appm_y_std, units="appm/fpy",
     )
 
     # ==========================================
@@ -1285,12 +1258,9 @@ def process_chunk(
     plt.close(fig)
 
     save_profile_from_base(
-        base_df,
-        outdir,
+        base_df, outdir,
         quantity="He_appm_fpy_struct_origin",
-        mean=he_appm_y,
-        std=he_appm_y_std,
-        units="appm/fpy",
+        mean=he_appm_y, std=he_appm_y_std, units="appm/fpy",
     )
 
     # ==========================================
@@ -1355,19 +1325,11 @@ def process_chunk(
     plt.close(fig)
 
     save_profile_from_base(
-        base_df,
-        outdir,
+        base_df, outdir,
         quantity="dpa_fpy_struct_origin",
-        mean=dpa_y,
-        std=dpa_y_std,
-        units="DPA/fpy",
+        mean=dpa_y, std=dpa_y_std, units="DPA/fpy",
     )
 
-    # ==========================================
-    # Albedo post-processing
-    # ==========================================
-    # Albedo post-processing is currently off for slab
-    
     if DO_ALBEDO:
         compute_albedo_for_chunk(
             sp,
@@ -1408,7 +1370,6 @@ def layer_cells_first_region(ob_by_key, ib_by_key, layer_index, n_breeder, order
 
     return cell_ids_layer, chunk_labels
 
-
 def compute_dpa_layer_region1_only(
     sp: openmc.StatePoint,
     cell_ids_layer: list[int],
@@ -1416,13 +1377,7 @@ def compute_dpa_layer_region1_only(
     s_in_y: float,
     *,
     dpa_gas_map: Dict[int, openmc.Tally],
-    ):
-    """
-    Region-1-only DPA that MATCHES method A used in process_chunk():
-
-      For each cell:
-        DPA/fpy = (neutron_source_rate*s_in_y / N_struct) * Σ_n [ (0.8/(2*Ed(elem(n)))) * (damage-energy_n * f_struct_origin(n)) ]
-    """
+):
     idx_map = {int(cid): i for i, cid in enumerate(cell_ids_layer)}
     n = len(cell_ids_layer)
 
@@ -1483,7 +1438,6 @@ def compute_dpa_layer_region1_only(
 
     return dpa_y, dpa_y_std
 
-
 def empty_poloidal_plot(x_data, num_pts):
     fig, ax = plt.subplots(figsize=(8.5, 5.5))
 
@@ -1516,10 +1470,8 @@ def empty_poloidal_plot(x_data, num_pts):
 
     return fig, ax
 
-
 def pad_poloidal_data(data):
     return np.concatenate([[data[0]], data, [data[-1]]])
-
 
 def process_layer_region1_only(
     sp: openmc.StatePoint,
@@ -1553,7 +1505,6 @@ def process_layer_region1_only(
 
     scaling = scaling_for_cells(cell_ids_layer)
 
-    # add extra dummy values so first and last step match the others
     x = np.arange(n)
     x = np.concatenate([[x[0] - 1], x, [x[-1] + 1]])
 
@@ -1819,8 +1770,6 @@ def process_layer_region1_only(
         ax.set_title(f"He production — {layer_tag}")
         fig.savefig(outdir / f"he_{layer_tag}.png", dpi=300, bbox_inches="tight")
         plt.close(fig)
-
-
 
 # =============================================================================
 # Run

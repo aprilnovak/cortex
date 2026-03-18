@@ -51,7 +51,7 @@ INPUT_JSON = (BLUEMIRA_DIR / "Tokamak_inputs.json").resolve()
 
 # Fixed-source run configuration
 # Read the surface source written by the detailed_bluemira neutronics run
-SURF_SOURCE_FILE = (BLUEMIRA_DIR / "surface_source.h5").resolve()
+SURF_SOURCE_FILE = (SCRIPT_DIR / "surface_source.h5").resolve()
 
 TARGET_VOL_ID = 66
 
@@ -429,7 +429,7 @@ model.settings = openmc.Settings()
 model.settings.dagmc = True
 model.settings.photon_transport = True
 model.settings.batches = 10
-model.settings.particles = 1_000_000
+model.settings.particles = 100_000
 model.settings.run_mode = "fixed source"
 model.settings.surf_source_read = {"path": str(SURF_SOURCE_FILE)}
 

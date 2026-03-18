@@ -255,10 +255,10 @@ mixed = build_and_set_model_materials_from_obj_recipes_vo(
 my_source = tokamak_source(
     angles=(0.0, math.pi/8),
     elongation=1.739,
-    ion_density_centre=6.8e19,
-    ion_density_pedestal=5.78e19,
+    ion_density_centre=4.19e19, #6.8e19,
+    ion_density_pedestal=4.19e19, #5.78e19,
     ion_density_peaking_factor=1,
-    ion_density_separatrix=1.02e19,
+    ion_density_separatrix=2.91e19, #1.02e19,
     ion_temperature_centre=23.7e3,
     ion_temperature_pedestal=5.5e3,
     ion_temperature_separatrix=0.1e3,
@@ -281,7 +281,7 @@ model.settings = openmc.Settings()
 model.settings.dagmc = True
 model.settings.photon_transport = True
 model.settings.batches = 10
-model.settings.particles = 50_000
+model.settings.particles = 10_000
 model.settings.run_mode = "fixed source"
 model.settings.source = my_source
 
@@ -290,13 +290,13 @@ import random
 model.settings.track = [(1, 1, random.randint(1, model.settings.particles))]
 
 # TODO: change 245 and 56 to not be hard-coded
-# (TOMAS REPLY):planning to perform most of the geometry pre/post-processing in an initial .py file.
-# With that we could figure it out the cell and surface_id for this source without adding repetitive functions.
-model.settings.surf_source_write = {
-    "surface_ids": [245],
-    "max_particles": 10_000,
-    "cellto": 56,
-}
+_WRITE_SOURCE = False
+if _WRITE_SOURCE:
+    model.settings.surf_source_write = {
+        "surface_ids": [245],
+        "max_particles": 2_000_000,
+        "cellto": 56,
+    }
 # -----------------------------------------------------------------------------
 # DAGMC volume sync so cells have volumes
 # -----------------------------------------------------------------------------
@@ -544,14 +544,14 @@ def make_radial_bins_for_key(
 def build_breeder_chunks(
     INPUT_JSON: Path,
     *,
-    default_equatorial_ob_key: str = "OB_1_b6",
+    default_chunk_key: str = "OB_1_b6",
     gap_cm: float = 2.0,
     start_cm: float = 0.0,
-    ) -> dict:
+) -> dict:
     with INPUT_JSON.open("r", encoding="utf-8") as f:
         data = json.load(f)
 
-    inv  = data["inventory"]
+    inv = data["inventory"]
     geom = data["geometry"]
 
     BLANKET_N   = int(inv["BLANKET_FINAL"])
@@ -592,7 +592,15 @@ def build_breeder_chunks(
 
     ALL_KEYS = list(ob_by_key.keys()) + list(ib_by_key.keys())
 
-    equatorial_ob_cell_ids = ob_by_key.get(default_equatorial_ob_key, [])
+    if default_chunk_key in ob_by_key:
+        selected_chunk_cell_ids = ob_by_key[default_chunk_key]
+    elif default_chunk_key in ib_by_key:
+        selected_chunk_cell_ids = ib_by_key[default_chunk_key]
+    else:
+        raise KeyError(
+            f"default_chunk_key={default_chunk_key!r} not found. "
+            f"Valid keys include: {ALL_KEYS[:10]}{' ...' if len(ALL_KEYS) > 10 else ''}"
+        )
 
     # -------------------------
     # Armor cell ids (ALL)
@@ -628,20 +636,20 @@ def build_breeder_chunks(
         "ALL_KEYS": ALL_KEYS,
         "OB_CHUNK_SIZE": OB_CHUNK_SIZE,
         "IB_CHUNK_SIZE": IB_CHUNK_SIZE,
-        "equatorial_ob_key": default_equatorial_ob_key,
-        "equatorial_ob_cell_ids": equatorial_ob_cell_ids,
+        "selected_chunk_key": default_chunk_key,
+        "selected_chunk_cell_ids": selected_chunk_cell_ids,
         "cell_ids_for_key": cell_ids_for_key,
         "radial_bins_for_key": radial_bins_for_key,
     }
 
-chunk_cells = build_breeder_chunks(INPUT_JSON, default_equatorial_ob_key="OB_1_b6")
+chunk_cells = build_breeder_chunks(INPUT_JSON, default_chunk_key="OB_1_b6")
 
 cell_ids = chunk_cells["cell_ids_all"]
-cell_ids_equatorial_ob = chunk_cells["equatorial_ob_cell_ids"]
+cell_ids_selected_chunk = chunk_cells["selected_chunk_cell_ids"]
 armor_cell_ids = chunk_cells["armor_cell_ids"]
 
 info, all_surface_ids, external_surface_ids, internal_surface_ids = dagmc_volume_surface_info(
-    pydagmc_model, cell_ids_equatorial_ob
+    pydagmc_model, cell_ids_selected_chunk
 )
 
 # -----------------------------------------------------------------------------
@@ -690,7 +698,7 @@ t_current_tally.scores = ["current"]
 model.tallies.append(t_current_tally)
 
 p_current_tallies: dict[int, openmc.Tally] = {}
-for cid in cell_ids_equatorial_ob:
+for cid in cell_ids_selected_chunk:
     ocell = dagmc_universe_cells[cid]
     surf_ids_for_cell = [int(s["surface_id"]) for s in info.get(cid, {}).get("all_surfaces", [])]
     if not surf_ids_for_cell:

@@ -88,7 +88,7 @@ def make_default_layer_tags(
     if include_armor:
         tags.append("Armor")
     if include_fw:
-        tags.append("First Wall")
+        tags.append("First_Wall")
 
     tags.extend([f"{breeder_prefix}_{i}" for i in range(1, n_breeder_layers + 1)])
 
@@ -195,7 +195,7 @@ def save_total_timeseries_csv(
     df_out = df_out.sort_values("Cooling_time_years").reset_index(drop=True)
     Path(out_csv).parent.mkdir(parents=True, exist_ok=True)
     df_out.to_csv(out_csv, index=False)
-    print(f"[CSV] Wrote {value_label} totals to {out_csv}")
+    #print(f"[CSV] Wrote {value_label} totals to {out_csv}")
 
 # -----------------------------
 # Time utilities
@@ -1076,15 +1076,12 @@ if __name__ == "__main__":
 
     results = openmc.deplete.Results(str(DEPLETION_RESULTS_FILE))
 
-    # To be updated:
-    xcentroids_ob = (0.1, 1.1, 6.0, 15.0, 25.0, 35.0, 45.0, 55.0, 65.0, 84.4, 156.0)
-    xcentroids_ib = (0.1, 1.1, 6.0, 15.0, 25.0, 35.0, 45.0, 55.0, 65.0, 73.8, 108.0)
 
     from neutronics_model import build_breeder_chunks
 
     _cells_chunk = build_breeder_chunks(
         INPUT_JSON,
-        default_equatorial_ob_key="OB_1_b6",
+        default_chunk_key="OB_1_b6",
         gap_cm=2.0,
         start_cm=0.0,
     )
@@ -1104,6 +1101,9 @@ if __name__ == "__main__":
     OB_KEY = "OB_1_b6"
     IB_KEY = "IB_1_b4"
 
+    xcentroids_ob, _, _ = radial_bins_for_key(OB_KEY)
+    xcentroids_ib, _, _ = radial_bins_for_key(IB_KEY)
+
     CHUNKS = {
         OB_KEY: ob_by_key.get(OB_KEY, []),
         IB_KEY: ib_by_key.get(IB_KEY, []),
@@ -1115,14 +1115,12 @@ if __name__ == "__main__":
     if CHUNKS[OB_KEY]:
         n_ob_layers = len(CHUNKS[OB_KEY]) - 3
         layer_tags_by_chunk[OB_KEY] = make_default_layer_tags(n_ob_layers, breeder_prefix="OB")
-        if len(xcentroids_ob) == len(CHUNKS[OB_KEY]):
-            xcentroids_by_chunk[OB_KEY] = xcentroids_ob
+        xcentroids_by_chunk[OB_KEY], _, _ = radial_bins_for_key(OB_KEY)
 
     if CHUNKS[IB_KEY]:
         n_ib_layers = len(CHUNKS[IB_KEY]) - 3
         layer_tags_by_chunk[IB_KEY] = make_default_layer_tags(n_ib_layers, breeder_prefix="IB")
-        if len(xcentroids_ib) == len(CHUNKS[IB_KEY]):
-            xcentroids_by_chunk[IB_KEY] = xcentroids_ib
+        xcentroids_by_chunk[IB_KEY], _, _ = radial_bins_for_key(IB_KEY)
 
     source_rates = results.get_source_rates()
     times = results.get_times()
