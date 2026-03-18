@@ -45,3 +45,70 @@ Provide CMake arguments during MOAB installation to enable HDF5 format and be ab
 ```
 CMAKE_ARGS="-DENABLE_HDF5=ON -DENABLE_NETCDF=ON" python -m pip install .
 ```
+
+## Instructions for Improv
+
+Example job script:
+
+```
+#!/bin/bash -l
+
+# Usage:
+# 1. Copy to the directory where you have your files
+# 2. Update any needed environment variables and input file names in this script
+# 3. qsub job_improv
+
+#PBS -A Radiant
+#PBS -l select=20:ncpus=128:mpiprocs=128
+#PBS -l walltime=01:00:00
+#PBS -q compute
+#PBS -j oe
+#PBS -N cardinal
+
+#PBS -m bea
+
+module purge
+module load gcc/11.4.0
+module load openmpi/4.1.6-gcc-11.4.0-pbs
+module load cmake/3.27.4
+module load perl/5.38.0-gcc-11.4.0
+module load miniforge3/25.3.0
+
+# Revise for your Cardinal repository location
+DIRECTORY_WHERE_YOU_HAVE_CARDINAL=$HOME
+
+# This is needed because your home directory on Improv is actually a symlink
+HOME_DIRECTORY_SYM_LINK=$(realpath -P $DIRECTORY_WHERE_YOU_HAVE_CARDINAL)
+export NEKRS_HOME=$HOME_DIRECTORY_SYM_LINK/cardinal/install
+
+# Revise for your cross sections location
+export OPENMC_CROSS_SECTIONS=$HOME_DIRECTORY_SYM_LINK/cross_sections/endfb-vii.1-hdf5/cross_sections.xml
+
+export CARDINAL_DIR=$HOME_DIRECTORY_SYM_LINK/cardinal
+
+# The name of the input file you want to run
+input_file=nek.i
+
+# Moving into the working directory (where the job script was launched).
+echo "Working directory: $PBS_O_WORKDIR"
+cd $PBS_O_WORKDIR
+
+# Run a Cardinal case
+mpirun -np 20 openmc -s 128 neutronics_model.xml > logfile
+```
+
+To build Cardinal with the modules shown in the example job script above, add these three lines
+in `cardinal/config/moab.mk`:
+
+```
+       -DENABLE_FORTRAN=OFF \
+       -DENABLE_EIGEN3=ON \
+       -DENABLE_PYMOAB=ON \
+```
+
+Compile Cardinal following the without-conda instructions (here)[https://cardinal.cels.anl.gov/without_conda.html]. After you have obtained the cardinal executable, the last step is to install pymoab.
+
+```
+cd cardinal/build/moab
+pip install .
+```
