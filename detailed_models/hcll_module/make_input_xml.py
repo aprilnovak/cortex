@@ -140,13 +140,32 @@ print('Max err: ', max_err)
 print('Total volume: ', 23.1*2*83.5*2*69.5)
 print('Volume of each layer: ', layer_volume)
 print('dx: ', dx)
-plt.bar(x, steel, label='Structural', color='gray', width=1)
-plt.bar(x, breeder, bottom=steel, label='PbLi', color='cyan',width=1)
-plt.bar(x, helium, bottom=breeder+steel, label='Helium', color='blue',width=1)
-plt.bar(x, tungsten, bottom=helium+breeder+steel, label='First Wall', color='magenta',width=1)
+plt.bar(x, steel, label='Structural', color='gray')
+plt.bar(x, breeder, bottom=steel, label='PbLi', color='cyan')
+plt.bar(x, helium, bottom=breeder+steel, label='Helium', color='blue')
+plt.bar(x, tungsten, bottom=helium+breeder+steel, label='First Wall', color='magenta')
 plt.legend(loc='lower right')
 plt.xlabel('Distance from Plasma')
 plt.xlim([0, 100])
 plt.ylabel('Fraction of Volume')
 plt.savefig('hcll_layers.png', bbox_inches="tight")
 plt.close()
+
+
+layers = [3, 9, 10, 10, 3, 9, 3, 10, 10, 3]
+tungsten = list(reversed(tungsten))
+steel = list(reversed(steel))
+helium = list(reversed(helium))
+breeder = list(reversed(breeder))
+
+start = 0
+for j in layers:
+  #print(tungsten[start:start+j])
+  print('\nLayer of thickness ', j)
+  print('Structural: ', (np.sum(steel[start:start+j]) + np.sum(tungsten[start:start+j]))/j)
+  print('Coolant: ', np.sum(helium[start:start+j])/j)
+  print('Breeder: ', np.sum(breeder[start:start+j])/j)
+  print('Sum: ', (np.sum(steel[start:start+j]) + np.sum(tungsten[start:start+j]))/j+np.sum(helium[start:start+j])/j+np.sum(breeder[start:start+j])/j)
+  start = start+j
+
+
