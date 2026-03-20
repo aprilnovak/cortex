@@ -280,10 +280,17 @@ my_source = tokamak_source(
 model.settings = openmc.Settings()
 model.settings.dagmc = True
 model.settings.photon_transport = True
-model.settings.batches = 10
-model.settings.particles = 10_000
 model.settings.run_mode = "fixed source"
 model.settings.source = my_source
+
+# Set TALLY_CONVERGENCE_THRESHOLD to 0.01 (1%) or 0.001 (0.1%)
+TALLY_CONVERGENCE_THRESHOLD = 0.01
+
+model.settings.batches = 10           # minimum batches before triggers are checked
+model.settings.trigger_active = True
+model.settings.trigger_batch_interval = 5   # check triggers every N batches
+model.settings.particles = 100_000
+model.settings.trigger_max_batches = 2000     # hard ceiling
 
 # output particle track, selected at random
 import random
@@ -668,6 +675,7 @@ s_in_y = (365 * 24 * 60 * 60)
 
 # Filters
 cell_filter = openmc.CellFilter(cell_ids)
+chunk_cell_filter = openmc.CellFilter(cell_ids_selected_chunk) # If only using OB_1_b6 to check trigger
 particle_filter = openmc.ParticleFilter(bins=["neutron", "photon"])
 t_surf_filter = openmc.SurfaceFilter(external_surface_ids)
 n_particle_filter = openmc.ParticleFilter(bins=["neutron"])
@@ -684,10 +692,14 @@ model.tallies.append(flux_tally)
 
 # TODO: this does not need to be its own tally, you have all the information in flux_tally already
 # (REPLY): You are correct! (I will remove this soon)
-#flux_tally_total = openmc.Tally()
-#flux_tally_total.filters = [cell_filter, particle_filter]
-#flux_tally_total.scores = ["flux"]
-#model.tallies.append(flux_tally_total)
+flux_tally_total = openmc.Tally()
+#flux_tally_total.filters = [cell_filter, n_particle_filter]
+flux_tally_total.filters = [chunk_cell_filter, n_particle_filter]
+flux_tally_total.scores = ["flux"]
+flux_tally_total.triggers = [
+    openmc.Trigger(trigger_type="rel_err", threshold=TALLY_CONVERGENCE_THRESHOLD)
+]
+model.tallies.append(flux_tally_total)
 
 # TODO: why is this only looking at the neutrons? I guess we are only computing the albedos for the neutrons?
 # (REPLY) I have been checked neutrons only. But I agree this should have been more in depth explored with photons.

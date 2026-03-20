@@ -30,7 +30,8 @@ import neutronics_model as bm
 BASE_DIR = Path(__file__).resolve().parent
 
 RUN_DIR = (BASE_DIR / "neutronics_run").resolve()
-STATEPOINT_FILE = RUN_DIR / "statepoint.10.h5"
+#STATEPOINT_FILE = RUN_DIR / "statepoint.10.h5"
+STATEPOINT_FILE = RUN_DIR / "statepoint.2000.h5"
 
 INPUT_JSON = (BASE_DIR / "Tokamak_inputs.json").resolve()
 
