@@ -53,7 +53,15 @@ RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 # USER INPUTS
 # =============================================================================
 INPUT_JSON = (BLUEMIRA_DIR / "Tokamak_inputs.json").resolve()
-STATEPOINT_FILE = (RUN_DIR / "statepoint.10.h5").resolve()
+
+def find_latest_statepoint(run_dir: Path) -> Path:
+    candidates = sorted(run_dir.glob("statepoint.*.h5"))
+    if not candidates:
+        raise FileNotFoundError(f"No statepoint files found in: {run_dir}")
+    return candidates[-1]
+
+STATEPOINT_FILE = find_latest_statepoint(RUN_DIR)
+print(f"Using statepoint: {STATEPOINT_FILE.name}")
 
 if not STATEPOINT_FILE.is_file():
     raise FileNotFoundError(
