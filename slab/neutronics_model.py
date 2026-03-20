@@ -428,10 +428,17 @@ mixed = build_and_set_model_materials_from_obj_recipes_vo(
 model.settings = openmc.Settings()
 model.settings.dagmc = True
 model.settings.photon_transport = True
-model.settings.batches = 10
-model.settings.particles = 100_000
 model.settings.run_mode = "fixed source"
 model.settings.surf_source_read = {"path": str(SURF_SOURCE_FILE)}
+
+# Set TALLY_CONVERGENCE_THRESHOLD to 0.01 (1%) or 0.001 (0.1%)
+TALLY_CONVERGENCE_THRESHOLD = 0.01
+
+model.settings.batches = 10           # minimum batches before triggers are checked
+model.settings.trigger_active = True
+model.settings.trigger_batch_interval = 5   # check triggers every N batches
+model.settings.particles = 100_000
+model.settings.trigger_max_batches = 2000     # hard ceiling
 
 # -----------------------------------------------------------------------------
 # DAGMC volume sync so cells have volumes
@@ -772,10 +779,14 @@ model.tallies.append(flux_tally)
 
 # TODO: this does not need to be its own tally, you have all the information in flux_tally already
 # (REPLY): You are correct! (I will remove this soon)
-#flux_tally_total = openmc.Tally()
-#flux_tally_total.filters = [cell_filter, particle_filter]
-#flux_tally_total.scores = ["flux"]
-#model.tallies.append(flux_tally_total)
+flux_tally_total = openmc.Tally()
+flux_tally_total.filters = [cell_filter, n_particle_filter]
+flux_tally_total.scores = ["flux"]
+flux_tally_total.triggers = [
+    openmc.Trigger(trigger_type="rel_err", threshold=TALLY_CONVERGENCE_THRESHOLD)
+]
+model.tallies.append(flux_tally_total)
+
 
 # Turn it off current tallies for albedo in the slab model
 DO_ALBEDO = False
