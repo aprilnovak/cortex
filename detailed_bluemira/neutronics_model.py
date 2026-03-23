@@ -289,7 +289,7 @@ TALLY_CONVERGENCE_THRESHOLD = 0.01
 model.settings.batches = 10           # minimum batches before triggers are checked
 model.settings.trigger_active = True
 model.settings.trigger_batch_interval = 5   # check triggers every N batches
-model.settings.particles = 100_000
+model.settings.particles = 1_000_000
 model.settings.trigger_max_batches = 2000     # hard ceiling
 
 # output particle track, selected at random
@@ -297,7 +297,7 @@ import random
 model.settings.track = [(1, 1, random.randint(1, model.settings.particles))]
 
 # TODO: change 245 and 56 to not be hard-coded
-_WRITE_SOURCE = False
+_WRITE_SOURCE = True
 if _WRITE_SOURCE:
     model.settings.surf_source_write = {
         "surface_ids": [245],
@@ -857,7 +857,6 @@ def build_structural_maps_vo(
         cell_total_atoms_struct,
         cell_struct_origin_frac,
     )
-
 
 structural_nuclides, cell_nuclide_atoms, cell_struct_nuclide_atoms, cell_total_atoms_struct, cell_struct_origin_frac = (
     build_structural_maps_vo(

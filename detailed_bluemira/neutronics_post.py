@@ -148,7 +148,7 @@ def set_ylim_and_ticks(
     n_linear_ticks=6,
     log_threshold_decades=1.0,
     min_log_pad_decades=0.10,
-):
+    ):
     ratio = float(ratio)
     ratio = max(0.0, min(ratio, 0.95))
 
@@ -230,7 +230,7 @@ def write_struct_origin_csv(
     cell_ids: list[int],
     labels: list[str],
     cell_struct_origin_frac: Dict[int, Dict[str, float]],
-):
+    ):
     rows = []
     for cid, lab in zip(cell_ids, labels):
         cid = int(cid)
@@ -259,7 +259,7 @@ def corrected_sum_mean_std_getvalues(
     score: str,
     nuclides: list[str],
     f_struct: Dict[str, float],
-) -> tuple[float, float]:
+    ) -> tuple[float, float]:
     mean_tot = 0.0
     var_tot = 0.0
 
@@ -300,6 +300,15 @@ n_breeder = int(geom["n_breeder"])
 cell_ids_for_key = _cells_chunk["cell_ids_for_key"]
 radial_bins_for_key = _cells_chunk["radial_bins_for_key"]
 
+def generate_colors(n):
+    """Generates a smooth rainbow gradient of n RGB colors."""
+    nc = n + 1
+    cmap = plt.get_cmap('rainbow')
+    color_range = cmap(np.linspace(1, 0, nc))
+    return color_range
+
+colors = generate_colors(n_breeder)
+
 def make_chunk_base_df(
     *,
     chunk_key: str,
@@ -308,7 +317,7 @@ def make_chunk_base_df(
     xcent: np.ndarray,
     xedges: np.ndarray,
     extra_cols: dict[str, object] | None = None,
-) -> pd.DataFrame:
+    ) -> pd.DataFrame:
     cell_ids = [int(c) for c in cell_ids]
     xcent = np.asarray(xcent, float).ravel()
     xedges = np.asarray(xedges, float).ravel()
@@ -353,7 +362,7 @@ def save_profile_from_base(
     std: np.ndarray,
     units: str,
     nonnegative_lower: bool = True,
-) -> Path:
+    ) -> Path:
     outdir = Path(outdir)
     outdir.mkdir(parents=True, exist_ok=True)
 
@@ -1016,7 +1025,7 @@ def process_chunk(
     plt.figure()
     for i, cid in enumerate(cell_ids):
         flux_scaled = neutron_flux_chunk[i].flatten() * scaling[int(cid)] / unit_lethargy
-        plt.loglog(energies[:-1], flux_scaled, label=f"{labels[i]} (x = {xcent[i]:.1f} cm)")
+        plt.loglog(energies[:-1], flux_scaled, label=f"{labels[i]} (x = {xcent[i]:.1f} cm)", color=colors[i])
     plt.legend(fontsize=8, ncol=2)
     plt.grid(True, which="both")
     plt.ylabel("Neutron flux per unit lethargy [1/cm$^2$/s]")
@@ -1028,7 +1037,7 @@ def process_chunk(
     plt.figure()
     for i, cid in enumerate(cell_ids):
         flux_scaled = photon_flux_chunk[i].flatten() * scaling[int(cid)] / unit_lethargy
-        plt.loglog(energies[:-1], flux_scaled, label=f"{labels[i]} (x={xcent[i]:.1f} cm)")
+        plt.loglog(energies[:-1], flux_scaled, label=f"{labels[i]} (x={xcent[i]:.1f} cm)", color=colors[i])
     plt.legend(fontsize=8, loc="lower left")
     plt.grid(True, which="both")
     plt.ylabel("Photon flux per unit lethargy [1/cm$^2$/s]")
