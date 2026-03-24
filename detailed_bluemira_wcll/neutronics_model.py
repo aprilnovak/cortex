@@ -259,11 +259,11 @@ mixed = build_and_set_model_materials_from_obj_recipes_vo(
 # -----------------------------------------------------------------------------
 my_source = tokamak_source(
     angles=(0.0, math.pi/8),
-    elongation=1.9478, #1.739,
-    ion_density_centre=6.8e19, #6.8e19,
-    ion_density_pedestal=5.78e19, #5.78e19,
+    elongation=1.739,
+    ion_density_centre=6.3e19, #6.8e19,
+    ion_density_pedestal=5.355e19, #5.78e19,
     ion_density_peaking_factor=1.0,
-    ion_density_separatrix=1.02e19,
+    ion_density_separatrix=0.945e19, #1.02e19,
     ion_temperature_centre=23.7e3,
     ion_temperature_pedestal=5.5e3,
     ion_temperature_separatrix=0.1e3,
@@ -274,7 +274,7 @@ my_source = tokamak_source(
     pedestal_radius=0.94 * 300.2,
     mode="H",
     shafranov_factor=0.44789,
-    triangularity=0.500, #0.333,
+    triangularity=0.333,
     fuel={"D": 0.5, "T": 0.5},
 )
 
@@ -289,13 +289,14 @@ model.settings.run_mode = "fixed source"
 model.settings.source = my_source
 
 # Set TALLY_CONVERGENCE_THRESHOLD to 0.01 (1%) or 0.001 (0.1%)
-TALLY_CONVERGENCE_THRESHOLD = 0.01
+TALLY_CONVERGENCE_THRESHOLD = 0.1
 
-model.settings.batches = 10           # minimum batches before triggers are checked
+# Choose initial batches * particles per batch > 15-20 * max_particles
+model.settings.batches = 15           
 model.settings.trigger_active = True
 model.settings.trigger_batch_interval = 5   # check triggers every N batches
-model.settings.particles = 100_000
-model.settings.trigger_max_batches = 10     # hard ceiling
+model.settings.particles = 1_000_000
+model.settings.trigger_max_batches = 1000     # hard ceiling
 
 # output particle track, selected at random
 import random
@@ -305,10 +306,11 @@ model.settings.track = [(1, 1, random.randint(1, model.settings.particles))]
 _WRITE_SOURCE = True
 if _WRITE_SOURCE:
     model.settings.surf_source_write = {
-        "surface_ids": [245],
-        "max_particles": 2_000_000,
-        "cellto": 56,
+        "surface_ids": [287],
+        "max_particles": 1_000_000,
+        "cellto": 66,
     }
+     ##Armor is 66 and VV cell is 78
 # -----------------------------------------------------------------------------
 # DAGMC volume sync so cells have volumes
 # -----------------------------------------------------------------------------
@@ -917,22 +919,24 @@ for f in redundant_files:
 # Check if any of the source sites overlap with the material regions; this can be commented
 # out to make the model run faster but is helpful to make sure the plasma source is
 # behaving as we expect
-openmc.lib.init(output=False, args=[str(NEUTRONICS_MODEL_XML)])
-n_samples = 1000000
-particles = openmc.lib.sample_external_source(n_samples=n_samples)
+_CHECK_SOURCE = False
+if _CHECK_SOURCE:
+    openmc.lib.init(output=False, args=[str(NEUTRONICS_MODEL_XML)])
+    n_samples = 100000
+    particles = openmc.lib.sample_external_source(n_samples=n_samples)
 
-in_cells = {}
-for p in particles:
-  c = openmc.lib.find_cell([p.r[0], p.r[1], p.r[2]])
-  i = c[0].id
-  if (i not in in_cells):
-    in_cells[i] = 1
-  else:
-    in_cells[i] += 1
+    in_cells = {}
+    for p in particles:
+        c = openmc.lib.find_cell([p.r[0], p.r[1], p.r[2]])
+        i = c[0].id
+        if (i not in in_cells):
+            in_cells[i] = 1
+        else:
+            in_cells[i] += 1
 
-print('\nPercent of source sites in each cell: ')
-for k, v in in_cells.items():
-  print("Cell : ", k, " % Sites: ", v/n_samples * 100)
-openmc.lib.finalize()
+    print('\nPercent of source sites in each cell: ')
+    for k, v in in_cells.items():
+        print("Cell : ", k, " % Sites: ", v/n_samples * 100)
+    openmc.lib.finalize()
 
-# end check on source site overlaps
+    # end check on source site overlaps
