@@ -150,7 +150,7 @@ cooling_times = (timesteps_years * y_to_s).tolist()
 
 timesteps = irradiation_time + cooling_times
 
-SURFACE_SOURCE_POWER_RATIO = 7.171062e-02
+SURFACE_SOURCE_POWER_RATIO = 7.171062e-02 # GET THIS FROM JSON FILE (TBD)
 constant_power_ratio = 0.3 * SURFACE_SOURCE_POWER_RATIO * neutron_ratio_source
 source_rates = [constant_power_ratio * neutron_source_rate] * len(irradiation_time) + [0.0] * len(cooling_times)
 

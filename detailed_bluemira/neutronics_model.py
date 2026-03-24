@@ -254,11 +254,11 @@ mixed = build_and_set_model_materials_from_obj_recipes_vo(
 # -----------------------------------------------------------------------------
 my_source = tokamak_source(
     angles=(0.0, math.pi/8),
-    elongation=1.9478, #1.739,
-    ion_density_centre=6.8e19, #6.8e19,
-    ion_density_pedestal=5.78e19, #5.78e19,
+    elongation=1.739,
+    ion_density_centre=6.3e19, #6.8e19,
+    ion_density_pedestal=5.355e19, #5.78e19,
     ion_density_peaking_factor=1.0,
-    ion_density_separatrix=1.02e19,
+    ion_density_separatrix=0.945e19, #1.02e19,
     ion_temperature_centre=23.7e3,
     ion_temperature_pedestal=5.5e3,
     ion_temperature_separatrix=0.1e3,
@@ -269,7 +269,7 @@ my_source = tokamak_source(
     pedestal_radius=0.94 * 300.2,
     mode="H",
     shafranov_factor=0.44789,
-    triangularity=0.500, #0.333,
+    triangularity=0.333,
     fuel={"D": 0.5, "T": 0.5},
 )
 
@@ -284,7 +284,7 @@ model.settings.run_mode = "fixed source"
 model.settings.source = my_source
 
 # Set TALLY_CONVERGENCE_THRESHOLD to 0.01 (1%) or 0.001 (0.1%)
-TALLY_CONVERGENCE_THRESHOLD = 0.01
+TALLY_CONVERGENCE_THRESHOLD = 0.1
 
 # Choose initial batches * particles per batch > 15-20 * max_particles
 model.settings.batches = 15           
@@ -691,10 +691,8 @@ flux_tally.filters = [cell_filter, particle_filter, energy_filter]
 flux_tally.scores = ["flux"]
 model.tallies.append(flux_tally)
 
-# TODO: this does not need to be its own tally, you have all the information in flux_tally already
-# (REPLY): You are correct! (I will remove this soon)
+# Adding total flux_total_tally (in OB_1_b6) for trigger only
 flux_tally_total = openmc.Tally()
-#flux_tally_total.filters = [cell_filter, n_particle_filter]
 flux_tally_total.filters = [chunk_cell_filter, n_particle_filter]
 flux_tally_total.scores = ["flux"]
 flux_tally_total.triggers = [
@@ -916,22 +914,24 @@ for f in redundant_files:
 # Check if any of the source sites overlap with the material regions; this can be commented
 # out to make the model run faster but is helpful to make sure the plasma source is
 # behaving as we expect
-openmc.lib.init(output=False, args=[str(NEUTRONICS_MODEL_XML)])
-n_samples = 100000
-particles = openmc.lib.sample_external_source(n_samples=n_samples)
+_CHECK_SOURCE = False
+if _CHECK_SOURCE:
+    openmc.lib.init(output=False, args=[str(NEUTRONICS_MODEL_XML)])
+    n_samples = 100000
+    particles = openmc.lib.sample_external_source(n_samples=n_samples)
 
-in_cells = {}
-for p in particles:
-  c = openmc.lib.find_cell([p.r[0], p.r[1], p.r[2]])
-  i = c[0].id
-  if (i not in in_cells):
-    in_cells[i] = 1
-  else:
-    in_cells[i] += 1
+    in_cells = {}
+    for p in particles:
+        c = openmc.lib.find_cell([p.r[0], p.r[1], p.r[2]])
+        i = c[0].id
+        if (i not in in_cells):
+            in_cells[i] = 1
+        else:
+            in_cells[i] += 1
 
-print('\nPercent of source sites in each cell: ')
-for k, v in in_cells.items():
-  print("Cell : ", k, " % Sites: ", v/n_samples * 100)
-openmc.lib.finalize()
+    print('\nPercent of source sites in each cell: ')
+    for k, v in in_cells.items():
+        print("Cell : ", k, " % Sites: ", v/n_samples * 100)
+    openmc.lib.finalize()
 
-# end check on source site overlaps
+    # end check on source site overlaps

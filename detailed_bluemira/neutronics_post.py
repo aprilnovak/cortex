@@ -8,6 +8,7 @@ Outputs saved to:
 
 from __future__ import annotations
 
+import json
 import math
 import re
 from pathlib import Path
@@ -295,19 +296,20 @@ geom = _cells_chunk["geom"]
 cell_ids_all = _cells_chunk["cell_ids_all"]
 ob_by_key = _cells_chunk["ob_by_key"]
 ib_by_key = _cells_chunk["ib_by_key"]
-n_breeder = int(geom["n_breeder"])
+n_breeder = int(geom["n_breeder"]) # number of breeders in poloidal direction
+OB_CHUNK_SIZE = _cells_chunk["OB_CHUNK_SIZE"] # number of cells in the radial direction in a Breeder chunk.
 
 cell_ids_for_key = _cells_chunk["cell_ids_for_key"]
 radial_bins_for_key = _cells_chunk["radial_bins_for_key"]
 
 def generate_colors(n):
     """Generates a smooth rainbow gradient of n RGB colors."""
-    nc = n + 1
+    nc = n 
     cmap = plt.get_cmap('rainbow')
     color_range = cmap(np.linspace(1, 0, nc))
     return color_range
 
-colors = generate_colors(n_breeder)
+colors = generate_colors(OB_CHUNK_SIZE) # NOTE: n_breeder is not the correct variable (should be:OB_CHUNK_SIZE (which is ob_n_layer+3)) 
 
 def make_chunk_base_df(
     *,
@@ -960,6 +962,139 @@ def compute_albedo_for_chunk(
         "excluded_surfaces": EXCLUDED_SURFACES,
     }
 
+def extract_incident_current_at_surface(
+    sp: openmc.StatePoint,
+    bm,
+    *,
+    armor_cell_id: int,
+    surface_id: int,
+    chunk_key: str,
+    outdir: Path,
+    particles: tuple[str, ...] = ("neutron", "photon"),
+) -> dict:
+    """
+    Extract and save the incident partial current J_in at a specific
+    external surface of the armor cell.
+
+    J_net = J_out - J_in  (OpenMC net current convention: outward positive)
+    => J_in = J_out - J_net
+
+    Saves: neutronics_results/<chunk_key>/incident_current_surface_<sid>_<chunk_key>.json
+    """
+    outdir = Path(outdir)
+    outdir.mkdir(parents=True, exist_ok=True)
+
+    results = {}
+
+    # ---- total (net) current tally ----
+    df_tot = pd.DataFrame()
+    try:
+        t_tot = sp.get_tally(id=bm.t_current_tally.id)
+        df_tot = t_tot.get_pandas_dataframe()
+    except Exception as e:
+        print(f"[warn] {chunk_key}: could not read total current tally: {e}")
+
+    # ---- partial current tally for armor cell ----
+    armor_cell_id = int(armor_cell_id)
+    t_partial = bm.p_current_tallies.get(armor_cell_id, None)
+    if t_partial is None:
+        print(f"[warn] {chunk_key}: no partial tally for armor cell {armor_cell_id}")
+        return {}
+
+    df_part = pd.DataFrame()
+    try:
+        t_part_sp = sp.get_tally(id=t_partial.id)
+        df_part = t_part_sp.get_pandas_dataframe()
+    except Exception as e:
+        print(f"[warn] {chunk_key}: could not read partial tally for armor cell {armor_cell_id}: {e}")
+        return {}
+
+    sid = int(surface_id)
+
+    for particle in particles:
+        particle_l = particle.lower()
+
+        # ------------------------------------------------------------------
+        # J_out: partial current outward from armor cell at this surface
+        # ------------------------------------------------------------------
+        if df_part.empty:
+            print(f"[warn] {chunk_key}: partial tally dataframe is empty for {particle}")
+            J_out_mean, J_out_std = 0.0, 0.0
+        else:
+            mask_part = (
+                (df_part["surface"].astype(int) == sid) &
+                (df_part["particle"].str.lower() == particle_l)
+            )
+            row_part = df_part[mask_part]
+            if row_part.empty:
+                print(f"[warn] {chunk_key}: surface {sid} not found in partial tally for {particle}")
+                J_out_mean, J_out_std = 0.0, 0.0
+            else:
+                J_out_mean = float(row_part["mean"].iloc[0])
+                J_out_std  = float(row_part["std. dev."].iloc[0])
+
+        # ------------------------------------------------------------------
+        # J_net: net current at this surface (from total current tally)
+        # ------------------------------------------------------------------
+        if df_tot.empty:
+            print(f"[warn] {chunk_key}: total current tally is empty for {particle}")
+            J_net_mean, J_net_std = 0.0, 0.0
+        else:
+            mask_tot = (
+                (df_tot["surface"].astype(int) == sid) &
+                (df_tot["particle"].str.lower() == particle_l)
+            )
+            row_tot = df_tot[mask_tot]
+            if row_tot.empty:
+                print(f"[warn] {chunk_key}: surface {sid} not found in total tally for {particle}")
+                J_net_mean, J_net_std = 0.0, 0.0
+            else:
+                J_net_mean = float(row_tot["mean"].iloc[0])
+                J_net_std  = float(row_tot["std. dev."].iloc[0])
+
+        # ------------------------------------------------------------------
+        # J_in = J_out - J_net  (incident = outgoing minus net)
+        # Uncertainty propagation: sigma_Jin = sqrt(sigma_Jout^2 + sigma_Jnet^2)
+        # ------------------------------------------------------------------
+        J_out = abs(J_out_mean)
+        J_net = abs(J_net_mean)
+        J_in  = abs(J_out - J_net)
+        J_in_std = math.sqrt(J_out_std**2 + J_net_std**2)
+
+        results[particle_l] = {
+            "surface_id":    sid,
+            "armor_cell_id": armor_cell_id,
+            "chunk_key":     chunk_key,
+            "particle":      particle_l,
+            "J_out_mean":    float(J_out_mean),
+            "J_out_std":     float(J_out_std),
+            "J_net_mean":    float(J_net_mean),
+            "J_net_std":     float(J_net_std),
+            "J_in_mean":     float(J_in),
+            "J_in_std":      float(J_in_std),
+            "units":         "particles/cm2/s (unscaled)",
+            "note":          "J_in = |J_out| - |J_net|, uncertainty = quadrature sum",
+        }
+
+        print(
+            f"[ok] {chunk_key} | {particle_l} | surface {sid}: "
+            f"J_out = {J_out:.4e} ± {J_out_std:.4e} | "
+            f"J_net = {J_net:.4e} ± {J_net_std:.4e} | "
+            f"J_in  = {J_in:.4e} ± {J_in_std:.4e}"
+        )
+
+    if not results:
+        print(f"[warn] {chunk_key}: no results computed for surface {sid}; JSON not saved.")
+        return {}
+
+    # ---- save to JSON ----
+    out_path = outdir / f"incident_current_surface_{sid}_{chunk_key}.json"
+    with open(out_path, "w") as f:
+        json.dump(results, f, indent=2, default=lambda x: float(x))
+    print(f"[saved] {out_path}")
+
+    return results
+
 # =============================================================================
 # DPA helper
 # =============================================================================
@@ -1373,6 +1508,16 @@ def process_chunk(
             pydagmc_model=pydagmc_model,
             EXCLUDED_SURFACES=EXCLUDED_SURFACES,
         )
+    
+    # ---- save incident current at armor front surface ----
+    armor_cell_id = int(cell_ids[0])   
+    extract_incident_current_at_surface(
+        sp, bm,
+        armor_cell_id=armor_cell_id,
+        surface_id=245,               
+        chunk_key=chunk_key,
+        outdir=outdir,
+    )
 
 # =============================================================================
 # Region-1-only per-layer analysis helpers

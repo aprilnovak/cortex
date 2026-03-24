@@ -432,13 +432,13 @@ model.settings.run_mode = "fixed source"
 model.settings.surf_source_read = {"path": str(SURF_SOURCE_FILE)}
 
 # Set TALLY_CONVERGENCE_THRESHOLD to 0.01 (1%) or 0.001 (0.1%)
-TALLY_CONVERGENCE_THRESHOLD = 0.01
+TALLY_CONVERGENCE_THRESHOLD = 0.1
 
-model.settings.batches = 10           # minimum batches before triggers are checked
+model.settings.batches = 15           # minimum batches before triggers are checked
 model.settings.trigger_active = True
 model.settings.trigger_batch_interval = 5   # check triggers every N batches
-model.settings.particles = 100_000
-model.settings.trigger_max_batches = 2000     # hard ceiling
+model.settings.particles = 1_000_000
+model.settings.trigger_max_batches = 1000     # hard ceiling
 
 # -----------------------------------------------------------------------------
 # DAGMC volume sync so cells have volumes
@@ -777,8 +777,7 @@ flux_tally.filters = [cell_filter, particle_filter, energy_filter]
 flux_tally.scores = ["flux"]
 model.tallies.append(flux_tally)
 
-# TODO: this does not need to be its own tally, you have all the information in flux_tally already
-# (REPLY): You are correct! (I will remove this soon)
+# Adding total flux_total_tally (in OB_1_b6) for trigger only
 flux_tally_total = openmc.Tally()
 flux_tally_total.filters = [cell_filter, n_particle_filter]
 flux_tally_total.scores = ["flux"]

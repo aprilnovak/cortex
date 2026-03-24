@@ -1036,10 +1036,6 @@ if __name__ == "__main__":
 
     results = openmc.deplete.Results(str(DEPLETION_RESULTS_FILE))
 
-    # To be updated:
-    #xcentroids_ob = (0.1, 1.1, 6.0, 15.0, 25.0, 35.0, 45.0, 55.0, 65.0, 84.4, 156.0)
-    #xcentroids_ib = (0.1, 1.1, 6.0, 15.0, 25.0, 35.0, 45.0, 55.0, 65.0, 73.8, 108.0)
-
     from neutronics_model import build_breeder_chunks
 
     OB_KEY = "OB_1_b6"
@@ -1055,8 +1051,8 @@ if __name__ == "__main__":
     IB_CHUNK_SIZE = _cells_chunk["IB_CHUNK_SIZE"]
     n_breeder  = int(geom["n_breeder"])
 
-    cell_ids_for_key    = _cells_chunk["cell_ids_for_key"]       # keep as callable
-    radial_bins_for_key = _cells_chunk["radial_bins_for_key"]    # keep as callable
+    cell_ids_for_key    = _cells_chunk["cell_ids_for_key"]      
+    radial_bins_for_key = _cells_chunk["radial_bins_for_key"]  
 
     CHUNKS = {
         OB_KEY: ob_by_key.get(OB_KEY, []),
@@ -1068,8 +1064,8 @@ if __name__ == "__main__":
     if CHUNKS[OB_KEY]:
         n_ob_layers = len(CHUNKS[OB_KEY]) - 3
         layer_tags_by_chunk[OB_KEY] = make_default_layer_tags(n_ob_layers, breeder_prefix="OB")
-        xcentroids_ob, _, _ = radial_bins_for_key(OB_KEY)   # use computed centroids
-        xcentroids_by_chunk[OB_KEY] = xcentroids_ob          # no hard-coded fallback needed
+        xcentroids_ob, _, _ = radial_bins_for_key(OB_KEY) 
+        xcentroids_by_chunk[OB_KEY] = xcentroids_ob        
 
     source_rates = results.get_source_rates()
     times = results.get_times()
