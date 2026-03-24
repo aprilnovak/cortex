@@ -286,11 +286,12 @@ model.settings.source = my_source
 # Set TALLY_CONVERGENCE_THRESHOLD to 0.01 (1%) or 0.001 (0.1%)
 TALLY_CONVERGENCE_THRESHOLD = 0.01
 
-model.settings.batches = 10           # minimum batches before triggers are checked
+# Choose initial batches * particles per batch > 15-20 * max_particles
+model.settings.batches = 15           
 model.settings.trigger_active = True
 model.settings.trigger_batch_interval = 5   # check triggers every N batches
-model.settings.particles = 100_000
-model.settings.trigger_max_batches = 10     # hard ceiling
+model.settings.particles = 1_000_000
+model.settings.trigger_max_batches = 1000     # hard ceiling
 
 # output particle track, selected at random
 import random
@@ -301,7 +302,7 @@ _WRITE_SOURCE = True
 if _WRITE_SOURCE:
     model.settings.surf_source_write = {
         "surface_ids": [245],
-        "max_particles": 2_000_000,
+        "max_particles": 1_000_000,
         "cellto": 56,
     }
 # -----------------------------------------------------------------------------
