@@ -28,17 +28,17 @@ import sys
 # PATH SETUP
 # =============================================================================
 
-SCRIPT_DIR = Path(__file__).resolve().parent        # cortex/slab
+SCRIPT_DIR = Path.cwd()        # cortex/slab
 PROJECT_ROOT = SCRIPT_DIR.parent                    # cortex
 BLUEMIRA_DIR = PROJECT_ROOT / "detailed_bluemira"  # cortex/detailed_bluemira
 
-SLAB_RUN_DIR = (SCRIPT_DIR / "neutronics_run").resolve()
+SLAB_RUN_DIR = (SCRIPT_DIR / "neutronics_run")
 SLAB_RUN_DIR.mkdir(parents=True, exist_ok=True)
 
 SLAB_MODEL_XML = SLAB_RUN_DIR / "model.xml"
 
 # Add materials folder (if it lives in cortex/materials)
-module_path = (PROJECT_ROOT / "materials").resolve()
+module_path = (PROJECT_ROOT / "materials")
 sys.path.append(str(module_path))
 import materials
 
@@ -46,12 +46,12 @@ import materials
 # USER INPUTS
 # =============================================================================
 
-_DAGMC_MODEL_FILE = (BLUEMIRA_DIR / "eudemo_f_1_27a.h5m").resolve()
-INPUT_JSON = (BLUEMIRA_DIR / "Tokamak_inputs.json").resolve()
+_DAGMC_MODEL_FILE = (BLUEMIRA_DIR / "eudemo_f_1_27a.h5m")
+INPUT_JSON = (BLUEMIRA_DIR / "Tokamak_inputs.json")
 
 # Fixed-source run configuration
 # Read the surface source written by the detailed_bluemira neutronics run
-SURF_SOURCE_FILE = (SCRIPT_DIR / "surface_source.h5").resolve()
+SURF_SOURCE_FILE = (SCRIPT_DIR / "surface_source.h5")
 
 TARGET_VOL_ID = 66
 

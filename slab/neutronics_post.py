@@ -39,12 +39,12 @@ import neutronics_model as bm
 # PATH SETUP
 # =============================================================================
 
-SCRIPT_DIR = Path(__file__).resolve().parent        # cortex/slab
+SCRIPT_DIR = Path.cwd()        # cortex/slab
 PROJECT_ROOT = SCRIPT_DIR.parent                    # cortex
 BLUEMIRA_DIR = PROJECT_ROOT / "detailed_bluemira"  # cortex/detailed_bluemira
 
-RUN_DIR = (SCRIPT_DIR / "neutronics_run").resolve()
-RESULTS_DIR = (SCRIPT_DIR / "neutronics_results").resolve()
+RUN_DIR = (SCRIPT_DIR / "neutronics_run")
+RESULTS_DIR = (SCRIPT_DIR / "neutronics_results")
 
 RUN_DIR.mkdir(parents=True, exist_ok=True)
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -52,7 +52,7 @@ RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 # =============================================================================
 # USER INPUTS
 # =============================================================================
-INPUT_JSON = (BLUEMIRA_DIR / "Tokamak_inputs.json").resolve()
+INPUT_JSON = (BLUEMIRA_DIR / "Tokamak_inputs.json")
 
 def find_latest_statepoint(run_dir: Path) -> Path:
     candidates = sorted(run_dir.glob("statepoint.*.h5"))

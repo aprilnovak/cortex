@@ -39,28 +39,28 @@ from openmc.deplete import d1s
 # -----------------------------------------------------------------------------
 # PATH SETUP
 # -----------------------------------------------------------------------------
-SCRIPT_DIR = Path(__file__).resolve().parent        # cortex/slab
+SCRIPT_DIR = Path.cwd()       # cortex/slab
 PROJECT_ROOT = SCRIPT_DIR.parent                    # cortex
 BLUEMIRA_DIR = PROJECT_ROOT / "detailed_bluemira"  # cortex/detailed_bluemira
 
-DEPLETION_RUN_DIR = (SCRIPT_DIR / "depletion_run").resolve()
+DEPLETION_RUN_DIR = (SCRIPT_DIR / "depletion_run")
 DEPLETION_RUN_DIR.mkdir(parents=True, exist_ok=True)
 
-D1S_DIR = (DEPLETION_RUN_DIR / "d1s").resolve()
+D1S_DIR = (DEPLETION_RUN_DIR / "d1s")
 D1S_DIR.mkdir(parents=True, exist_ok=True)
 
-R2S_DIR = (DEPLETION_RUN_DIR / "r2s").resolve()
-R2S_ACTIVATION_DIR = (R2S_DIR / "activation").resolve()
+R2S_DIR = (DEPLETION_RUN_DIR / "r2s")
+R2S_ACTIVATION_DIR = (R2S_DIR / "activation")
 R2S_ACTIVATION_DIR.mkdir(parents=True, exist_ok=True)
 
-BLUEMIRA_CHAIN_XML = (DEPLETION_RUN_DIR / "bluemira_chain.xml").resolve()
-CELL_MATERIAL_MAP_CSV = (R2S_ACTIVATION_DIR / "cell_material_map.csv").resolve()
-DEPLETION_RESULTS_H5 = (R2S_ACTIVATION_DIR / "depletion_results.h5").resolve()
+BLUEMIRA_CHAIN_XML = (DEPLETION_RUN_DIR / "bluemira_chain.xml")
+CELL_MATERIAL_MAP_CSV = (R2S_ACTIVATION_DIR / "cell_material_map.csv")
+DEPLETION_RESULTS_H5 = (R2S_ACTIVATION_DIR / "depletion_results.h5")
 
 # -----------------------------------------------------------------------------
 # materials module path (your setup)
 # -----------------------------------------------------------------------------
-module_path = (PROJECT_ROOT / "materials").resolve()
+module_path = (PROJECT_ROOT / "materials")
 if str(module_path) not in sys.path:
     sys.path.append(str(module_path))
 import materials
@@ -81,12 +81,12 @@ from neutronics_model import (
 # -----------------------------------------------------------------------------
 # USER INPUTS
 # -----------------------------------------------------------------------------
-INPUT_JSON = (BLUEMIRA_DIR / "Tokamak_inputs.json").resolve()
+INPUT_JSON = (BLUEMIRA_DIR / "Tokamak_inputs.json")
 
 OB_KEY = "OB_1_b6"
 
 # Chain file (base)
-chain_path = (PROJECT_ROOT / "depletion_chain" / "chain_endfb80_sfr.xml").resolve()
+chain_path = (PROJECT_ROOT / "depletion_chain" / "chain_endfb80_sfr.xml")
 if not chain_path.exists():
     raise FileNotFoundError(f"Chain file not found: {chain_path}")
 chain = openmc.deplete.Chain.from_xml(str(chain_path))
