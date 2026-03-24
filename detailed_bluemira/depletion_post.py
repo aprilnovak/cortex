@@ -88,9 +88,9 @@ def make_default_layer_tags(
     if include_armor:
         tags.append("Armor")
     if include_fw:
-        tags.append("First_Wall")
+        tags.append("First wall")
 
-    tags.extend([f"{breeder_prefix}_{i}" for i in range(1, n_breeder_layers + 1)])
+    tags.extend([f"Breeder layer {i}" for i in range(1, n_breeder_layers + 1)])
 
     if include_vv:
         tags.append("VV")

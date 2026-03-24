@@ -439,10 +439,10 @@ def require_tally_id(sp: openmc.StatePoint, bm_tally_obj: openmc.Tally, desc: st
 # =============================================================================
 def layer_names_for_chunk(chunk_cells: list[int], region_tag: str) -> list[str]:
     n = len(chunk_cells)
-    labels = ["Armor", "First_Wall"]
+    labels = ["Armor", "First wall"]
     n_layers = n - 3
-    labels += [f"{region_tag}_{i+1}" for i in range(n_layers)]
-    labels += ["VV"]
+    labels += [f"Breeder layer {i+1}" for i in range(n_layers)]
+    labels += ["Vacuum Vessel"]
     return labels
 
 # =============================================================================
@@ -1022,27 +1022,42 @@ def process_chunk(
     photon_flux_chunk = subset_by_cells(photon_flux, cell_bins_flux, cell_ids)
     photon_flux_std_chunk = subset_by_cells(photon_flux_std, cell_bins_flux, cell_ids)
 
-    plt.figure()
+    fig, ax = plt.subplots()
     for i, cid in enumerate(cell_ids):
         flux_scaled = neutron_flux_chunk[i].flatten() * scaling[int(cid)] / unit_lethargy
-        plt.loglog(energies[:-1], flux_scaled, label=f"{labels[i]} (x = {xcent[i]:.1f} cm)", color=colors[i])
-    plt.legend(fontsize=8, ncol=2)
-    plt.grid(True, which="both")
+        std_scaled = neutron_flux_std_chunk[i].flatten() * scaling[int(cid)] / unit_lethargy
+        lower = [flux_scaled[i] - std_scaled[i] for i in range(len(flux_scaled))]
+        upper = [flux_scaled[i] + std_scaled[i] for i in range(len(flux_scaled))]
+        plt.loglog(energies[:-1], flux_scaled, label=f"{labels[i]} ({xcent[i]:.1f} cm)", color=colors[i])
+        ax.fill_between(energies[:-1], lower, upper, alpha=0.3, color=colors[i], lw=0)
+
+    ax.grid(True, which="major", linestyle="-", linewidth=0.6, alpha=0.8)
+    ax.yaxis.grid(True, which="minor", linestyle=":", linewidth=0.4, alpha=0.5)
+    plt.legend(fontsize=8, ncol=2, loc="upper left")
     plt.ylabel("Neutron flux per unit lethargy [1/cm$^2$/s]")
     plt.xlabel("Energy [eV]")
-    plt.xlim([1, 100e6])
+    plt.xlim([0.001, 100e6])
+    plt.ylim([1e6, 1e17])
     plt.savefig(outdir / f"n_flux_spectrum_{chunk_key}.png", dpi=300, bbox_inches="tight")
     plt.close()
 
-    plt.figure()
+    fig, ax = plt.subplots()
     for i, cid in enumerate(cell_ids):
         flux_scaled = photon_flux_chunk[i].flatten() * scaling[int(cid)] / unit_lethargy
+        std_scaled = photon_flux_std_chunk[i].flatten() * scaling[int(cid)] / unit_lethargy
+        lower = [flux_scaled[i] - std_scaled[i] for i in range(len(flux_scaled))]
+        upper = [flux_scaled[i] + std_scaled[i] for i in range(len(flux_scaled))]
+        plt.loglog(energies[:-1], flux_scaled, label=f"{labels[i]} ({xcent[i]:.1f} cm)", color=colors[i])
+        ax.fill_between(energies[:-1], lower, upper, alpha=0.3, color=colors[i], lw=0)
         plt.loglog(energies[:-1], flux_scaled, label=f"{labels[i]} (x={xcent[i]:.1f} cm)", color=colors[i])
-    plt.legend(fontsize=8, loc="lower left")
-    plt.grid(True, which="both")
+
+    ax.grid(True, which="major", linestyle="-", linewidth=0.6, alpha=0.8)
+    ax.yaxis.grid(True, which="minor", linestyle=":", linewidth=0.4, alpha=0.5)
+    plt.legend(fontsize=8, loc="upper left", ncol=2)
     plt.ylabel("Photon flux per unit lethargy [1/cm$^2$/s]")
     plt.xlabel("Energy [eV]")
-    plt.xlim([1, 100e6])
+    plt.xlim([1e3, 100e6])
+    plt.ylim([1e6, 1e17])
     plt.savefig(outdir / f"p_flux_spectrum_{chunk_key}.png", dpi=300, bbox_inches="tight")
     plt.close()
 
