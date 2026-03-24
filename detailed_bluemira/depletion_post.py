@@ -27,16 +27,16 @@ import openmc.deplete
 # parameters
 SECONDS_PER_YEAR = 365.25 * 24 * 3600.0
 
-BASE_DIR = Path(__file__).resolve().parent
-INPUT_JSON = (BASE_DIR / "Tokamak_inputs.json").resolve()
+BASE_DIR = Path.cwd()
+INPUT_JSON = (BASE_DIR / "Tokamak_inputs.json")
 
-DEPLETION_RUN_DIR = (BASE_DIR / "depletion_run").resolve()
-R2S_ACTIVATION_DIR = (DEPLETION_RUN_DIR / "r2s" / "activation").resolve()
+DEPLETION_RUN_DIR = (BASE_DIR / "depletion_run")
+R2S_ACTIVATION_DIR = (DEPLETION_RUN_DIR / "r2s" / "activation")
 
 DEPLETION_RESULTS_FILE = R2S_ACTIVATION_DIR / "depletion_results.h5"
 CELL_MATERIAL_MAP_CSV = R2S_ACTIVATION_DIR / "cell_material_map.csv"
 
-RESULTS_OUT_DIR = (BASE_DIR / "depletion_results").resolve()
+RESULTS_OUT_DIR = (BASE_DIR / "depletion_results")
 RESULTS_OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 def generate_colors(n):
@@ -128,7 +128,7 @@ def load_depletion_mapping(
     """
     Loads depletion_run/r2s/activation/cell_material_map.csv and volumes from step0.
     """
-    map_csv = Path(map_csv).resolve()
+    map_csv = Path(map_csv)
     if not map_csv.is_file():
         raise FileNotFoundError(f"Cell-material map CSV not found: {map_csv}")
 
@@ -1063,7 +1063,7 @@ def run_chunk_postprocess(
 # Run
 # ============================================================
 if __name__ == "__main__":
-    CHAIN_FILE = (BASE_DIR.parent / "depletion_chain" / "chain_endfb80_sfr.xml").resolve()
+    CHAIN_FILE = (BASE_DIR.parent / "depletion_chain" / "chain_endfb80_sfr.xml")
     if not CHAIN_FILE.exists():
         raise FileNotFoundError(f"Chain file not found: {CHAIN_FILE}")
     openmc.config["chain_file"] = str(CHAIN_FILE)

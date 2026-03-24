@@ -27,9 +27,9 @@ import neutronics_model as bm
 # ----------------------------
 # User settings / paths
 # ----------------------------
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR = Path.cwd()
 
-RUN_DIR = (BASE_DIR / "neutronics_run").resolve()
+RUN_DIR = (BASE_DIR / "neutronics_run")
 
 def find_latest_statepoint(run_dir: Path) -> Path:
     candidates = sorted(run_dir.glob("statepoint.*.h5"))
@@ -40,7 +40,7 @@ def find_latest_statepoint(run_dir: Path) -> Path:
 STATEPOINT_FILE = find_latest_statepoint(RUN_DIR)
 print(f"Using statepoint: {STATEPOINT_FILE.name}")
 
-INPUT_JSON = (BASE_DIR / "Tokamak_inputs.json").resolve()
+INPUT_JSON = (BASE_DIR / "Tokamak_inputs.json")
 
 RESULTS_DIR = BASE_DIR / "neutronics_results"
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)

@@ -15,9 +15,10 @@ from collections import OrderedDict
 import sys
 import os
 
-BASE_DIR = Path(__file__).resolve().parent
-NEUTRONICS_RUN_DIR = (BASE_DIR / "neutronics_run").resolve()
-DEPLETION_RUN_DIR = (BASE_DIR / "depletion_run").resolve()
+BASE_DIR = Path.cwd()
+
+NEUTRONICS_RUN_DIR = (BASE_DIR / "neutronics_run")
+DEPLETION_RUN_DIR = (BASE_DIR / "depletion_run")
 DEPLETION_RUN_DIR.mkdir(parents=True, exist_ok=True)
 
 D1S_DIR = DEPLETION_RUN_DIR / "d1s"
@@ -27,7 +28,7 @@ R2S_DIR = DEPLETION_RUN_DIR / "r2s"
 R2S_ACTIVATION_DIR = R2S_DIR / "activation"
 R2S_ACTIVATION_DIR.mkdir(parents=True, exist_ok=True)
 
-module_path = (BASE_DIR.parent / "materials").resolve()
+module_path = BASE_DIR.parent / "materials"
 sys.path.append(str(module_path))
 import materials
 # --------------------
@@ -89,7 +90,7 @@ sdr_dir = D1S_DIR / "sdr"
 sdr_dir.mkdir(parents=True, exist_ok=True)
 
 # load geometry json input from parent folder
-INPUT_JSON = (BASE_DIR / "Tokamak_inputs.json").resolve()
+INPUT_JSON = (BASE_DIR / "Tokamak_inputs.json")
 OB_KEY = "OB_1_b6"
 chunk_cells = build_breeder_chunks(INPUT_JSON, default_chunk_key=OB_KEY)
 
@@ -111,7 +112,7 @@ timer.stop("Build neutronics model")
 # ------------------------------------------------------------------
 timer.start("Build D1S model")
 
-chain_path = (BASE_DIR.parent / "depletion_chain" / "chain_endfb80_sfr.xml").resolve()
+chain_path = (BASE_DIR.parent / "depletion_chain" / "chain_endfb80_sfr.xml")
 if not chain_path.exists():
     raise FileNotFoundError(f"Chain file not found: {chain_path}")
 
@@ -487,7 +488,7 @@ mat_id_to_name = {str(mat.id): (mat.name or f"material_{mat.id}") for mat in dep
 initial_nuclides = model.geometry.get_all_nuclides()
 reduced_chain = chain.reduce(initial_nuclides, level=5)
 
-bluemira_chain = (DEPLETION_RUN_DIR / "bluemira_chain.xml").resolve()
+bluemira_chain = (DEPLETION_RUN_DIR / "bluemira_chain.xml")
 reduced_chain.export_to_xml(str(bluemira_chain))
 print(f"[info] Wrote reduced chain: {bluemira_chain}")
 

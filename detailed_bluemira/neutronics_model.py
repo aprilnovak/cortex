@@ -25,12 +25,12 @@ import pydagmc
 # -----------------------------------------------------------------------------
 # Inputs / paths
 # -----------------------------------------------------------------------------
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR = Path.cwd()
 
-_DAGMC_MODEL_FILE = (BASE_DIR / "eudemo_f_1_27a.h5m").resolve()
-INPUT_JSON = (BASE_DIR / "Tokamak_inputs.json").resolve()
+_DAGMC_MODEL_FILE = (BASE_DIR / "eudemo_f_1_27a.h5m")
+INPUT_JSON = (BASE_DIR / "Tokamak_inputs.json")
 
-RUN_DIR = (BASE_DIR / "neutronics_run").resolve()
+RUN_DIR = (BASE_DIR / "neutronics_run")
 RUN_DIR.mkdir(parents=True, exist_ok=True)
 
 NEUTRONICS_MODEL_XML = RUN_DIR / "model.xml"
@@ -39,7 +39,7 @@ SURFACE_SOURCE_FILE = RUN_DIR / "surface_source.h5"
 model = openmc.Model()
 
 # Load materials compositions
-module_path = (BASE_DIR.parent / "materials").resolve()
+module_path = (BASE_DIR.parent / "materials")
 sys.path.append(str(module_path))
 import materials
 
@@ -254,22 +254,22 @@ mixed = build_and_set_model_materials_from_obj_recipes_vo(
 # -----------------------------------------------------------------------------
 my_source = tokamak_source(
     angles=(0.0, math.pi/8),
-    elongation=1.739,
-    ion_density_centre=4.19e19, #6.8e19,
-    ion_density_pedestal=4.19e19, #5.78e19,
-    ion_density_peaking_factor=1,
-    ion_density_separatrix=2.91e19, #1.02e19,
+    elongation=1.9478, #1.739,
+    ion_density_centre=6.8e19, #6.8e19,
+    ion_density_pedestal=5.78e19, #5.78e19,
+    ion_density_peaking_factor=1.0,
+    ion_density_separatrix=1.02e19,
     ion_temperature_centre=23.7e3,
     ion_temperature_pedestal=5.5e3,
     ion_temperature_separatrix=0.1e3,
-    ion_temperature_peaking_factor=8.06,
-    ion_temperature_beta=6,
+    ion_temperature_peaking_factor=1.45,
+    ion_temperature_beta=2.0,
     major_radius=840.67,
     minor_radius=300.2,
     pedestal_radius=0.94 * 300.2,
     mode="H",
     shafranov_factor=0.44789,
-    triangularity=0.333,
+    triangularity=0.500, #0.333,
     fuel={"D": 0.5, "T": 0.5},
 )
 
@@ -289,8 +289,8 @@ TALLY_CONVERGENCE_THRESHOLD = 0.01
 model.settings.batches = 10           # minimum batches before triggers are checked
 model.settings.trigger_active = True
 model.settings.trigger_batch_interval = 5   # check triggers every N batches
-model.settings.particles = 1_000_000
-model.settings.trigger_max_batches = 2000     # hard ceiling
+model.settings.particles = 100_000
+model.settings.trigger_max_batches = 10     # hard ceiling
 
 # output particle track, selected at random
 import random
@@ -907,13 +907,30 @@ model.export_to_model_xml(path=NEUTRONICS_MODEL_XML)
 # TODO: is this necessary? How would these come to exist? Suggest to remove if not needed
 # remove redundant defaults
 # (REPLY): I think the model.init_lib(output=False) is creating these outputs (not the tallies)
-redundant_files = [
-    RUN_DIR / "geometry.xml",
-    RUN_DIR / "materials.xml",
-    RUN_DIR / "settings.xml",
-    RUN_DIR / "tallies.xml",
-]
-
+redundant_files = ["geometry.xml", "materials.xml", "settings.xml", "tallies.xml"]
 for f in redundant_files:
-    if f.exists():
-        f.unlink()
+    if os.path.exists(f):
+        os.remove(f)
+
+# Check if any of the source sites overlap with the material regions; this can be commented
+# out to make the model run faster but is helpful to make sure the plasma source is
+# behaving as we expect
+openmc.lib.init(output=False, args=[str(NEUTRONICS_MODEL_XML)])
+n_samples = 100000
+particles = openmc.lib.sample_external_source(n_samples=n_samples)
+
+in_cells = {}
+for p in particles:
+  c = openmc.lib.find_cell([p.r[0], p.r[1], p.r[2]])
+  i = c[0].id
+  if (i not in in_cells):
+    in_cells[i] = 1
+  else:
+    in_cells[i] += 1
+
+print('\nPercent of source sites in each cell: ')
+for k, v in in_cells.items():
+  print("Cell : ", k, " % Sites: ", v/n_samples * 100)
+openmc.lib.finalize()
+
+# end check on source site overlaps
