@@ -9,16 +9,31 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 OB_KEY = "OB_1_b6"
-
-SCRIPT_DIR = Path(__file__).resolve().parent
+ 
+# Geometry case: one of "default", "HCLL", "WCLL", "HCPB"
+GEOMETRY = "WCLL" #"default"
+ 
+SCRIPT_DIR = Path.cwd()
 CORTEX_DIR = SCRIPT_DIR.parent
-
-TOK_DIR     = (CORTEX_DIR / "detailed_bluemira" / "neutronics_results" / OB_KEY).resolve()
-SLB_DIR     = (CORTEX_DIR / "slab"             / "neutronics_results" / OB_KEY).resolve()
-TOK_DEP_DIR = (CORTEX_DIR / "detailed_bluemira" / "depletion_results" / OB_KEY).resolve()
-SLB_DEP_DIR = (CORTEX_DIR / "slab"             / "depletion_results" / OB_KEY).resolve()
-
-OUTDIR = (SCRIPT_DIR / "plots" / OB_KEY).resolve()
+ 
+_GEOMETRY_DIRS: Dict[str, Tuple[str, str]] = {
+    "default": ("detailed_bluemira",      "slab"),
+    "HCLL":    ("detailed_bluemira_hcll", "slab_hcll"),
+    "WCLL":    ("detailed_bluemira_wcll", "slab_wcll"),
+    "HCPB":    ("detailed_bluemira_hcpb", "slab_hcpb"),
+}
+ 
+if GEOMETRY not in _GEOMETRY_DIRS:
+    raise ValueError(f"Unknown GEOMETRY {GEOMETRY!r}. Choose from: {sorted(_GEOMETRY_DIRS)}")
+ 
+_TOK_DIRNAME, _SLB_DIRNAME = _GEOMETRY_DIRS[GEOMETRY]
+ 
+TOK_DIR     = (CORTEX_DIR / _TOK_DIRNAME / "neutronics_results" / OB_KEY)
+SLB_DIR     = (CORTEX_DIR / _SLB_DIRNAME / "neutronics_results" / OB_KEY)
+TOK_DEP_DIR = (CORTEX_DIR / _TOK_DIRNAME / "depletion_results"  / OB_KEY)
+SLB_DEP_DIR = (CORTEX_DIR / _SLB_DIRNAME / "depletion_results"  / OB_KEY)
+ 
+OUTDIR = (SCRIPT_DIR / "plots" / OB_KEY)
 OUTDIR.mkdir(parents=True, exist_ok=True)
 
 OUTDIR_NEUT_PROFILES = OUTDIR / "neutronics_profiles"

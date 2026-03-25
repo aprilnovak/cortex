@@ -41,7 +41,7 @@ from openmc.deplete import d1s
 # -----------------------------------------------------------------------------
 SCRIPT_DIR = Path.cwd()       # cortex/slab
 PROJECT_ROOT = SCRIPT_DIR.parent                    # cortex
-BLUEMIRA_DIR = PROJECT_ROOT / "detailed_bluemira"  # cortex/detailed_bluemira
+BLUEMIRA_DIR = PROJECT_ROOT / "detailed_bluemira_wcll"  # cortex/detailed_bluemira_wcll
 
 DEPLETION_RUN_DIR = (SCRIPT_DIR / "depletion_run")
 DEPLETION_RUN_DIR.mkdir(parents=True, exist_ok=True)
@@ -314,7 +314,7 @@ print(f"Targeting {len(deplete_mats)} cells/materials for depletion.")
 # 3. Chain Reduction & MicroXS
 # -----------------------------------------------------------------------------
 initial_nuclides = model.geometry.get_all_nuclides()
-reduced_chain = chain.reduce(initial_nuclides, level=2)
+reduced_chain = chain.reduce(initial_nuclides, level=5)
 reduced_chain.export_to_xml(str(BLUEMIRA_CHAIN_XML))
 
 fluxes, micros = openmc.deplete.get_microxs_and_flux(

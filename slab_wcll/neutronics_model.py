@@ -30,7 +30,7 @@ import sys
 
 SCRIPT_DIR = Path.cwd()        # cortex/slab
 PROJECT_ROOT = SCRIPT_DIR.parent                    # cortex
-BLUEMIRA_DIR = PROJECT_ROOT / "detailed_bluemira"  # cortex/detailed_bluemira
+BLUEMIRA_DIR = PROJECT_ROOT / "detailed_bluemira_wcll"  # cortex/detailed_bluemira
 
 SLAB_RUN_DIR = (SCRIPT_DIR / "neutronics_run")
 SLAB_RUN_DIR.mkdir(parents=True, exist_ok=True)

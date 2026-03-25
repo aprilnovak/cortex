@@ -90,7 +90,7 @@ sdr_dir = D1S_DIR / "sdr"
 sdr_dir.mkdir(parents=True, exist_ok=True)
 
 # load geometry json input from parent folder
-INPUT_JSON = (BASE_DIR / "Tokamak_inputs.json")
+INPUT_JSON = (BASE_DIR / "EUDEMO_WCLL_inputs.json")
 OB_KEY = "OB_1_b6"
 chunk_cells = build_breeder_chunks(INPUT_JSON, default_chunk_key=OB_KEY)
 

@@ -28,7 +28,7 @@ import openmc.deplete
 SECONDS_PER_YEAR = 365.25 * 24 * 3600.0
 
 BASE_DIR = Path.cwd()
-INPUT_JSON = (BASE_DIR / "Tokamak_inputs.json")
+INPUT_JSON = (BASE_DIR / "EUDEMO_WCLL_inputs.json")
 
 DEPLETION_RUN_DIR = (BASE_DIR / "depletion_run")
 R2S_ACTIVATION_DIR = (DEPLETION_RUN_DIR / "r2s" / "activation")

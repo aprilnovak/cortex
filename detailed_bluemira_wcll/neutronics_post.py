@@ -32,7 +32,11 @@ BASE_DIR = Path.cwd()
 RUN_DIR = (BASE_DIR / "neutronics_run")
 
 def find_latest_statepoint(run_dir: Path) -> Path:
-    candidates = sorted(run_dir.glob("statepoint.*.h5"))
+    candidates = run_dir.glob("statepoint.*.h5")
+    candidates = sorted(
+        candidates,
+        key=lambda p: int(p.stem.split(".")[1])  # e.g. "statepoint.0015" → 15
+    )
     if not candidates:
         raise FileNotFoundError(f"No statepoint files found in: {run_dir}")
     return candidates[-1]

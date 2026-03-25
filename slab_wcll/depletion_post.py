@@ -29,7 +29,7 @@ import openmc.deplete
 # -----------------------------------------------------------------------------
 SCRIPT_DIR = Path.cwd()        # cortex/slab
 PROJECT_ROOT = SCRIPT_DIR.parent                    # cortex
-BLUEMIRA_DIR = PROJECT_ROOT / "detailed_bluemira"  # cortex/detailed_bluemira
+BLUEMIRA_DIR = PROJECT_ROOT / "detailed_bluemira_wcll"  # cortex/detailed_bluemira
 
 INPUT_JSON = (BLUEMIRA_DIR / "EUDEMO_WCLL_inputs.json")
 

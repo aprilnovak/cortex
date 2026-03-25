@@ -388,10 +388,10 @@ def plot_activity_nuclides_per_cell(
     out_dir: Path,
     *,
     idx_shutdown: int,
-    top_n: int = 5,
+    #top_n: int = 5,
     activity_units: str = "Bq/kg",      # "Bq/kg" or "Bq"
-    similarity_threshold: float = 0.10, # 10%
-    print_similarity: bool = True,
+    #similarity_threshold: float = 0.10, # 10%
+    #print_similarity: bool = True,
     ) -> Tuple[Dict[int, Tuple[np.ndarray, np.ndarray]], float]:
     """
     Returns:
@@ -669,10 +669,10 @@ def plot_decayheat_nuclides_per_cell(
     out_dir: Path,
     *,
     idx_shutdown: int,
-    top_n: int = 10,
+    #top_n: int = 10,
     decayheat_units: str = "W/cm3",
-    similarity_threshold: float = 0.10,
-    print_similarity: bool = True,
+    #similarity_threshold: float = 0.10,
+    #print_similarity: bool = True,
     ) -> Tuple[Dict[int, Tuple[np.ndarray, np.ndarray]], float, float]:
     """
     Returns:
@@ -953,9 +953,9 @@ def run_chunk_postprocess(
     idx_shutdown: Optional[int] = None,
     activity_units: str = "Bq/kg",
     decayheat_units: str = "W/cm3",
-    activity_top_n: int = 5,
-    decayheat_top_n: int = 5,
-    similarity_threshold: float = 0.10,
+    #activity_top_n: int = 5,
+    #decayheat_top_n: int = 5,
+    #similarity_threshold: float = 0.10,
     idx_to_plot: Sequence[int] = (0, 4, 8, 12, 16, 20),
     ):
     if xcentroids_by_chunk is None:
@@ -995,9 +995,9 @@ def run_chunk_postprocess(
             results, mapping, cell_ids, cell_id_to_name,
             out_dir=out_dir,
             idx_shutdown=int(idx_shutdown),
-            top_n=activity_top_n,
+            #top_n=activity_top_n,
             activity_units=activity_units,
-            similarity_threshold=similarity_threshold,
+            #similarity_threshold=similarity_threshold,
         )
 
         plot_activity_all_cells(
@@ -1027,9 +1027,9 @@ def run_chunk_postprocess(
             results, mapping, cell_ids, cell_id_to_name,
             out_dir=out_dir,
             idx_shutdown=int(idx_shutdown),
-            top_n=decayheat_top_n,
+            #top_n=decayheat_top_n,
             decayheat_units=decayheat_units,
-            similarity_threshold=similarity_threshold,
+            #similarity_threshold=similarity_threshold,
         )
 
         plot_decayheat_all_cells(
@@ -1135,8 +1135,8 @@ if __name__ == "__main__":
         idx_shutdown=int(idx_shutdown),
         activity_units="Bq/kg",       # "Bq" or "Bq/kg"
         decayheat_units="W/cm3",
-        activity_top_n=10,
-        decayheat_top_n=5,
-        similarity_threshold=0.10,
+        #activity_top_n=10,
+        #decayheat_top_n=5,
+        #similarity_threshold=0.10,
         idx_to_plot=(0, 4, 8, 12, 16, 20),
     )

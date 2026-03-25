@@ -325,7 +325,8 @@ def generate_colors(n):
     color_range = cmap(np.linspace(1, 0, nc))
     return color_range
 
-colors = generate_colors(n_breeder)
+ob_n_layers = int(geom["ob_n_layers"])
+colors = generate_colors(ob_n_layers + 3)
 
 cell_ids_for_key   = _cells_chunk["cell_ids_for_key"]      # key -> list[int]
 radial_bins_for_key = _cells_chunk["radial_bins_for_key"]  # key -> (centroids,widths,edges)
