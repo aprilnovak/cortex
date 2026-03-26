@@ -53,6 +53,7 @@ RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 # USER INPUTS
 # =============================================================================
 INPUT_JSON = (BLUEMIRA_DIR / "Tokamak_inputs.json")
+CURRENT_RATIO_JSON = (BLUEMIRA_DIR / "neutronics_results" / "OB_1_b6" / "armor_current_neutron.json")
 
 def find_latest_statepoint(run_dir: Path) -> Path:
     candidates = sorted(run_dir.glob("statepoint.*.h5"))
@@ -69,6 +70,11 @@ if not STATEPOINT_FILE.is_file():
         f"Expected slab OpenMC output inside: {RUN_DIR}"
     )
 
+with open(CURRENT_RATIO_JSON) as f:
+    current_records = json.load(f)
+SURFACE_SOURCE_POWER_RATIO = current_records[0]["J_in_mean"]
+print("surface_power_ratio = ", SURFACE_SOURCE_POWER_RATIO)
+
 # =============================================================================
 # Optional: exclude surfaces from albedo summary
 EXCLUDED_SURFACES = set()  
@@ -80,7 +86,7 @@ section_power = total_power / number_sectors
 ev_to_joule = 1.60218e-19
 ev_fusion = 17.6e6
 convert_e = ev_to_joule * ev_fusion
-SURFACE_SOURCE_POWER_RATIO = 7.171062e-02 # 0.0710619157080504
+#SURFACE_SOURCE_POWER_RATIO = 7.171062e-02 # 0.0710619157080504
 neutron_source_rate = bm.neutron_ratio_source * SURFACE_SOURCE_POWER_RATIO * section_power / convert_e
 s_in_y = (365 * 24 * 60 * 60)
 

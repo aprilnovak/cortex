@@ -8,6 +8,7 @@ Outputs saved to:
 
 from __future__ import annotations
 
+import json
 import math
 import re
 from pathlib import Path
@@ -847,6 +848,38 @@ def compute_albedo_for_chunk(
             else pd.DataFrame(columns=list(df_alb.columns) + ["special_key"])
         )
         df_special.to_csv(outdir / f"surface_albedo_special_{particle}_{chunk_key}.csv", index=False)
+
+        incident_records = []
+        for _, r in df_special.iterrows():
+            key = str(r.get("special_key", ""))
+            if key != "Armor_front_ext":
+                continue
+            J_out = abs(float(r["J_out_mean"]))
+            J_net = abs(float(r["J_total_mean"])) if pd.notna(r["J_total_mean"]) else 0.0
+            J_in  = abs(J_out - J_net)
+            J_out_std = abs(float(r["J_out_std"]))
+            J_net_std = abs(float(r["J_total_std"])) if pd.notna(r["J_total_std"]) else 0.0
+            J_in_std  = math.sqrt(J_out_std**2 + J_net_std**2)
+
+            incident_records.append({
+                "particle":      particle,
+                "special_key":   key,
+                "surface_id":    int(r["surface_id"]),
+                "cell_id":       int(r["cell_id"]),
+                "J_out_mean":    J_out,
+                "J_out_std":     J_out_std,
+                "J_net_mean":    float(r["J_total_mean"]) if pd.notna(r["J_total_mean"]) else None,
+                "J_net_std":     J_net_std,
+                "J_in_mean":     J_in,
+                "J_in_std":      J_in_std,
+                "chunk_key":     chunk_key,
+            })
+
+        if incident_records:
+            out_path = outdir / f"armor_current_{particle}.json"
+            with open(out_path, "w") as f:
+                json.dump(incident_records, f, indent=2)
+            print(f"[saved] {out_path}")
 
         df_external_rest = df_alb[
             (df_alb["kind"] == "external")
