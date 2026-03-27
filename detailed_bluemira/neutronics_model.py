@@ -298,7 +298,7 @@ model.settings.batches = 10
 model.settings.trigger_active = True
 model.settings.trigger_batch_interval = 5   # check triggers every N batches
 model.settings.particles = 100_000
-model.settings.trigger_max_batches = 1000     # hard ceiling
+model.settings.trigger_max_batches = 10     # hard ceiling
 
 # output particle track, selected at random
 import random
@@ -309,7 +309,7 @@ _WRITE_SOURCE = False
 if _WRITE_SOURCE:
     model.settings.surf_source_write = {
         "surface_ids": [245],
-        "max_particles": 1_000_000,
+        "max_particles": 500_000,
         "cellto": 56,
     }
 # -----------------------------------------------------------------------------

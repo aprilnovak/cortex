@@ -434,10 +434,10 @@ model.settings.surf_source_read = {"path": str(SURF_SOURCE_FILE)}
 # Set TALLY_CONVERGENCE_THRESHOLD to 0.01 (1%) or 0.001 (0.1%)
 TALLY_CONVERGENCE_THRESHOLD = 0.1
 
-model.settings.batches = 15           # minimum batches before triggers are checked
+model.settings.batches = 10           # minimum batches before triggers are checked
 model.settings.trigger_active = True
 model.settings.trigger_batch_interval = 5   # check triggers every N batches
-model.settings.particles = 1_000_000
+model.settings.particles = 100_000
 model.settings.trigger_max_batches = 1000     # hard ceiling
 
 # -----------------------------------------------------------------------------
