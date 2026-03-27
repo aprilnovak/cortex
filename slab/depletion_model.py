@@ -57,6 +57,10 @@ BLUEMIRA_CHAIN_XML = (DEPLETION_RUN_DIR / "bluemira_chain.xml")
 CELL_MATERIAL_MAP_CSV = (R2S_ACTIVATION_DIR / "cell_material_map.csv")
 DEPLETION_RESULTS_H5 = (R2S_ACTIVATION_DIR / "depletion_results.h5")
 
+# Number of worker processes for transport and depletion.
+TRANSPORT_THREADS  = 16   # OpenMP threads for each transport (neutronics) run
+DEPLETION_PROCESSES = 16  # Python multiprocessing workers for Bateman solver
+
 # -----------------------------------------------------------------------------
 # materials module path (your setup)
 # -----------------------------------------------------------------------------
@@ -203,7 +207,7 @@ print("---------------------------")
 print("Performing D1S run")
 print("---------------------------")
 
-statepoint = model.run(cwd=str(D1S_DIR), output=False)
+statepoint = model.run(cwd=str(D1S_DIR), output=False, threads=TRANSPORT_THREADS)
 
 with openmc.StatePoint(str(statepoint)) as sp:
     tally = sp.get_tally(name="dose tally")
@@ -272,6 +276,9 @@ print("--------------------------------")
 print("Performing depletion")
 print("--------------------------------")
 
+# Control depletion multiprocessing
+openmc.deplete.pool.NUM_PROCESSES = DEPLETION_PROCESSES
+
 # -----------------------------------------------------------------------------
 # 1. Prepare Geometry & Materials
 # -----------------------------------------------------------------------------
@@ -321,7 +328,7 @@ fluxes, micros = openmc.deplete.get_microxs_and_flux(
     model,
     deplete_mats,
     chain_file=str(BLUEMIRA_CHAIN_XML),
-    run_kwargs={"cwd": str(DEPLETION_RUN_DIR), "output": True},
+    run_kwargs={"cwd": str(DEPLETION_RUN_DIR), "output": False, "threads": TRANSPORT_THREADS},
 )
 
 # -----------------------------------------------------------------------------

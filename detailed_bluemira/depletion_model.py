@@ -102,6 +102,10 @@ IB_CHUNK_SIZE = chunk_cells["IB_CHUNK_SIZE"]
 cell_ids = chunk_cells["cell_ids_all"]
 cell_ids_selected_chunk = chunk_cells["selected_chunk_cell_ids"]
 
+# Number of worker processes for transport and depletion.
+TRANSPORT_THREADS  = 16   # OpenMP threads for each transport (neutronics) run
+DEPLETION_PROCESSES = 16  # Python multiprocessing workers for Bateman solver
+
 # TODO: why not have the D1S part be in the neutronics_model.py? I think it could be?
 # Let's check with Patrick
 timer.stop("Build neutronics model")
@@ -238,7 +242,7 @@ print("Performing D1S run")
 print("---------------------------")
 timer.start("D1S run")
 
-statepoint = model.run(cwd=str(D1S_DIR), output=False)
+statepoint = model.run(cwd=str(D1S_DIR), output=False, threads=TRANSPORT_THREADS)
 
 with openmc.StatePoint(statepoint) as sp:
     tally = sp.get_tally(name="dose tally")
@@ -441,6 +445,10 @@ print("Performing depletion")
 print("--------------------------------")
 timer.start("Set up depletion model")
 
+# Control depletion multiprocessing
+openmc.deplete.pool.NUM_PROCESSES = DEPLETION_PROCESSES
+
+
 # Make sure the model's materials list matches the geometry
 model.materials = openmc.Materials(list(model.geometry.get_all_materials().values()))
 model.geometry.determine_paths()
@@ -499,7 +507,7 @@ fluxes, micros = openmc.deplete.get_microxs_and_flux(
     model,
     deplete_mats,
     chain_file=str(bluemira_chain),
-    run_kwargs={"cwd": str(DEPLETION_RUN_DIR), "output": False},
+    run_kwargs={"cwd": str(DEPLETION_RUN_DIR), "output": False, "threads": TRANSPORT_THREADS},
 )
 
 operator = openmc.deplete.IndependentOperator(
@@ -519,6 +527,7 @@ integrator = openmc.deplete.PredictorIntegrator(
 timer.stop("Set up depletion model")
 
 timer.start("Depletion run")
+
 integrator.integrate()
 
 # Post-processing: Results
