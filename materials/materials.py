@@ -4,6 +4,37 @@ import re
 
 # This file defines default materials to populate into existing models
 
+def inconel718(density):
+  """ Return an OpenMC material for Inconel 718 from PNNL materials compendium.
+      Recommended density is 8.19 g/cc.
+  """
+
+  inconel718 = openmc.Material()
+  inconel718.add_element('Al', 0.005, 'wo')
+  inconel718.add_element('B', 0.000055, 'wo')
+  inconel718.add_element('C', 0.000728, 'wo')
+  inconel718.add_element('Cr', 0.19, 'wo')
+  inconel718.add_element('Co', 0.009098, 'wo')
+  inconel718.add_element('Cu', 0.002729, 'wo')
+  inconel718.add_element('Mn', 0.003184, 'wo')
+  inconel718.add_element('Mo', 0.0305, 'wo')
+  inconel718.add_element('Ni', 0.525, 'wo')
+  inconel718.add_element('Nb', 0.051250, 'wo')
+  inconel718.add_element('P', 0.000136, 'wo')
+  inconel718.add_element('Si', 0.003184, 'wo')
+  inconel718.add_element('S', 0.000136, 'wo')
+  inconel718.add_element('Ti', 0.009, 'wo')
+
+  # add balance
+  weight_sum = 0
+  for nuclide in inconel718.nuclides:
+    weight_sum += nuclide.percent
+
+  inconel718.add_element('Fe', 1 - weight_sum, 'wo')
+  print('\tIron (weight %):    ', (1 - weight_sum) * 100)
+  inconel718.set_density('g/cc', density)
+  return inconel718
+
 def SiC(density):
   """ Return an OpenMC material for stoichiometric SiC. The reference lists some
       binders that are used during manufacturing on the fibers, but it has been
@@ -25,18 +56,18 @@ def V4Cr4Ti(density):
   """
 
   V4Cr4Ti = openmc.Material()
-  V4Cr4Ti.add_element('Cr', 0.041)
-  V4Cr4Ti.add_element('Ti', 0.043)
+  V4Cr4Ti.add_element('Cr', 0.041, 'wo')
+  V4Cr4Ti.add_element('Ti', 0.043, 'wo')
 
   # add all the impurities at their stated amounts
-  V4Cr4Ti.add_element('O', 350e-6)
-  V4Cr4Ti.add_element('N', 220e-6)
-  V4Cr4Ti.add_element('C', 200e-6)
-  V4Cr4Ti.add_element('Si', 870e-6)
-  V4Cr4Ti.add_element('S', 20e-6)
-  V4Cr4Ti.add_element('P', 40e-6)
-  V4Cr4Ti.add_element('Nb', 100e-6)
-  V4Cr4Ti.add_element('Mo', 100e-6)
+  V4Cr4Ti.add_element('O', 350e-6, 'wo')
+  V4Cr4Ti.add_element('N', 220e-6, 'wo')
+  V4Cr4Ti.add_element('C', 200e-6, 'wo')
+  V4Cr4Ti.add_element('Si', 870e-6, 'wo')
+  V4Cr4Ti.add_element('S', 20e-6, 'wo')
+  V4Cr4Ti.add_element('P', 40e-6, 'wo')
+  V4Cr4Ti.add_element('Nb', 100e-6, 'wo')
+  V4Cr4Ti.add_element('Mo', 100e-6, 'wo')
 
   # add balance
   weight_sum = 0
