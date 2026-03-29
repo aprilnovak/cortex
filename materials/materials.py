@@ -4,6 +4,20 @@ import re
 
 # This file defines default materials to populate into existing models
 
+def SiC(density):
+  """ Return an OpenMC material for stoichiometric SiC. The reference lists some
+      binders that are used during manufacturing on the fibers, but it has been
+      difficult to find any information on the volume/weight/atom percent of those
+      binders in the overall material. So, this material neglects those binders.
+
+      Recommended density of 2.5 g/cc (10.1016/j.jnucmat.2011.03.005).
+  """
+  SiC = openmc.Material()
+  SiC.add_element('Si', 1.0)
+  SiC.add_element('C', 1.0)
+  SiC.set_density('g/cc', density)
+  return SiC
+
 def V4Cr4Ti(density):
   """ Return an OpenMC material for V-4Cr-4Ti from https://www.osti.gov/servlets/purl/10194461.
 
@@ -31,6 +45,8 @@ def V4Cr4Ti(density):
 
   V4Cr4Ti.add_element('V', 1 - weight_sum, 'wo')
   print('\tVanadium (weight %):    ', (1 - weight_sum) * 100)
+
+  V4Cr4Ti.set_density('g/cc', density)
   return V4Cr4Ti
 
 
