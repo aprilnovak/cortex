@@ -4,6 +4,36 @@ import re
 
 # This file defines default materials to populate into existing models
 
+def V4Cr4Ti(density):
+  """ Return an OpenMC material for V-4Cr-4Ti from https://www.osti.gov/servlets/purl/10194461.
+
+      Recommended room temperature density is 6.05 g/cc. (https://qedfusion.org/LIB/PROPS/vprop.html)
+  """
+
+  V4Cr4Ti = openmc.Material()
+  V4Cr4Ti.add_element('Cr', 0.041)
+  V4Cr4Ti.add_element('Ti', 0.043)
+
+  # add all the impurities at their stated amounts
+  V4Cr4Ti.add_element('O', 350e-6)
+  V4Cr4Ti.add_element('N', 220e-6)
+  V4Cr4Ti.add_element('C', 200e-6)
+  V4Cr4Ti.add_element('Si', 870e-6)
+  V4Cr4Ti.add_element('S', 20e-6)
+  V4Cr4Ti.add_element('P', 40e-6)
+  V4Cr4Ti.add_element('Nb', 100e-6)
+  V4Cr4Ti.add_element('Mo', 100e-6)
+
+  # add balance
+  weight_sum = 0
+  for nuclide in V4Cr4Ti.nuclides:
+    weight_sum += nuclide.percent
+
+  V4Cr4Ti.add_element('V', 1 - weight_sum, 'wo')
+  print('\tVanadium (weight %):    ', (1 - weight_sum) * 100)
+  return V4Cr4Ti
+
+
 def PbLi(li6_enrichment, density):
   """ Return an OpenMC material for PbLi. We first add the impurity concentrations
       from ITER recommendations [10.1016/j.nme.2022.101146, table 2] (at their
