@@ -4,6 +4,83 @@ import re
 
 # This file defines default materials to populate into existing models
 
+def inconel718(density):
+  """ Return an OpenMC material for Inconel 718 from PNNL materials compendium.
+      Recommended density is 8.19 g/cc.
+  """
+
+  inconel718 = openmc.Material()
+  inconel718.add_element('Al', 0.005, 'wo')
+  inconel718.add_element('B', 0.000055, 'wo')
+  inconel718.add_element('C', 0.000728, 'wo')
+  inconel718.add_element('Cr', 0.19, 'wo')
+  inconel718.add_element('Co', 0.009098, 'wo')
+  inconel718.add_element('Cu', 0.002729, 'wo')
+  inconel718.add_element('Mn', 0.003184, 'wo')
+  inconel718.add_element('Mo', 0.0305, 'wo')
+  inconel718.add_element('Ni', 0.525, 'wo')
+  inconel718.add_element('Nb', 0.051250, 'wo')
+  inconel718.add_element('P', 0.000136, 'wo')
+  inconel718.add_element('Si', 0.003184, 'wo')
+  inconel718.add_element('S', 0.000136, 'wo')
+  inconel718.add_element('Ti', 0.009, 'wo')
+
+  # add balance
+  weight_sum = 0
+  for nuclide in inconel718.nuclides:
+    weight_sum += nuclide.percent
+
+  inconel718.add_element('Fe', 1 - weight_sum, 'wo')
+  print('\tIron (weight %):    ', (1 - weight_sum) * 100)
+  inconel718.set_density('g/cc', density)
+  return inconel718
+
+def SiC(density):
+  """ Return an OpenMC material for stoichiometric SiC. The reference lists some
+      binders that are used during manufacturing on the fibers, but it has been
+      difficult to find any information on the volume/weight/atom percent of those
+      binders in the overall material. So, this material neglects those binders.
+
+      Recommended density of 2.5 g/cc (10.1016/j.jnucmat.2011.03.005).
+  """
+  SiC = openmc.Material()
+  SiC.add_element('Si', 1.0)
+  SiC.add_element('C', 1.0)
+  SiC.set_density('g/cc', density)
+  return SiC
+
+def V4Cr4Ti(density):
+  """ Return an OpenMC material for V-4Cr-4Ti from https://www.osti.gov/servlets/purl/10194461.
+
+      Recommended room temperature density is 6.05 g/cc. (https://qedfusion.org/LIB/PROPS/vprop.html)
+  """
+
+  V4Cr4Ti = openmc.Material()
+  V4Cr4Ti.add_element('Cr', 0.041, 'wo')
+  V4Cr4Ti.add_element('Ti', 0.043, 'wo')
+
+  # add all the impurities at their stated amounts
+  V4Cr4Ti.add_element('O', 350e-6, 'wo')
+  V4Cr4Ti.add_element('N', 220e-6, 'wo')
+  V4Cr4Ti.add_element('C', 200e-6, 'wo')
+  V4Cr4Ti.add_element('Si', 870e-6, 'wo')
+  V4Cr4Ti.add_element('S', 20e-6, 'wo')
+  V4Cr4Ti.add_element('P', 40e-6, 'wo')
+  V4Cr4Ti.add_element('Nb', 100e-6, 'wo')
+  V4Cr4Ti.add_element('Mo', 100e-6, 'wo')
+
+  # add balance
+  weight_sum = 0
+  for nuclide in V4Cr4Ti.nuclides:
+    weight_sum += nuclide.percent
+
+  V4Cr4Ti.add_element('V', 1 - weight_sum, 'wo')
+  print('\tVanadium (weight %):    ', (1 - weight_sum) * 100)
+
+  V4Cr4Ti.set_density('g/cc', density)
+  return V4Cr4Ti
+
+
 def PbLi(li6_enrichment, density):
   """ Return an OpenMC material for PbLi. We first add the impurity concentrations
       from ITER recommendations [10.1016/j.nme.2022.101146, table 2] (at their
