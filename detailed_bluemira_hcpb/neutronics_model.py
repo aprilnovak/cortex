@@ -123,9 +123,8 @@ structural_material = materials.eurofer97(7.87)
 coolant_material = materials.Helium(0.00498) # ~8 MPa and 500 C (find reference for that)
 
 # Breeder material (dependent on the breeder type) 
-breeder_material = materials.PbLi(0.90, 9.8)
-multiplier_material = materials.kalos_cb(2.52)  #https://doi.org/10.1016/j.fusengdes.2020.112171 
-
+breeder_material = materials.kalos_cb(2.52)  #https://doi.org/10.1016/j.fusengdes.2020.112171 
+multiplier_material = materials.be12ti(2.25) #https://iopscience.iop.org/article/10.1088/1742-6596/2155/1/012015 and https://doi.org/10.1016/j.fusengdes.2021.112338
 # -----------------------------------------------------------------------------
 # Structural / breeder / coolant definitions
 # -----------------------------------------------------------------------------

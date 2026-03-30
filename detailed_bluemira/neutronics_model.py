@@ -288,13 +288,13 @@ my_source = my_source.to_openmc_source()
 model.settings = openmc.Settings()
 model.settings.photon_transport = True
 model.settings.run_mode = "fixed source"
-model.settings.source = my_source
+model.settings.source = my_source.to_openmc_source()
 
 # Set TALLY_CONVERGENCE_THRESHOLD to 0.01 (1%) or 0.001 (0.1%)
 TALLY_CONVERGENCE_THRESHOLD = 0.1
 
 # Choose initial batches * particles per batch > 15-20 * max_particles
-model.settings.batches = 10           
+model.settings.batches = 10
 model.settings.trigger_active = True
 model.settings.trigger_batch_interval = 5   # check triggers every N batches
 model.settings.particles = 100_000
@@ -312,6 +312,7 @@ if _WRITE_SOURCE:
         "max_particles": 500_000,
         "cellto": 56,
     }
+
 # -----------------------------------------------------------------------------
 # DAGMC volume sync so cells have volumes
 # -----------------------------------------------------------------------------
@@ -400,7 +401,7 @@ for volume in pydagmc_model.volumes:
     dagmc_universe_cells[volume.id].volume = volume.volume
     dagmc_universe_cells[volume.id].bounding_box = dagmc_bounding_box(pydagmc_model, volume.id)
 
-all_cells = model.geometry.get_all_cells()  
+all_cells = model.geometry.get_all_cells()
 # -----------------------------------------------------------------------------
 # IMPORT JSON GEOMETRY INFO (cell IDs)
 # Also provide functions to create centroids and bin wedges
@@ -921,7 +922,7 @@ for f in redundant_files:
 # Check if any of the source sites overlap with the material regions; this can be commented
 # out to make the model run faster but is helpful to make sure the plasma source is
 # behaving as we expect
-_CHECK_SOURCE = False
+_CHECK_SOURCE = True
 if _CHECK_SOURCE:
     openmc.lib.init(output=False, args=[str(NEUTRONICS_MODEL_XML)])
     n_samples = 100000

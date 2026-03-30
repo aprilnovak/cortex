@@ -11,8 +11,12 @@ import matplotlib.pyplot as plt
 OB_KEY = "OB_1_b6"
  
 # Geometry case: one of "default", "HCLL", "WCLL", "HCPB"
-GEOMETRY = "WCLL" #"default"
- 
+GEOMETRY = "default" #"HCPB" #"default"
+
+# Set to False if depletion results are not yet available
+RUN_DEPLETION = False
+
+
 SCRIPT_DIR = Path.cwd()
 CORTEX_DIR = SCRIPT_DIR.parent
  
@@ -413,21 +417,22 @@ def main() -> int:
         else:
             print(f"No {particle} spectrum CSV for one or both models")
 
-    tok_dep = find_depletion_csvs(TOK_DEP_DIR)
-    slb_dep = find_depletion_csvs(SLB_DEP_DIR)
+    if RUN_DEPLETION:
+            tok_dep = find_depletion_csvs(TOK_DEP_DIR)
+            slb_dep = find_depletion_csvs(SLB_DEP_DIR)
 
-    for quantity, outdir in (("activity", OUTDIR_DEP_ACTIVITY), ("decayheat", OUTDIR_DEP_DECAY)):
-        if quantity in tok_dep and quantity in slb_dep:
-            make_depletion_plots_for_quantity(
-                quantity=quantity,
-                csv_tok=tok_dep[quantity],
-                csv_slb=slb_dep[quantity],
-                outdir=outdir,
-            )
-        else:
-            print(f"{quantity}_all_cells.csv not found for one or both models")
-
-    return 0
+            for quantity, outdir in (("activity", OUTDIR_DEP_ACTIVITY), ("decayheat", OUTDIR_DEP_DECAY)):
+                if quantity in tok_dep and quantity in slb_dep:
+                    make_depletion_plots_for_quantity(
+                        quantity=quantity,
+                        csv_tok=tok_dep[quantity],
+                        csv_slb=slb_dep[quantity],
+                        outdir=outdir,
+                    )
+                else:
+                    print(f"{quantity}_all_cells.csv not found for one or both models")
+    else:
+        print("Depletion comparison skipped (RUN_DEPLETION = False)")
 
 
 if __name__ == "__main__":
