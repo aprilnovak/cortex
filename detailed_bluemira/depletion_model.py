@@ -31,6 +31,11 @@ R2S_ACTIVATION_DIR.mkdir(parents=True, exist_ok=True)
 module_path = BASE_DIR.parent / "materials"
 sys.path.append(str(module_path))
 import materials
+
+# Number of worker processes for transport and depletion.
+TRANSPORT_THREADS  = None #16   # OpenMP threads for each transport (neutronics) run
+DEPLETION_PROCESSES = None  #16   # Python multiprocessing workers for Bateman solver
+
 # --------------------
 # TIME CLASS
 # --------------------
@@ -101,10 +106,6 @@ IB_CHUNK_SIZE = chunk_cells["IB_CHUNK_SIZE"]
 
 cell_ids = chunk_cells["cell_ids_all"]
 cell_ids_selected_chunk = chunk_cells["selected_chunk_cell_ids"]
-
-# Number of worker processes for transport and depletion.
-TRANSPORT_THREADS  = 16   # OpenMP threads for each transport (neutronics) run
-DEPLETION_PROCESSES = 16  # Python multiprocessing workers for Bateman solver
 
 # TODO: why not have the D1S part be in the neutronics_model.py? I think it could be?
 # Let's check with Patrick

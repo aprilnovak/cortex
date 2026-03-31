@@ -279,7 +279,6 @@ source_type=[Reactions.D_T, Reactions.D_D],
 flux_map=FluxMap.from_eqdsk("../equilibrium_eqdsk.json"),
 cell_side_length=0.05,
 )
-my_source = my_source.to_openmc_source()
 
 # -----------------------------------------------------------------------------
 # SETTINGS

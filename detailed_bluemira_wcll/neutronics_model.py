@@ -284,7 +284,6 @@ source_type=[Reactions.D_T, Reactions.D_D],
 flux_map=FluxMap.from_eqdsk("../equilibrium_eqdsk.json"),
 cell_side_length=0.05,
 )
-my_source = my_source.to_openmc_source()
 
 # -----------------------------------------------------------------------------
 # SETTINGS
@@ -300,10 +299,10 @@ model.settings.source = my_source.to_openmc_source()
 TALLY_CONVERGENCE_THRESHOLD = 0.1
 
 # Choose initial batches * particles per batch > 15-20 * max_particles
-model.settings.batches = 15           
+model.settings.batches = 10          
 model.settings.trigger_active = True
 model.settings.trigger_batch_interval = 5   # check triggers every N batches
-model.settings.particles = 1_000_000
+model.settings.particles = 100_000
 model.settings.trigger_max_batches = 1000     # hard ceiling
 
 # output particle track, selected at random
@@ -311,7 +310,7 @@ import random
 model.settings.track = [(1, 1, random.randint(1, model.settings.particles))]
 
 # TODO: change 245 and 56 to not be hard-coded
-_WRITE_SOURCE = True
+_WRITE_SOURCE = False
 if _WRITE_SOURCE:
     model.settings.surf_source_write = {
         "surface_ids": [287],
@@ -674,6 +673,8 @@ info, all_surface_ids, external_surface_ids, internal_surface_ids = dagmc_volume
     pydagmc_model, cell_ids_selected_chunk
 )
 
+
+
 # -----------------------------------------------------------------------------
 # TALLIES
 # -----------------------------------------------------------------------------
@@ -913,6 +914,23 @@ for cid in cell_ids:
 
     model.tallies.append(tg)
     dpa_gas_tallies[cid] = tg
+
+# -----------------------------------------------------------------------------
+# VV port fill - total neutron + photon flux 
+# -----------------------------------------------------------------------------
+test_VV_port_fill = False
+if test_VV_port_fill:
+    vvportfill_cell_id = max(dagmc_universe_cells.keys())-1
+    print("vv_port_fill_cell_id = ",vvportfill_cell_id)
+    vvportfill_cell = dagmc_universe_cells[vvportfill_cell_id]
+
+    # Guard against silent mis-assignment if volume ordering ever changes
+    vv_port_fill_cell_filter = openmc.CellFilter(vvportfill_cell_id)
+
+    flux_tally_VV_port_fill = openmc.Tally(name="flux_tally_VV_port_fill")
+    flux_tally_VV_port_fill.filters = [vv_port_fill_cell_filter, particle_filter]
+    flux_tally_VV_port_fill.scores = ["flux"]
+    model.tallies.append(flux_tally_VV_port_fill)
 
 # -----------------------------------------------------------------------------
 # Export
