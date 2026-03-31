@@ -49,6 +49,11 @@ CMAKE_ARGS="-DENABLE_HDF5=ON -DENABLE_NETCDF=ON" python -m pip install .
 
 ## TOKAMAK - SLAB INSTRUCTIONS
 
-So far we must run  ```neutronics_model.py``` and ```neutronics_post.py``` inside the respective ```./detailed_bluemira(_hcll, _wcll, _hcpb)``` model ahead of the tokamak and copy the ```surface_source.h5``` into its script directory ```(./slab)(_hcll, _wcll, _hcpb)``` where ```neutronics_model.py``` is located. The ```neutronics_post.py``` will generate a file ```armor_current_neutron.json``` that will inform the ```SURFACE_SOURCE_POWER_RATIO``` to the source scaling in the slab models.
+In order to run the slab model, you must first run the Tokamak model to generate two important files: ```surface_source.h5``` and ```armor_current_neutron.json```. 
 
-Ideally we will have one example ```surface_source.h5``` and the ```SURFACE_SOURCE_POWER_RATIO``` provided to be used in all slab cases for a breeder type. This would remove the necessity of running the detailed_model ahead of the slab. However, we need to test that this source dont change drastically with different materials in the same breeder type.
+To generate these files, run the Tokamak model: 
+1. Run ```python neutronics_model.py``` in the respective directory ```./detailed_bluemira(_hcll, _wcll, _hcpb)```.
+2. Execute ```openmc``` command inside ```./neutronics_run/``` folder.
+3. Run the ```python neutronics_post.py```.
+
+Ideally we will have one example ```surface_source.h5``` and the ```armor_current_neutron.json``` provided to be used in all slab cases for a breeder type. This would remove the necessity of running the detailed_model ahead of the slab. However, we need to test that this source don't change drastically with different materials in the same breeder type.
