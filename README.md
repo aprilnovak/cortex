@@ -45,3 +45,10 @@ Provide CMake arguments during MOAB installation to enable HDF5 format and be ab
 ```
 CMAKE_ARGS="-DENABLE_HDF5=ON -DENABLE_NETCDF=ON" python -m pip install .
 ```
+
+
+## TOKAMAK - SLAB INSTRUCTIONS
+
+So far we must run  ```neutronics_model.py``` and ```neutronics_post.py``` inside the respective ```./detailed_bluemira(_hcll, _wcll, _hcpb)``` model ahead of the tokamak and copy the ```surface_source.h5``` into its script directory ```(./slab)(_hcll, _wcll, _hcpb)``` where ```neutronics_model.py``` is located. The ```neutronics_post.py``` will generate a file ```armor_current_neutron.json``` that will inform the ```SURFACE_SOURCE_POWER_RATIO``` to the source scaling in the slab models.
+
+Ideally we will have one example ```surface_source.h5``` and the ```SURFACE_SOURCE_POWER_RATIO``` provided to be used in all slab cases for a breeder type. This would remove the necessity of running the detailed_model ahead of the slab. However, we need to test that this source dont change drastically with different materials in the same breeder type.
