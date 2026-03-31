@@ -51,7 +51,7 @@ INPUT_JSON = (BLUEMIRA_DIR / "EUDEMO_HCPB_inputs.json")
 
 # Fixed-source run configuration
 # Read the surface source written by the detailed_bluemira neutronics run
-SURF_SOURCE_FILE = (SCRIPT_DIR / "surface_source.h5")
+SURF_SOURCE_FILE = (BLUEMIRA_DIR / "neutronics_run" / "surface_source.h5")
 
 TARGET_VOL_ID = 78
 
