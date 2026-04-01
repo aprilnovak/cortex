@@ -4,21 +4,8 @@ depletion_model.py
 
 Runs:
   (1) D1S shutdown dose tally for a single breeder chunk (OB_KEY)
-  (2) Depletion microXS + flux (fixed-source, KEEPING surface_source)
-      using Strategy B: set VOID material in every non-target DAGMC cell
-
-Key idea:
-  DAGMCUniverse still contains all DAGMC volume-cells. Even if your wrapper
-  "sector_cell" clips the geometry, OpenMC can still encounter/initialize
-  materials for many DAGMC cells. If any DAGMC cell references a material ID
-  that is not present, you'll get:
-     "Material with ID 'X' not found for DAGMC cell Y"
-  or crashes.
-
-So:
-  - Keep surf_source_read (you said you don't want to remove it)
-  - Force all non-target material-filled DAGMC cells to a known VOID material
-  - Only keep real materials in the 11 OB_1_b6 cells
+  (2) Depletion using IndependentOperator.
+  
 """
 
 from __future__ import annotations
