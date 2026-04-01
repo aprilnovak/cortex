@@ -14,6 +14,7 @@ from pathlib import Path
 import os
 import sys
 
+import json
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -73,6 +74,12 @@ from neutronics_model import (
 # USER INPUTS
 # -----------------------------------------------------------------------------
 INPUT_JSON = (BLUEMIRA_DIR / "EUDEMO_WCLL_inputs.json")
+CURRENT_RATIO_JSON = (BLUEMIRA_DIR / "neutronics_results" / "OB_1_b6" / "armor_current_neutron.json")
+
+with open(CURRENT_RATIO_JSON) as f:
+    current_records = json.load(f)
+SURFACE_SOURCE_POWER_RATIO = current_records[0]["J_in_mean"]
+#print("surface_power_ratio = ", SURFACE_SOURCE_POWER_RATIO)
 
 OB_KEY = "OB_1_b6"
 
@@ -141,7 +148,7 @@ cooling_times = (timesteps_years * y_to_s).tolist()
 
 timesteps = irradiation_time + cooling_times
 
-SURFACE_SOURCE_POWER_RATIO = 7.171062e-02 # GET THIS FROM JSON FILE (TBD)
+#SURFACE_SOURCE_POWER_RATIO = 7.171062e-02 # GET THIS FROM JSON FILE (TBD)
 constant_power_ratio = 0.3 * SURFACE_SOURCE_POWER_RATIO * neutron_ratio_source
 source_rates = [constant_power_ratio * neutron_source_rate] * len(irradiation_time) + [0.0] * len(cooling_times)
 
