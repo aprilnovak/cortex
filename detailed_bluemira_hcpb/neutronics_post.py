@@ -32,15 +32,15 @@ BASE_DIR = Path.cwd()
 
 RUN_DIR = (BASE_DIR / "neutronics_run")
 
+# find last touched statepoint.h5
 def find_latest_statepoint(run_dir: Path) -> Path:
-    candidates = run_dir.glob("statepoint.*.h5")
-    candidates = sorted(
-        candidates,
-        key=lambda p: int(p.stem.split(".")[1])  # e.g. "statepoint.0015" → 15
-    )
+    candidates = list(run_dir.glob("statepoint.*.h5"))
     if not candidates:
         raise FileNotFoundError(f"No statepoint files found in: {run_dir}")
-    return candidates[-1]
+    candidates = sorted(candidates, key=lambda p: p.stat().st_mtime)
+    latest = candidates[-1]
+    print(f"  Last modified: {__import__('datetime').datetime.fromtimestamp(latest.stat().st_mtime)}")
+    return latest
 
 STATEPOINT_FILE = find_latest_statepoint(RUN_DIR)
 print(f"Using statepoint: {STATEPOINT_FILE.name}")

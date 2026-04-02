@@ -116,7 +116,10 @@ plasma.add_element("H", 1.0)
 armor_material = materials.W(19.3)
 
 # Structural material (Eurofer if not provided by user)
-structural_material = materials.eurofer97(7.87)
+#structural_material = materials.eurofer97(7.87)
+#structural_material = materials.V4Cr4Ti(6.05)
+#structural_material = materials.SiC(2.5)
+structural_material = materials.inconel718(8.19)
 
 # Coolant material (dependent on the breeder type) (water for WCLL)
 coolant_material = materials.Water(0.866)
@@ -148,27 +151,27 @@ MIX_RECIPES_OBJ: dict[str, dict[openmc.Material, float]] = {
     # FW
     "First_Wall":  {coolant_material: 0.143, structural_material: 0.857},
     # IB
-    "ib_layer_1":  {breeder_material: 0.833, coolant_material: 0.028, structural_material: 0.139},
-    "ib_layer_2":  {breeder_material: 0.858, coolant_material: 0.018, structural_material: 0.124},
-    "ib_layer_3":  {breeder_material: 0.813, coolant_material: 0.016, structural_material: 0.171},
-    "ib_layer_4":  {breeder_material: 0.813, coolant_material: 0.016, structural_material: 0.171},
-    "ib_layer_5":  {breeder_material: 0.813, coolant_material: 0.016, structural_material: 0.171},
-    "ib_layer_6":  {breeder_material: 0.662, coolant_material: 0.016, structural_material: 0.322},
-    "ib_layer_7":  {breeder_material: 0.586, coolant_material: 0.016, structural_material: 0.398},
-    "ib_layer_8":  {coolant_material: 0.016, structural_material: 0.984},
-    "ib_layer_9":  {coolant_material: 0.857, structural_material: 0.143},
-    "ib_layer_10": {coolant_material: 0.016, structural_material: 0.984},    
+    "IB_Layer_1":  {breeder_material: 0.833, coolant_material: 0.028, structural_material: 0.139},
+    "IB_Layer_2":  {breeder_material: 0.858, coolant_material: 0.018, structural_material: 0.124},
+    "IB_Layer_3":  {breeder_material: 0.813, coolant_material: 0.016, structural_material: 0.171},
+    "IB_Layer_4":  {breeder_material: 0.813, coolant_material: 0.016, structural_material: 0.171},
+    "IB_Layer_5":  {breeder_material: 0.813, coolant_material: 0.016, structural_material: 0.171},
+    "IB_Layer_6":  {breeder_material: 0.662, coolant_material: 0.016, structural_material: 0.322},
+    "IB_Layer_7":  {breeder_material: 0.586, coolant_material: 0.016, structural_material: 0.398},
+    "IB_Layer_8":  {coolant_material: 0.016, structural_material: 0.984},
+    "IB_Layer_9":  {coolant_material: 0.857, structural_material: 0.143},
+    "IB_Layer_10": {coolant_material: 0.016, structural_material: 0.984},    
     # OB
-    "ob_layer_1":  {breeder_material: 0.833, coolant_material: 0.028, structural_material: 0.139},
-    "ob_layer_2":  {breeder_material: 0.858, coolant_material: 0.018, structural_material: 0.124},
-    "ob_layer_3":  {breeder_material: 0.813, coolant_material: 0.016, structural_material: 0.171},
-    "ob_layer_4":  {breeder_material: 0.813, coolant_material: 0.016, structural_material: 0.171},
-    "ob_layer_5":  {breeder_material: 0.813, coolant_material: 0.016, structural_material: 0.171},
-    "ob_layer_6":  {breeder_material: 0.662, coolant_material: 0.016, structural_material: 0.322},
-    "ob_layer_7":  {breeder_material: 0.586, coolant_material: 0.016, structural_material: 0.398},
-    "ob_layer_8":  {coolant_material: 0.016, structural_material: 0.984},
-    "ob_layer_9":  {coolant_material: 0.857, structural_material: 0.143},
-    "ob_layer_10": {coolant_material: 0.016, structural_material: 0.984},  
+    "OB_Layer_1":  {breeder_material: 0.833, coolant_material: 0.028, structural_material: 0.139},
+    "OB_Layer_2":  {breeder_material: 0.858, coolant_material: 0.018, structural_material: 0.124},
+    "OB_Layer_3":  {breeder_material: 0.813, coolant_material: 0.016, structural_material: 0.171},
+    "OB_Layer_4":  {breeder_material: 0.813, coolant_material: 0.016, structural_material: 0.171},
+    "OB_Layer_5":  {breeder_material: 0.813, coolant_material: 0.016, structural_material: 0.171},
+    "OB_Layer_6":  {breeder_material: 0.662, coolant_material: 0.016, structural_material: 0.322},
+    "OB_Layer_7":  {breeder_material: 0.586, coolant_material: 0.016, structural_material: 0.398},
+    "OB_Layer_8":  {coolant_material: 0.016, structural_material: 0.984},
+    "OB_Layer_9":  {coolant_material: 0.857, structural_material: 0.143},
+    "OB_Layer_10": {coolant_material: 0.016, structural_material: 0.984},  
     # Divertor
     "Divertor":    {ccz: 0.00552, c: 0.00438, structural_material: 0.5238, armor_material: 0.01026, coolant_material: 0.45604},
     # VV
@@ -626,8 +629,8 @@ def build_breeder_chunks(
     # -------------------------
     # Armor cell ids (ALL)
     # -------------------------
-    ob_armor_idx = ob_n_layers
-    ib_armor_idx = ib_n_layers
+    ob_armor_idx = 0
+    ib_armor_idx = 0
 
     armor_cell_ids = []
 
@@ -672,9 +675,6 @@ armor_cell_ids = chunk_cells["armor_cell_ids"]
 info, all_surface_ids, external_surface_ids, internal_surface_ids = dagmc_volume_surface_info(
     pydagmc_model, cell_ids_selected_chunk
 )
-
-
-
 # -----------------------------------------------------------------------------
 # TALLIES
 # -----------------------------------------------------------------------------

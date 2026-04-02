@@ -649,10 +649,10 @@ def compute_albedo_for_chunk(
         print(f"[warn] {chunk_key}: no surfaces mapped from bm.info; skipping albedo.")
         return {}
 
-    Jnet_by_sid_particle: Dict[tuple[int, str], tuple[float, float]] = {}
+    Jtot_by_sid_particle: Dict[tuple[int, str], tuple[float, float]] = {}
     try:
         t_tot = sp.get_tally(id=bm.t_current_tally.id)
-        Jnet_by_sid_particle = _read_current_df_map(t_tot)
+        Jtot_by_sid_particle = _read_current_df_map(t_tot)
     except Exception as e:
         print(f"[warn] {chunk_key}: could not read total current tally; external albedo limited. ({e})")
 
@@ -727,36 +727,37 @@ def compute_albedo_for_chunk(
 
             cid = sorted(cset)[0]
 
-            if (sid, particle) not in Jnet_by_sid_particle:
+            if (sid, particle) not in Jtot_by_sid_particle:
                 continue
 
-            Jnet_m, Jnet_s = Jnet_by_sid_particle[(sid, particle)]
-            Jout_m, Jout_s = partial_by_cell_sid_particle.get((cid, sid, particle), (0.0, 0.0))
+            Jtotal_m, Jtotal_s = Jtot_by_sid_particle[(sid, particle)]   # rename for clarity
+            Jout_m,   Jout_s   = partial_by_cell_sid_particle.get((cid, sid, particle), (0.0, 0.0))
 
-            Jnet = abs(Jnet_m)
-            Jout = abs(Jout_m)
-            Jin = abs(Jout - Jnet)
+            Jtotal = abs(Jtotal_m)
+            Jout   = abs(Jout_m)
+            Jin    = abs(Jtotal - Jout)   # correct: J_in = J_total - J_out
 
             if Jout < eps:
                 A_mean, A_std = 0.0, 0.0
             else:
                 A_mean = Jin / Jout
-                dA_dJout = Jnet / (Jout ** 2)
-                dA_dJnet = -1.0 / Jout
-                A_var = (dA_dJout ** 2) * (Jout_s ** 2) + (dA_dJnet ** 2) * (Jnet_s ** 2)
-                A_std = math.sqrt(max(A_var, 0.0))
+                dA_dJout   = -Jtotal / (Jout ** 2)   # updated partial derivative
+                dA_dJtotal =  1.0    /  Jout          # updated partial derivative
+                A_var  = (dA_dJout ** 2) * (Jout_s ** 2) + (dA_dJtotal ** 2) * (Jtotal_s ** 2)
+                A_std  = math.sqrt(max(A_var, 0.0))
 
             rows.append({
                 "particle": particle,
                 "surface_id": sid,
                 "cell_id": cid,
                 "kind": "external",
-                "J_total_mean": float(Jnet_m),
-                "J_total_std": float(Jnet_s),
-                "J_out_mean": float(Jout_m),
-                "J_out_std": float(Jout_s),
-                "albedo_mean": float(A_mean),
-                "albedo_std": float(A_std),
+                "J_total_mean": float(Jtotal_m), 
+                "J_total_std":  float(Jtotal_s),
+                "J_out_mean":   float(Jout_m),
+                "J_out_std":    float(Jout_s),
+                "J_in_mean":    float(Jin),       
+                "albedo_mean":  float(A_mean),
+                "albedo_std":   float(A_std),
             })
 
         for sid in int_ids:
@@ -851,11 +852,11 @@ def compute_albedo_for_chunk(
             if key != "Armor_front_ext":
                 continue
             J_out = abs(float(r["J_out_mean"]))
-            J_net = abs(float(r["J_total_mean"])) if pd.notna(r["J_total_mean"]) else 0.0
-            J_in  = abs(J_out - J_net)
+            J_tot = abs(float(r["J_total_mean"])) if pd.notna(r["J_total_mean"]) else 0.0
+            J_in  = abs(J_out - J_tot)
             J_out_std = abs(float(r["J_out_std"]))
-            J_net_std = abs(float(r["J_total_std"])) if pd.notna(r["J_total_std"]) else 0.0
-            J_in_std  = math.sqrt(J_out_std**2 + J_net_std**2)
+            J_tot_std = abs(float(r["J_total_std"])) if pd.notna(r["J_total_std"]) else 0.0
+            J_in_std  = math.sqrt(J_out_std**2 + J_tot_std**2)
 
             incident_records.append({
                 "particle":      particle,
@@ -864,8 +865,8 @@ def compute_albedo_for_chunk(
                 "cell_id":       int(r["cell_id"]),
                 "J_out_mean":    J_out,
                 "J_out_std":     J_out_std,
-                "J_net_mean":    float(r["J_total_mean"]) if pd.notna(r["J_total_mean"]) else None,
-                "J_net_std":     J_net_std,
+                "J_tot_mean":    float(r["J_total_mean"]) if pd.notna(r["J_total_mean"]) else None,
+                "J_tot_std":     J_tot_std,
                 "J_in_mean":     J_in,
                 "J_in_std":      J_in_std,
                 "chunk_key":     chunk_key,
@@ -1838,6 +1839,85 @@ def process_layer_region1_only(
         fig.savefig(outdir / f"he_{layer_tag}.png", dpi=300, bbox_inches="tight")
         plt.close(fig)
 
+
+def check_armor_front_current_consistency(
+    sp: openmc.StatePoint,
+    bm,
+    *,
+    chunk_key: str,
+    armor_cell_id: int,
+    armor_front_surface_id: int,
+    particle: str = "neutron",
+):
+    """
+    Cross-checks the net current tally vs. partial current tallies on the
+    armor front surface.
+
+    For a surface with outward normal pointing away from the plasma:
+        J_net  = J_out - J_in         (signed, from SurfaceFilter tally)
+        J_out  = outgoing partial      (from CellFromFilter tally)
+        J_in   = J_out - J_net        (derived)
+        albedo = J_in / J_out
+
+    If J_net > J_out, the sign convention is inconsistent between tallies.
+    """
+    sid = int(armor_front_surface_id)
+    cid = int(armor_cell_id)
+
+    # --- 1. Net current from SurfaceFilter tally ---
+    t_net = sp.get_tally(id=bm.t_current_tally.id)
+    df_net = t_net.get_pandas_dataframe()
+    row_net = df_net[
+        (df_net["surface"] == sid) &
+        (df_net["particle"].str.lower() == particle.lower())
+    ]
+
+    if row_net.empty:
+        print(f"[check] Surface {sid} not found in net current tally.")
+        return
+
+    J_net_mean = float(row_net["mean"].iloc[0])
+    J_net_std  = float(row_net["std. dev."].iloc[0])
+
+    # --- 2. Partial (outgoing) current from CellFromFilter tally ---
+    p_tally = bm.p_current_tallies.get(cid, None)
+    if p_tally is None:
+        print(f"[check] No partial current tally found for cell {cid}.")
+        return
+
+    t_part = sp.get_tally(id=p_tally.id)
+    df_part = t_part.get_pandas_dataframe()
+    row_part = df_part[
+        (df_part["surface"] == sid) &
+        (df_part["particle"].str.lower() == particle.lower())
+    ]
+
+    if row_part.empty:
+        print(f"[check] Surface {sid} not found in partial current tally for cell {cid}.")
+        return
+
+    J_out_mean = float(row_part["mean"].iloc[0])
+    J_out_std  = float(row_part["std. dev."].iloc[0])
+
+    # --- 3. Derived quantities ---
+    J_in_mean  = abs(J_out_mean) - J_net_mean   # valid only if J_net is truly net (out - in)
+    albedo     = J_in_mean / abs(J_out_mean) if abs(J_out_mean) > 0 else float("nan")
+
+    print(f"\n[check_armor_front_current_consistency] {chunk_key} | surface {sid} | cell {cid} | {particle}")
+    print(f"  J_net  (SurfaceFilter)   = {J_net_mean:+.6e} ± {J_net_std:.2e}")
+    print(f"  J_out  (CellFromFilter)  = {J_out_mean:+.6e} ± {J_out_std:.2e}")
+    print(f"  J_in   (derived)         = {J_in_mean:+.6e}")
+    print(f"  Albedo (J_in / J_out)    = {albedo:.4f}")
+
+    # --- 4. Consistency flags ---
+    if J_net_mean > abs(J_out_mean):
+        print("  [WARNING] J_net > J_out: sign convention mismatch likely.")
+        print("            SurfaceFilter may be scoring |J_out + J_in| not |J_out - J_in|.")
+    elif J_in_mean < 0:
+        print("  [WARNING] J_in < 0: surface normal may point inward for this cell.")
+    else:
+        print("  [OK] Values are self-consistent.")
+
 # =============================================================================
 # Run
 # =============================================================================
@@ -1845,6 +1925,14 @@ with openmc.StatePoint(str(STATEPOINT_FILE)) as sp:
     dpa_gas_map = build_dpa_gas_map(sp)
     require_struct_maps(bm)
     DO_ALBEDO = True
+
+    check_armor_front_current_consistency(
+        sp, bm,
+        chunk_key="OB_1_b6",
+        armor_cell_id=56,
+        armor_front_surface_id=245,
+        particle="neutron",
+    )
 
     for key in KEYS_TO_PROCESS:
         if key in ob_by_key:

@@ -148,27 +148,27 @@ MIX_RECIPES_OBJ: dict[str, dict[openmc.Material, float]] = {
     # FW
     "First_Wall":  {coolant_material: 0.049, structural_material: 0.951},
     # IB
-    "ib_layer_1":  {breeder_material: 0.883, coolant_material: 0.002, structural_material: 0.115},
-    "ib_layer_2":  {breeder_material: 0.878, coolant_material: 0.003, structural_material: 0.119},
-    "ib_layer_3":  {breeder_material: 0.878, coolant_material: 0.003, structural_material: 0.119},
-    "ib_layer_4":  {breeder_material: 0.313, coolant_material: 0.118, structural_material: 0.569},
-    "ib_layer_5":  {breeder_material: 0.901, coolant_material: 0.009, structural_material: 0.090},
-    "ib_layer_6":  {breeder_material: 0.104, coolant_material: 0.058, structural_material: 0.838},
-    "ib_layer_7":  {breeder_material: 0.010, coolant_material: 0.861, structural_material: 0.129},
-    "ib_layer_8":  {breeder_material: 0.010, coolant_material: 0.876, structural_material: 0.114},
-    "ib_layer_9":  {breeder_material: 0.010, coolant_material: 0.011, structural_material: 0.979},
-    "ib_layer_10": {breeder_material: 0.010, coolant_material: 0.011, structural_material: 0.979},    
+    "IB_Layer_1":  {breeder_material: 0.883, coolant_material: 0.002, structural_material: 0.115},
+    "IB_Layer_2":  {breeder_material: 0.878, coolant_material: 0.003, structural_material: 0.119},
+    "IB_Layer_3":  {breeder_material: 0.878, coolant_material: 0.003, structural_material: 0.119},
+    "IB_Layer_4":  {breeder_material: 0.313, coolant_material: 0.118, structural_material: 0.569},
+    "IB_Layer_5":  {breeder_material: 0.901, coolant_material: 0.009, structural_material: 0.090},
+    "IB_Layer_6":  {breeder_material: 0.104, coolant_material: 0.058, structural_material: 0.838},
+    "IB_Layer_7":  {breeder_material: 0.010, coolant_material: 0.861, structural_material: 0.129},
+    "IB_Layer_8":  {breeder_material: 0.010, coolant_material: 0.876, structural_material: 0.114},
+    "IB_Layer_9":  {breeder_material: 0.010, coolant_material: 0.011, structural_material: 0.979},
+    "IB_Layer_10": {breeder_material: 0.010, coolant_material: 0.011, structural_material: 0.979},    
     # OB
-    "ob_layer_1":  {breeder_material: 0.883, coolant_material: 0.002, structural_material: 0.115},
-    "ob_layer_2":  {breeder_material: 0.878, coolant_material: 0.003, structural_material: 0.119},
-    "ob_layer_3":  {breeder_material: 0.878, coolant_material: 0.003, structural_material: 0.119},
-    "ob_layer_4":  {breeder_material: 0.313, coolant_material: 0.118, structural_material: 0.569},
-    "ob_layer_5":  {breeder_material: 0.901, coolant_material: 0.009, structural_material: 0.090},
-    "ob_layer_6":  {breeder_material: 0.104, coolant_material: 0.058, structural_material: 0.838},
-    "ob_layer_7":  {breeder_material: 0.010, coolant_material: 0.861, structural_material: 0.129},
-    "ob_layer_8":  {breeder_material: 0.010, coolant_material: 0.876, structural_material: 0.114},
-    "ob_layer_9":  {breeder_material: 0.010, coolant_material: 0.011, structural_material: 0.979},
-    "ob_layer_10": {breeder_material: 0.010, coolant_material: 0.011, structural_material: 0.979},    
+    "OB_Layer_1":  {breeder_material: 0.883, coolant_material: 0.002, structural_material: 0.115},
+    "OB_Layer_2":  {breeder_material: 0.878, coolant_material: 0.003, structural_material: 0.119},
+    "OB_Layer_3":  {breeder_material: 0.878, coolant_material: 0.003, structural_material: 0.119},
+    "OB_Layer_4":  {breeder_material: 0.313, coolant_material: 0.118, structural_material: 0.569},
+    "OB_Layer_5":  {breeder_material: 0.901, coolant_material: 0.009, structural_material: 0.090},
+    "OB_Layer_6":  {breeder_material: 0.104, coolant_material: 0.058, structural_material: 0.838},
+    "OB_Layer_7":  {breeder_material: 0.010, coolant_material: 0.861, structural_material: 0.129},
+    "OB_Layer_8":  {breeder_material: 0.010, coolant_material: 0.876, structural_material: 0.114},
+    "OB_Layer_9":  {breeder_material: 0.010, coolant_material: 0.011, structural_material: 0.979},
+    "OB_Layer_10": {breeder_material: 0.010, coolant_material: 0.011, structural_material: 0.979},    
     # Divertor
     "Divertor":    {ccz: 0.00552, c: 0.00438, structural_material: 0.5238, armor_material: 0.01026, coolant_material: 0.45604},
     # VV
@@ -537,7 +537,7 @@ def make_radial_bins_for_key(
         topV, midV, botV = OB_VV_TOP_MID_BOT
         interp_last = interp_three_point(t, topL, midL, botL)
         vv = interp_three_point(t, topV, midV, botV)
-    else:
+    else:OB_L
         topL, midL, botL = IB_LAST_LAYER_TOP_MID_BOT
         topV, midV, botV = IB_VV_TOP_MID_BOT
         interp_last = interp_three_point(t, topL, midL, botL)
