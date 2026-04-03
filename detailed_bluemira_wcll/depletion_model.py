@@ -112,25 +112,12 @@ cell_ids_selected_chunk = chunk_cells["selected_chunk_cell_ids"]
 timer.stop("Build neutronics model")
 
 
-# ------------------------------------------------------------------
-# Resolve chain file (ENDF/B-VIII.0)
-# ------------------------------------------------------------------
-timer.start("Build D1S model")
-
-chain_path = (BASE_DIR.parent / "depletion_chain" / "chain_endfb80_sfr.xml")
-if not chain_path.exists():
-    raise FileNotFoundError(f"Chain file not found: {chain_path}")
-
-# Parse once (sanity check)
-chain = openmc.deplete.Chain.from_xml(str(chain_path))
-
-# Register for both Python-side and the OpenMC executable
-openmc.config["chain_file"] = str(chain_path)
-model.settings.depletion = {"chain_file": str(chain_path)}
 
 # ------------------------------------------------------------------
 # Time grids / source rates
 # ------------------------------------------------------------------
+timer.start("Build D1S model")
+
 s_to_h = 3600
 y_to_s = 24 * 365 * s_to_h
 to_μSv = 1e-6
@@ -156,7 +143,6 @@ source_rates = [constant_power_ratio * neutron_source_rate] * len(irradiation_ti
 # Volumes from DAGMC cells
 # ------------------------------------------------------------------
 vol_by_cell = {cid: cell.volume for cid, cell in all_cells.items()}
-
 
 # ------------------------------------------------------------------
 # Identify plasma and vv port-fill cells (last two cells)
@@ -494,7 +480,12 @@ mat_id_to_name = {str(mat.id): (mat.name or f"material_{mat.id}") for mat in dep
 
 # ---- Build + use reduced chain everywhere below ----
 initial_nuclides = model.geometry.get_all_nuclides()
+
+chain = openmc.deplete.Chain.from_xml(openmc.config["chain_file"])
+print(f"[chain] Loaded {len(chain.nuclides)} nuclides from: {openmc.config['chain_file']}")
+
 reduced_chain = chain.reduce(initial_nuclides, level=5)
+print(f"[chain] Reduced to {len(reduced_chain.nuclides)} nuclides")
 
 bluemira_chain = (DEPLETION_RUN_DIR / "bluemira_chain.xml")
 reduced_chain.export_to_xml(str(bluemira_chain))
