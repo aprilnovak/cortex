@@ -1097,21 +1097,17 @@ def process_chunk(
     # Save neutron spectrum to CSV
     neutron_df = pd.DataFrame({"E_mid_eV": E_mid})
     for i, lab in enumerate(labels):
-        neutron_df[f"{lab}"] = (
-            neutron_flux_chunk[i].flatten()
-            * scaling[int(cell_ids[i])]
-            / unit_lethargy
-        )
+        s = scaling[int(cell_ids[i])]
+        neutron_df[f"{lab}"] = neutron_flux_chunk[i].flatten() * s / unit_lethargy
+        neutron_df[f"{lab}_std"] = neutron_flux_std_chunk[i].flatten() * s / unit_lethargy
     neutron_df.to_csv(outdir / f"neutron_spectrum_{chunk_key}.csv", index=False)
 
     # Save photon spectrum to CSV
     photon_df = pd.DataFrame({"E_mid_eV": E_mid})
     for i, lab in enumerate(labels):
-        photon_df[f"{lab}"] = (
-            photon_flux_chunk[i].flatten()
-            * scaling[int(cell_ids[i])]
-            / unit_lethargy
-        )
+        s = scaling[int(cell_ids[i])]
+        photon_df[f"{lab}"] = photon_flux_chunk[i].flatten() * s / unit_lethargy
+        photon_df[f"{lab}_std"] = photon_flux_std_chunk[i].flatten() * s / unit_lethargy
     photon_df.to_csv(outdir / f"photon_spectrum_{chunk_key}.csv", index=False)
 
     # ==========================================
