@@ -303,8 +303,8 @@ model.settings.particles = 1_000_000
 model.settings.trigger_max_batches = 1000     # hard ceiling
 
 # output particle track, selected at random
-import random
-model.settings.track = [(1, 1, random.randint(1, model.settings.particles))]
+#import random
+#model.settings.track = [(1, 1, random.randint(1, model.settings.particles))]
 
 # TODO: change 245 and 56 to not be hard-coded
 _WRITE_SOURCE = True
