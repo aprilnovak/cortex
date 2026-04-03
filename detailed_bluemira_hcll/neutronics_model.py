@@ -290,7 +290,6 @@ cell_side_length=0.05,
 # -----------------------------------------------------------------------------
 
 model.settings = openmc.Settings()
-model.settings.dagmc = True
 model.settings.photon_transport = True
 model.settings.run_mode = "fixed source"
 model.settings.source = my_source.to_openmc_source()
