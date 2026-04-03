@@ -79,16 +79,6 @@ SURFACE_SOURCE_POWER_RATIO = current_records[0]["J_in_mean"]
 
 OB_KEY = "OB_1_b6"
 
-# Chain file (base)
-chain_path = (PROJECT_ROOT / "depletion_chain" / "chain_endfb80_sfr.xml")
-if not chain_path.exists():
-    raise FileNotFoundError(f"Chain file not found: {chain_path}")
-chain = openmc.deplete.Chain.from_xml(str(chain_path))
-
-# Register for both Python-side and OpenMC executable
-openmc.config["chain_file"] = str(chain_path)
-model.settings.depletion = {"chain_file": str(chain_path)}
-
 # -----------------------------------------------------------------------------
 # Build chunk mapping (from JSON), then restrict to cells PRESENT in model
 # -----------------------------------------------------------------------------
@@ -307,9 +297,21 @@ print(f"Targeting {len(deplete_mats)} cells/materials for depletion.")
 # -----------------------------------------------------------------------------
 # 3. Chain Reduction & MicroXS
 # -----------------------------------------------------------------------------
+# ---- Build + use reduced chain everywhere below ----
 initial_nuclides = model.geometry.get_all_nuclides()
+
+chain = openmc.deplete.Chain.from_xml(openmc.config["chain_file"])
+print(f"[chain] Loaded {len(chain.nuclides)} nuclides from: {openmc.config['chain_file']}")
+
 reduced_chain = chain.reduce(initial_nuclides, level=5)
-reduced_chain.export_to_xml(str(BLUEMIRA_CHAIN_XML))
+print(f"[chain] Reduced to {len(reduced_chain.nuclides)} nuclides")
+
+bluemira_chain = (DEPLETION_RUN_DIR / "bluemira_chain.xml")
+reduced_chain.export_to_xml(str(bluemira_chain))
+print(f"[info] Wrote reduced chain: {bluemira_chain}")
+
+openmc.config["chain_file"] = str(bluemira_chain)
+model.settings.depletion = {"chain_file": str(bluemira_chain)}
 
 fluxes, micros = openmc.deplete.get_microxs_and_flux(
     model,

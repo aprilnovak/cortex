@@ -1023,11 +1023,8 @@ def run_chunk_postprocess(
 # Run
 # ============================================================
 if __name__ == "__main__":
-    CHAIN_FILE = (PROJECT_ROOT / "depletion_chain" / "chain_endfb80_sfr.xml")
-    if not CHAIN_FILE.exists():
-        raise FileNotFoundError(f"Chain file not found: {CHAIN_FILE}")
-    openmc.config["chain_file"] = str(CHAIN_FILE)
-
+    print(f"[chain] openmc.config['chain_file'] = {openmc.config.get('chain_file', 'NOT SET')}")
+    
     if not DEPLETION_RESULTS_FILE.is_file():
         raise FileNotFoundError(f"Depletion results file not found: {DEPLETION_RESULTS_FILE}")
 
