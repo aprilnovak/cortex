@@ -298,7 +298,7 @@ model.settings.source = my_source.to_openmc_source()
 TALLY_CONVERGENCE_THRESHOLD = 0.01
 
 # Choose initial batches * particles per batch > 15-20 * max_particles
-model.settings.batches = 15
+model.settings.batches = 100
 model.settings.trigger_active = True
 model.settings.trigger_batch_interval = 10   # check triggers every N batches
 model.settings.particles = 1_000_000
