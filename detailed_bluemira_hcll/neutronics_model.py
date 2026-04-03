@@ -913,6 +913,23 @@ for cid in cell_ids:
     dpa_gas_tallies[cid] = tg
 
 # -----------------------------------------------------------------------------
+# VV port fill - total neutron + photon flux 
+# -----------------------------------------------------------------------------
+test_VV_port_fill = False
+if test_VV_port_fill:
+    vvportfill_cell_id = max(dagmc_universe_cells.keys())-1
+    print("vv_port_fill_cell_id = ",vvportfill_cell_id)
+    vvportfill_cell = dagmc_universe_cells[vvportfill_cell_id]
+
+    # Guard against silent mis-assignment if volume ordering ever changes
+    vv_port_fill_cell_filter = openmc.CellFilter(vvportfill_cell_id)
+
+    flux_tally_VV_port_fill = openmc.Tally(name="flux_tally_VV_port_fill")
+    flux_tally_VV_port_fill.filters = [vv_port_fill_cell_filter, particle_filter]
+    flux_tally_VV_port_fill.scores = ["flux"]
+    model.tallies.append(flux_tally_VV_port_fill)
+
+# -----------------------------------------------------------------------------
 # Export
 # -----------------------------------------------------------------------------
 model.export_to_model_xml(path=NEUTRONICS_MODEL_XML)
