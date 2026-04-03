@@ -290,28 +290,30 @@ model.settings.run_mode = "fixed source"
 model.settings.source = my_source.to_openmc_source()
 
 # Set TALLY_CONVERGENCE_THRESHOLD to 0.01 (1%) or 0.001 (0.1%)
-TALLY_CONVERGENCE_THRESHOLD = 0.1
+TALLY_CONVERGENCE_THRESHOLD = 0.01
 
 # Choose initial batches * particles per batch > 15-20 * max_particles
-model.settings.batches = 10
+#model.settings.batches = 15           
 model.settings.trigger_active = True
-model.settings.trigger_batch_interval = 5   # check triggers every N batches
-model.settings.particles = 100_000
-model.settings.trigger_max_batches = 10     # hard ceiling
+model.settings.trigger_batch_interval = 10   # check triggers every N batches
+model.settings.particles = 1_000_000
+model.settings.trigger_max_batches = 2000     # hard ceiling
 
 # output particle track, selected at random
-import random
-model.settings.track = [(1, 1, random.randint(1, model.settings.particles))]
+#import random
+#model.settings.track = [(1, 1, random.randint(1, model.settings.particles))]
 
-# TODO: change 245 and 56 to not be hard-coded
 _WRITE_SOURCE = False
 if _WRITE_SOURCE:
+    model.settings.batches = 15    
     model.settings.surf_source_write = {
-        "surface_ids": [245],
-        "max_particles": 500_000,
-        "cellto": 56,
+        "surface_ids": [287],
+        "max_particles": 1_000_000,
+        "cellto": 66,
     }
-
+     ##Armor is 66 and VV cell is 78
+else:
+    model.settings.batches = 10   
 # -----------------------------------------------------------------------------
 # DAGMC volume sync so cells have volumes
 # -----------------------------------------------------------------------------
