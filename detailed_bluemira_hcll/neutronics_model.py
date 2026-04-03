@@ -296,7 +296,7 @@ model.settings.run_mode = "fixed source"
 model.settings.source = my_source.to_openmc_source()
 
 # Set TALLY_CONVERGENCE_THRESHOLD to 0.01 (1%) or 0.001 (0.1%)
-TALLY_CONVERGENCE_THRESHOLD = 0.1
+TALLY_CONVERGENCE_THRESHOLD = 0.01
 
 # Choose initial batches * particles per batch > 15-20 * max_particles
 model.settings.batches = 15           

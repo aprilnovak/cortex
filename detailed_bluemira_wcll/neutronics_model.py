@@ -299,7 +299,7 @@ model.settings.run_mode = "fixed source"
 model.settings.source = my_source.to_openmc_source()
 
 # Set TALLY_CONVERGENCE_THRESHOLD to 0.01 (1%) or 0.001 (0.1%)
-TALLY_CONVERGENCE_THRESHOLD = 0.1
+TALLY_CONVERGENCE_THRESHOLD = 0.01
 
 # Choose initial batches * particles per batch > 15-20 * max_particles
 model.settings.batches = 10          
@@ -313,7 +313,7 @@ import random
 model.settings.track = [(1, 1, random.randint(1, model.settings.particles))]
 
 # TODO: change 245 and 56 to not be hard-coded
-_WRITE_SOURCE = False
+_WRITE_SOURCE = True
 if _WRITE_SOURCE:
     model.settings.surf_source_write = {
         "surface_ids": [287],
