@@ -536,7 +536,7 @@ def make_radial_bins_for_key(
         topV, midV, botV = OB_VV_TOP_MID_BOT
         interp_last = interp_three_point(t, topL, midL, botL)
         vv = interp_three_point(t, topV, midV, botV)
-    else:OB_L
+    else:
         topL, midL, botL = IB_LAST_LAYER_TOP_MID_BOT
         topV, midV, botV = IB_VV_TOP_MID_BOT
         interp_last = interp_three_point(t, topL, midL, botL)

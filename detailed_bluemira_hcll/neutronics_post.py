@@ -447,8 +447,8 @@ def layer_names_for_chunk(chunk_cells: list[int], region_tag: str) -> list[str]:
     n = len(chunk_cells)
     labels = ["Armor", "First_Wall"]
     n_layers = n - 3
-    labels += [f"{region_tag}_{i+1}" for i in range(n_layers)]
-    labels += ["VV"]
+    labels += [f"Breeder Layer {i+1}" for i in range(n_layers)]
+    labels += ["Vacuum Vessel"]
     return labels
 
 # =============================================================================
@@ -1063,24 +1063,26 @@ def process_chunk(
     plt.figure()
     for i, cid in enumerate(cell_ids):
         flux_scaled = neutron_flux_chunk[i].flatten() * scaling[int(cid)] / unit_lethargy
-        plt.loglog(energies[:-1], flux_scaled, label=f"{labels[i]} (x = {xcent[i]:.1f} cm)", color=colors[i])
+        plt.loglog(energies[:-1], flux_scaled, label=f"{labels[i]} ({xcent[i]:.1f} cm)", color=colors[i])
     plt.legend(fontsize=8, ncol=2)
     plt.grid(True, which="both")
     plt.ylabel("Neutron flux per unit lethargy [1/cm$^2$/s]")
     plt.xlabel("Energy [eV]")
-    plt.xlim([1, 100e6])
+    plt.xlim([1e-3, 100e6])
+    plt.ylim([1e6, 1e17])
     plt.savefig(outdir / f"n_flux_spectrum_{chunk_key}.png", dpi=300, bbox_inches="tight")
     plt.close()
 
     plt.figure()
     for i, cid in enumerate(cell_ids):
         flux_scaled = photon_flux_chunk[i].flatten() * scaling[int(cid)] / unit_lethargy
-        plt.loglog(energies[:-1], flux_scaled, label=f"{labels[i]} (x={xcent[i]:.1f} cm)", color=colors[i])
+        plt.loglog(energies[:-1], flux_scaled, label=f"{labels[i]} ({xcent[i]:.1f} cm)", color=colors[i])
     plt.legend(fontsize=8, loc="lower left")
     plt.grid(True, which="both")
     plt.ylabel("Photon flux per unit lethargy [1/cm$^2$/s]")
     plt.xlabel("Energy [eV]")
-    plt.xlim([1, 100e6])
+    plt.xlim([1e3, 100e6])
+    plt.ylim([1e6, 1e17])
     plt.savefig(outdir / f"p_flux_spectrum_{chunk_key}.png", dpi=300, bbox_inches="tight")
     plt.close()
 
@@ -1878,3 +1880,31 @@ with openmc.StatePoint(str(STATEPOINT_FILE)) as sp:
             yscale_mode="auto",
             log_threshold_decades=1.0,
         )
+
+    # ------------------------------------------------------------------
+    # Print VV port fill flux tally results
+    # ------------------------------------------------------------------
+    if bm.test_VV_port_fill:
+        t_vv = sp.get_tally(name="flux_tally_VV_port_fill")
+        
+        flux_mean = t_vv.get_values(scores=["flux"], value="mean").flatten()
+        flux_std  = t_vv.get_values(scores=["flux"], value="std_dev").flatten()
+        
+        # particle_filter bins are ["neutron", "photon"]
+        neutron_flux_mean = flux_mean[0]
+        neutron_flux_std  = flux_std[0]
+        photon_flux_mean  = flux_mean[1]
+        photon_flux_std   = flux_std[1]
+
+        # Get cell volume for flux rate conversion
+        vv_cell = bm.all_cells[bm.cell_id_VV_port_fill]
+        vol = float(vv_cell.volume)
+
+        n_flux_rate = neutron_flux_mean * neutron_source_rate / vol
+        p_flux_rate = photon_flux_mean  * neutron_source_rate / vol
+
+        print("\n--- VV Port Fill Flux ---")
+        print(f"  Cell ID : {bm.cell_id_VV_port_fill}")
+        print(f"  Volume  : {vol:.4e} cm³")
+        print(f"  Neutron flux : {n_flux_rate:.4e} +/- {neutron_flux_std * neutron_source_rate / vol:.4e} n/cm²/s")
+        print(f"  Photon  flux : {p_flux_rate:.4e} +/- {photon_flux_std  * neutron_source_rate / vol:.4e} γ/cm²/s")

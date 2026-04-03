@@ -441,9 +441,9 @@ def require_tally_id(sp: openmc.StatePoint, bm_tally_obj: openmc.Tally, desc: st
 # =============================================================================
 def layer_names_for_chunk(chunk_cells: list[int], region_tag: str) -> list[str]:
     n = len(chunk_cells)
-    labels = ["Armor", "First wall"]
+    labels = ["Armor", "First_Wall"]
     n_layers = n - 3
-    labels += [f"Breeder layer {i+1}" for i in range(n_layers)]
+    labels += [f"Breeder Layer {i+1}" for i in range(n_layers)]
     labels += ["Vacuum Vessel"]
     return labels
 
@@ -1978,3 +1978,32 @@ with openmc.StatePoint(str(STATEPOINT_FILE)) as sp:
             yscale_mode="auto",
             log_threshold_decades=1.0,
         )
+
+    # ------------------------------------------------------------------
+    # Print VV port fill flux tally results
+    # ------------------------------------------------------------------
+    if bm.test_VV_port_fill:
+        t_vv = sp.get_tally(name="flux_tally_VV_port_fill")
+        
+        flux_mean = t_vv.get_values(scores=["flux"], value="mean").flatten()
+        flux_std  = t_vv.get_values(scores=["flux"], value="std_dev").flatten()
+        
+        # particle_filter bins are ["neutron", "photon"]
+        neutron_flux_mean = flux_mean[0]
+        neutron_flux_std  = flux_std[0]
+        photon_flux_mean  = flux_mean[1]
+        photon_flux_std   = flux_std[1]
+
+        # Get cell volume for flux rate conversion
+        vv_cell = bm.all_cells[bm.cell_id_VV_port_fill]
+        vol = float(vv_cell.volume)
+
+        n_flux_rate = neutron_flux_mean * neutron_source_rate / vol
+        p_flux_rate = photon_flux_mean  * neutron_source_rate / vol
+
+        print("\n--- VV Port Fill Flux ---")
+        print(f"  Cell ID : {bm.cell_id_VV_port_fill}")
+        print(f"  Volume  : {vol:.4e} cm³")
+        print(f"  Neutron flux : {n_flux_rate:.4e} +/- {neutron_flux_std * neutron_source_rate / vol:.4e} n/cm²/s")
+        print(f"  Photon  flux : {p_flux_rate:.4e} +/- {photon_flux_std  * neutron_source_rate / vol:.4e} γ/cm²/s")
+

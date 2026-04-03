@@ -484,8 +484,8 @@ def layer_names_for_chunk(chunk_cells: list[int], region_tag: str) -> list[str]:
     n = len(chunk_cells)
     labels = ["Armor", "First_Wall"]
     n_layers = n - 3
-    labels += [f"{region_tag}_{i+1}" for i in range(n_layers)]
-    labels += ["VV"]
+    labels += [f"Breeder Layer {i+1}" for i in range(n_layers)]
+    labels += ["Vacuum Vessel"]
     return labels
 
 # =============================================================================
@@ -1070,24 +1070,26 @@ def process_chunk(
     plt.figure()
     for i, cid in enumerate(cell_ids):
         flux_scaled = neutron_flux_chunk[i].flatten() * scaling[int(cid)] / unit_lethargy
-        plt.loglog(energies[:-1], flux_scaled, label=f"{labels[i]} (x = {xcent[i]:.1f} cm)", color=colors[i])
+        plt.loglog(energies[:-1], flux_scaled, label=f"{labels[i]} ({xcent[i]:.1f} cm)", color=colors[i])
     plt.legend(fontsize=8, ncol=2)
     plt.grid(True, which="both")
     plt.ylabel("Neutron flux per unit lethargy [1/cm$^2$/s]")
     plt.xlabel("Energy [eV]")
-    plt.xlim([1, 100e6])
+    plt.xlim([1e-3, 100e6])
+    plt.ylim([1e6, 1e17])
     plt.savefig(outdir / f"n_flux_spectrum_{chunk_key}.png", dpi=300, bbox_inches="tight")
     plt.close()
 
     plt.figure()
     for i, cid in enumerate(cell_ids):
         flux_scaled = photon_flux_chunk[i].flatten() * scaling[int(cid)] / unit_lethargy
-        plt.loglog(energies[:-1], flux_scaled, label=f"{labels[i]} (x={xcent[i]:.1f} cm)", color=colors[i])
+        plt.loglog(energies[:-1], flux_scaled, label=f"{labels[i]} ({xcent[i]:.1f} cm)", color=colors[i])
     plt.legend(fontsize=8, loc="lower left")
     plt.grid(True, which="both")
     plt.ylabel("Photon flux per unit lethargy [1/cm$^2$/s]")
     plt.xlabel("Energy [eV]")
-    plt.xlim([1, 100e6])
+    plt.xlim([1e3, 100e6])
+    plt.ylim([1e6, 1e17])
     plt.savefig(outdir / f"p_flux_spectrum_{chunk_key}.png", dpi=300, bbox_inches="tight")
     plt.close()
 
