@@ -476,9 +476,17 @@ def plot_activity_nuclides_per_cell(
         sorted_halflife_list, sorted_nuclide_list = zip(*sorted(zip(halflife_list, nuclide_list)))
         colors = generate_colors(len(top_nucs))
 
+        # y-min cutoff; cut off at 1 order of magnitude below the other activity and 1 order of magnitude
+        # above the total activity (rounded to powers of 10)
+        min_act = 10 ** math.floor(math.log10(np.min(others_plot)))
+        max_act = 10 ** math.ceil(math.log10(np.max(total_act_plot)))
+        ax.set_ylim([min_act, max_act])
+
         for i, nuc in enumerate(top_nucs):
             vals_plot = _mask(nuc_series[nuc])
             if not _has_positive_finite(vals_plot):
+                continue
+            if np.max(vals_plot) < min_act:
                 continue
 
             ax.loglog(
@@ -507,10 +515,6 @@ def plot_activity_nuclides_per_cell(
 
         _add_time_reference_lines(ax)
         _format_log_axes(ax)
-
-        # y-min cutoff; cut off at 1 order of magnitude below the other activity and 1 order of magnitude
-        # above the total activity (rounded to powers of 10)
-        ax.set_ylim([10 ** math.floor(math.log10(np.min(others_plot))), 10 ** math.ceil(math.log10(np.max(total_act_plot)))])
 
         # Legend
         n_entries = len(ax.get_legend_handles_labels()[1])
