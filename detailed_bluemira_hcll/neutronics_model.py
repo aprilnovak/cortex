@@ -913,6 +913,16 @@ for cid in cell_ids:
     dpa_gas_tallies[cid] = tg
 
 # -----------------------------------------------------------------------------
+# (n,gamma) tally
+# -----------------------------------------------------------------------------
+_N_GAMMA = True
+if _N_GAMMA:
+    ngamma_tally = openmc.Tally()
+    ngamma_tally.filters = [cell_filter]
+    ngamma_tally.scores = ["(n,gamma)"]
+    model.tallies.append(ngamma_tally)
+
+# -----------------------------------------------------------------------------
 # VV port fill - total neutron + photon flux 
 # -----------------------------------------------------------------------------
 test_VV_port_fill = False

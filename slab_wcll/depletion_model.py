@@ -254,6 +254,44 @@ plt.savefig(D1S_DIR / f"sdr_profile_{OB_KEY}.png", dpi=300, bbox_inches="tight")
 plt.close()
 
 # -----------------------------------------------------------------------------
+# Save SDR profiles to CSV
+# -----------------------------------------------------------------------------
+SDR_DIR = D1S_DIR / "sdr_csv"
+SDR_DIR.mkdir(parents=True, exist_ok=True)
+
+# One CSV per cooling timestep
+for prof in profiles:
+    t_s = prof["t_s"]
+    df_out = prof["df"][[cell_col, "centers", "μSv/h", "mSv/h", "std. dev."]].copy()
+    df_out = df_out.rename(columns={
+        cell_col:     "cell_id",
+        "centers":    "radial_center_cm",
+        "std. dev.":  "std_dev_raw",
+    })
+    df_out["t_s"] = t_s
+    df_out["t_y"] = t_s / y_to_s
+
+    fname = SDR_DIR / f"sdr_profile_t{t_s:.4e}s.csv"
+    df_out.to_csv(fname, index=False)
+
+# One summary CSV: rows = cooling times, columns = cell radial positions
+summary_rows = []
+for prof in profiles:
+    t_s = prof["t_s"]
+    row = {"t_s": t_s, "t_y": t_s / y_to_s}
+    for _, r in prof["df"].iterrows():
+        cid = int(r[cell_col])
+        cx  = float(r["centers"])
+        row[f"cell_{cid}_x{cx:.1f}cm_uSvh"]  = float(r["μSv/h"])
+        row[f"cell_{cid}_x{cx:.1f}cm_mSvh"]  = float(r["mSv/h"])
+    summary_rows.append(row)
+
+df_summary = pd.DataFrame(summary_rows).sort_values("t_s").reset_index(drop=True)
+df_summary.to_csv(D1S_DIR / f"sdr_summary_{OB_KEY}.csv", index=False)
+print(f"[info] Wrote SDR CSVs to {SDR_DIR}")
+print(f"[info] Wrote SDR summary to {D1S_DIR / f'sdr_summary_{OB_KEY}.csv'}")
+
+# -----------------------------------------------------------------------------
 # Depletion
 # -----------------------------------------------------------------------------
 print("--------------------------------")

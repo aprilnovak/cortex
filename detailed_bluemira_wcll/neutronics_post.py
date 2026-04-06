@@ -1200,6 +1200,60 @@ def process_chunk(
     save_profile_from_base(base_df, outdir, quantity="heating", mean=heat_w, std=heat_w_std, units="W/cm3")
 
     # ==========================================
+    # (n,gamma) reaction rate
+    # ==========================================
+    if hasattr(bm, "ngamma_tally"): # Not mandatory tally
+        t_ngamma_id = require_tally_id(sp, bm.ngamma_tally, "(n,gamma) tally")
+        t_ngamma = sp.get_tally(id=t_ngamma_id)
+        cell_bins_ngamma = get_cell_bins_from_tally(t_ngamma)
+
+        ngamma_mean = t_ngamma.get_values(value="mean").flatten()
+        ngamma_std  = t_ngamma.get_values(value="std_dev").flatten()
+
+        ngamma_mean_chunk = subset_by_cells(ngamma_mean, cell_bins_ngamma, cell_ids)
+        ngamma_std_chunk  = subset_by_cells(ngamma_std,  cell_bins_ngamma, cell_ids)
+
+        # Scale to reaction rate
+        ngamma_rate = np.array(
+            [ngamma_mean_chunk[i] * scaling[int(cid)] for i, cid in enumerate(cell_ids)],
+            dtype=float,
+        )
+        ngamma_rate_std = np.array(
+            [ngamma_std_chunk[i] * scaling[int(cid)] for i, cid in enumerate(cell_ids)],
+            dtype=float,
+        )
+
+        lower_ng = np.maximum(ngamma_rate - ngamma_rate_std, 1e-30)
+        upper_ng = ngamma_rate + ngamma_rate_std
+
+        fig, ax = plt.subplots()
+        ax.set_yscale("log")
+        ax.step(xedges, np.r_[ngamma_rate, ngamma_rate[-1]], where="post", label="(n,γ)")
+        ax.fill_between(
+            xedges,
+            np.r_[lower_ng, lower_ng[-1]],
+            np.r_[upper_ng, upper_ng[-1]],
+            step="post",
+            alpha=0.3,
+        )
+        ax.grid(True, which="both", linestyle="--", linewidth=0.5)
+        ax.set_ylabel("(n,γ) reaction rate [reactions/cm³/s]")
+        ax.set_xlabel("Radial Position [cm]")
+        ax.set_title(f"(n,γ) reaction rate — {chunk_key}")
+        ax.legend()
+        fig.savefig(outdir / f"ngamma_{chunk_key}.png", dpi=300, bbox_inches="tight")
+        plt.close(fig)
+
+        save_profile_from_base(
+            base_df, outdir,
+            quantity="ngamma_reaction_rate",
+            mean=ngamma_rate, std=ngamma_rate_std, units="reactions/cm3/s",
+        )
+    else:
+        print(f"[warn] {chunk_key}: bm.ngamma_tally not found, skipping (n,gamma) plot.")
+
+
+    # ==========================================
     # H production
     # ==========================================
     h_appm_y = np.zeros(len(cell_ids), dtype=float)
@@ -1736,23 +1790,37 @@ def process_layer_region1_only(
 
             scores = {str(s) for s in (t.scores or [])}
             if GAS_SCORES_EXPLICIT.issubset(scores):
-                h_score = "H1-production"
+                h1_score = "H1-production"
+                h2_score = "H2-production"
+                h3_score = "H3-production"
             elif GAS_SCORES_REACTION.issubset(scores):
-                h_score = "(n,Xp)"
+                h1_score = "(n,Xp)"
+                h2_score = "(n,Xd)"
+                h3_score = "(n,Xt)"
             else:
                 continue
 
             f_struct = cell_struct_origin_frac.get(cid, {}) or {}
             nuclides = list(t.nuclides or [])
+
             h1_mean_corr, h1_std_corr = corrected_sum_mean_std_getvalues(
-                t, score=h_score, nuclides=nuclides, f_struct=f_struct
+                t, score=h1_score, nuclides=nuclides, f_struct=f_struct
             )
+            h2_mean_corr, h2_std_corr = corrected_sum_mean_std_getvalues(
+                t, score=h2_score, nuclides=nuclides, f_struct=f_struct
+            )
+            h3_mean_corr, h3_std_corr = corrected_sum_mean_std_getvalues(
+                t, score=h3_score, nuclides=nuclides, f_struct=f_struct
+            )
+
+            h_mean_corr = h1_mean_corr + h2_mean_corr + h3_mean_corr
+            h_std_corr = math.sqrt(h1_std_corr ** 2 + h2_std_corr ** 2 + h3_std_corr ** 2)
 
             denom = float(bm.cell_total_atoms_struct.get(cid, 0.0))
             if denom > 0.0:
                 factor = neutron_source_rate * s_in_y / denom * 1e6
-                h_appm_y[i] = h1_mean_corr * factor
-                h_appm_y_std[i] = h1_std_corr * factor
+                h_appm_y[i] = h_mean_corr * factor
+                h_appm_y_std[i] = h_std_corr * factor
 
         fig, ax = empty_poloidal_plot(x, n)
         h_appm_y = pad_poloidal_data(h_appm_y)

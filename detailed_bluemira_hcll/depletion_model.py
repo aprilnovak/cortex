@@ -31,6 +31,10 @@ R2S_ACTIVATION_DIR.mkdir(parents=True, exist_ok=True)
 module_path = BASE_DIR.parent / "materials"
 sys.path.append(str(module_path))
 import materials
+
+TRANSPORT_THREADS  = None  # 16
+DEPLETION_PROCESSES = None  # 16
+
 # --------------------
 # TIME CLASS
 # --------------------
@@ -222,7 +226,7 @@ print("Performing D1S run")
 print("---------------------------")
 timer.start("D1S run")
 
-statepoint = model.run(cwd=str(D1S_DIR), output=False)
+statepoint = model.run(cwd=str(D1S_DIR), output=False, threads=TRANSPORT_THREADS)
 
 with openmc.StatePoint(statepoint) as sp:
     tally = sp.get_tally(name="dose tally")
@@ -415,6 +419,54 @@ plt.legend()
 plt.savefig(sdr_dir /f"sdr_profile_{OB_KEY}.png", dpi=300, bbox_inches="tight")
 plt.close()
 
+# ------------------------------------------------------------------
+# Save SDR (D1S) results to CSV
+# ------------------------------------------------------------------
+SDR_CSV_DIR = sdr_dir / "csv"
+SDR_CSV_DIR.mkdir(parents=True, exist_ok=True)
+
+# Per-timestep CSV: one row per cell
+for prof in profiles:
+    t_s = prof["t_s"]
+    t_y = t_s / y_to_s
+    df_out = prof["df"][[cell_col, "centers", "μSv/h", "mSv/h"]].copy()
+    df_out = df_out.rename(columns={
+        cell_col:  "cell_id",
+        "centers": "radial_center_cm",
+    })
+    df_out["t_s"] = t_s
+    df_out["t_y"] = t_y
+    fname = SDR_CSV_DIR / f"sdr_profile_t{t_s:.4e}s.csv"
+    df_out.to_csv(fname, index=False)
+
+# Time-series CSV: one row per cooling time, per point-of-interest cell
+df_time_series = pd.DataFrame({
+    "t_s": time_s,
+    "t_y": [t / y_to_s for t in time_s],
+    f"plasma_cell{int(plasma_vol_id)}_uSvh":    [v for v in dose_time_by_cell[int(plasma_vol_id)]],
+    f"vvpf_cell{int(vvportfill_vol_id)}_uSvh":  [v for v in dose_time_by_cell[int(vvportfill_vol_id)]],
+})
+df_time_series.to_csv(sdr_dir / "sdr_timeseries_plasma_vvpf.csv", index=False)
+
+# Summary CSV: one row per cooling time, columns = OB_1_b6 cells 
+summary_rows = []
+for prof in profiles:
+    t_s = prof["t_s"]
+    row = {"t_s": t_s, "t_y": t_s / y_to_s}
+    for _, r in prof["df"].iterrows():
+        cid = int(r[cell_col])
+        cx  = float(r["centers"])
+        row[f"cell_{cid}_x{cx:.1f}cm_uSvh"] = float(r["μSv/h"])
+        row[f"cell_{cid}_x{cx:.1f}cm_mSvh"] = float(r["mSv/h"])
+    summary_rows.append(row)
+
+df_summary = pd.DataFrame(summary_rows).sort_values("t_s").reset_index(drop=True)
+df_summary.to_csv(sdr_dir / f"sdr_summary_{OB_KEY}.csv", index=False)
+
+print(f"[info] Wrote {len(profiles)} per-timestep SDR CSVs to {SDR_CSV_DIR}")
+print(f"[info] Wrote plasma/vvpf time series to {sdr_dir / 'sdr_timeseries_plasma_vvpf.csv'}")
+print(f"[info] Wrote OB summary to {sdr_dir / f'sdr_summary_{OB_KEY}.csv'}")
+
 timer.stop("D1S run")
 
 # ------------------------------------------------------------------
@@ -425,6 +477,7 @@ print("Performing depletion")
 print("--------------------------------")
 timer.start("Set up depletion model")
 
+openmc.deplete.pool.NUM_PROCESSES = DEPLETION_PROCESSES
 # Make sure the model's materials list matches the geometry
 model.materials = openmc.Materials(list(model.geometry.get_all_materials().values()))
 model.geometry.determine_paths()
@@ -488,7 +541,7 @@ fluxes, micros = openmc.deplete.get_microxs_and_flux(
     model,
     deplete_mats,
     chain_file=str(bluemira_chain),
-    run_kwargs={"cwd": str(DEPLETION_RUN_DIR), "output": False},
+    run_kwargs={"cwd": str(DEPLETION_RUN_DIR), "output": False, "threads": TRANSPORT_THREADS},
 )
 
 operator = openmc.deplete.IndependentOperator(

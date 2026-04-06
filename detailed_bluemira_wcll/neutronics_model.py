@@ -298,10 +298,10 @@ model.settings.run_mode = "fixed source"
 model.settings.source = my_source.to_openmc_source()
 
 # Set TALLY_CONVERGENCE_THRESHOLD to 0.01 (1%) or 0.001 (0.1%)
-TALLY_CONVERGENCE_THRESHOLD = 0.01
+TALLY_CONVERGENCE_THRESHOLD = 0.1
 
 # Choose initial batches * particles per batch > 15-20 * max_particles
-model.settings.batches = 100
+model.settings.batches = 10
 model.settings.trigger_active = True
 model.settings.trigger_batch_interval = 10   # check triggers every N batches
 model.settings.particles = 1_000_000
@@ -913,6 +913,16 @@ for cid in cell_ids:
 
     model.tallies.append(tg)
     dpa_gas_tallies[cid] = tg
+
+# -----------------------------------------------------------------------------
+# (n,gamma) tally
+# -----------------------------------------------------------------------------
+_N_GAMMA = True
+if _N_GAMMA:
+    ngamma_tally = openmc.Tally()
+    ngamma_tally.filters = [cell_filter]
+    ngamma_tally.scores = ["(n,gamma)"]
+    model.tallies.append(ngamma_tally)
 
 # -----------------------------------------------------------------------------
 # VV port fill - total neutron + photon flux 
