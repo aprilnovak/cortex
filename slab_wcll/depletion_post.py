@@ -476,6 +476,11 @@ def plot_activity_nuclides_per_cell(
             ax.loglog(t_rel_plot, total_act_plot, color="black", linewidth=2.0, label="Total", zorder=10)
 
         region = cell_id_to_name.get(cid, str(cid))
+        if not _has_positive_finite(total_act_plot):
+            print(f"[Activity] Skipping plot for cell {cid} ({region}, mat {mat_id}): zero induced activity.")
+            plt.close(fig)
+            continue
+
         ax.set_xlabel("Time after irradiation [years]")
         ax.set_ylabel(f"Activity [{activity_units}]")
         ax.set_title(f"Activity — {region} (mat {mat_id})")
@@ -483,7 +488,12 @@ def plot_activity_nuclides_per_cell(
         _add_time_reference_lines(ax)
         _format_log_axes(ax)
 
-        ax.set_ylim([10 ** math.floor(math.log10(np.min(others_plot))), 10 ** math.ceil(math.log10(np.max(total_act_plot)))])
+        others_pos = others_plot[others_plot > 0.0]
+        total_pos  = total_act_plot[total_act_plot > 0.0]
+        if others_pos.size > 0 and total_pos.size > 0:
+            min_act = 10 ** math.floor(math.log10(np.min(others_pos)))
+            max_act = 10 ** math.ceil(math.log10(np.max(total_pos)))
+            ax.set_ylim([min_act, max_act])
 
         n_entries = len(ax.get_legend_handles_labels()[1])
         ncol = 2 if n_entries <= 24 else 3
@@ -520,6 +530,8 @@ def plot_activity_all_cells(
     for i, (cid, (t_rel_y, y)) in enumerate(total_activity_all.items()):
         region = cell_id_to_name.get(cid, str(cid))
         yy = np.asarray(y, float)
+        if not _has_positive_finite(yy):
+            continue
         if yy.size:
             ymax = max(ymax, float(np.nanmax(yy)))
 
@@ -600,9 +612,10 @@ def plot_activity_radial_profiles(
 
     for k, j in enumerate(idx_to_plot):
         y = radial[:, j]
+        y_zero_safe = np.where(y > 0.0, y, np.nan)
         ax.semilogy(
             x,
-            y,
+            y_zero_safe,
             label=f"t = {t_rel_y[j]:.2e} y",
             color=colors[k % len(colors)],
             marker=next(mcycle),
@@ -691,6 +704,11 @@ def plot_decayheat_nuclides_per_cell(
         if total_h_plot.size and np.nanmax(total_h_plot) > 0.0:
             max_decay_comb = max(max_decay_comb, float(np.nanmax(total_h_plot)))
 
+        region = cell_id_to_name.get(cid, str(cid))
+        if not _has_positive_finite(total_h_plot):
+            print(f"[DecayHeat] Skipping plot for cell {cid} ({region}, mat {mat_id}): zero decay heat.")
+            continue
+
         topn_list_by_step, top_nucs_union = _select(heat_dict_list, n_steps)
         top_nucs = sorted(top_nucs_union)
 
@@ -751,7 +769,13 @@ def plot_decayheat_nuclides_per_cell(
         ax.set_ylabel(f"Decay heat [{decayheat_units}]")
         ax.set_title(f"Decay heat — {region} (mat {mat_id})")
 
-        ax.set_ylim([10 ** math.floor(math.log10(np.min(others_plot))), 10 ** math.ceil(math.log10(np.max(total_h_plot)))])
+        others_pos = others_plot[others_plot > 0.0]
+        total_pos  = total_h_plot[total_h_plot > 0.0]
+        if others_pos.size > 0 and total_pos.size > 0:
+            ax.set_ylim([
+                10 ** math.floor(math.log10(np.min(others_pos))),
+                10 ** math.ceil(math.log10(np.max(total_pos))),
+            ])
 
         _add_time_reference_lines(ax)
         _format_log_axes(ax)
@@ -798,6 +822,8 @@ def plot_decayheat_all_cells(
     for i, (cid, (t_rel_y, y)) in enumerate(total_heat_all.items()):
         region = cell_id_to_name.get(cid, str(cid))
         yy = np.asarray(y, float)
+        if not _has_positive_finite(yy):
+            continue
         ax.loglog(
             t_rel_y,
             yy,
@@ -873,9 +899,10 @@ def plot_decayheat_radial_profiles(
 
     for k, j in enumerate(idx_to_plot):
         y = radial[:, j]
+        y_zero_safe = np.where(y > 0.0, y, np.nan)
         ax.semilogy(
             x,
-            y,
+            y_zero_safe,
             label=f"t = {t_rel_y[j]:.2e} y",
             color=colors[k % len(colors)],
             marker=next(mcycle),
