@@ -83,7 +83,7 @@ ev_to_joule = 1.60218e-19
 ev_fusion = 17.6e6
 convert_e = ev_to_joule * ev_fusion
 neutron_source_rate = section_power / convert_e
-s_in_y = 365 * 24 * 60 * 60
+s_in_y = 365.0 * 24.0 * 60.0 * 60.0
 
 energies = openmc.mgxs.GROUP_STRUCTURES["CCFE-709"]
 unit_lethargy = np.array(

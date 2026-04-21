@@ -25,7 +25,7 @@ import openmc.deplete
 # https://iopscience.iop.org/article/10.1088/1741-4326/aca61f
 
 # parameters
-SECONDS_PER_YEAR = 365.25 * 24 * 3600.0
+SECONDS_PER_YEAR = 365.00 * 24 * 3600.0
 
 BASE_DIR = Path.cwd()
 INPUT_JSON = (BASE_DIR / "EUDEMO_WCLL_inputs.json")

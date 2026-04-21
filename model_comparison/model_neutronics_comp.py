@@ -213,8 +213,9 @@ def plot_neutronics_spectrum_tok_vs_slab_per_layer(
     outdir = Path(outdir)
     outdir.mkdir(parents=True, exist_ok=True)
 
-    layers_tok = [c for c in df_tok.columns if c != "E_mid_eV"]
-    layers_slb = [c for c in df_slb.columns if c != "E_mid_eV"]
+    # Mean columns only (exclude _std columns)
+    layers_tok = [c for c in df_tok.columns if c != "E_mid_eV" and not c.endswith("_std")]
+    layers_slb = [c for c in df_slb.columns if c != "E_mid_eV" and not c.endswith("_std")]
 
     if pick_layers is None:
         layers = [L for L in layers_tok if L in layers_slb]
@@ -232,6 +233,11 @@ def plot_neutronics_spectrum_tok_vs_slab_per_layer(
 
         y_tok = pd.to_numeric(df_tok[layer], errors="coerce").to_numpy(float)
         y_slb = pd.to_numeric(df_slb[layer], errors="coerce").to_numpy(float)
+
+        # Load std if available
+        std_col = f"{layer}_std"
+        s_tok = pd.to_numeric(df_tok[std_col], errors="coerce").to_numpy(float) if std_col in df_tok.columns else np.zeros_like(y_tok)
+        s_slb = pd.to_numeric(df_slb[std_col], errors="coerce").to_numpy(float) if std_col in df_slb.columns else np.zeros_like(y_slb)
 
         mt = np.isfinite(E_tok) & np.isfinite(y_tok) & (E_tok > 0.0) & (y_tok > 0.0)
         ms = np.isfinite(E_slb) & np.isfinite(y_slb) & (E_slb > 0.0) & (y_slb > 0.0)
@@ -253,8 +259,19 @@ def plot_neutronics_spectrum_tok_vs_slab_per_layer(
         rel_plot[mr] = np.clip(rel_percent[mr], -rel_clip, rel_clip)
 
         fig, ax = plt.subplots(figsize=(9, 6))
+
+        # Tokamak mean + std band
         ax.loglog(E_tok[mt], y_tok[mt], label="tokamak", linewidth=2)
+        tok_low = np.maximum(y_tok - s_tok, tok_floor)
+        tok_up  = y_tok + s_tok
+        ax.fill_between(E_tok[mt], tok_low[mt], tok_up[mt], alpha=0.20)
+
+        # Slab mean + std band
         ax.loglog(E_slb[ms], y_slb[ms], linestyle="--", label="slab", linewidth=2)
+        slb_low = np.maximum(y_slb - s_slb, tok_floor)
+        slb_up  = y_slb + s_slb
+        ax.fill_between(E_slb[ms], slb_low[ms], slb_up[ms], alpha=0.20)
+
         ax.set_xlabel("Energy [eV]")
         ax.set_xlim([1, 100e6])
         ax.grid(True, which="both")
@@ -282,10 +299,6 @@ def plot_neutronics_spectrum_tok_vs_slab_per_layer(
         outpath = outdir / f"{particle}_{layer_tag}.png"
         fig.savefig(outpath, dpi=300, bbox_inches="tight")
         plt.close(fig)
-
-        n_clipped = int(np.sum(np.isfinite(rel_percent[mr]) & (np.abs(rel_percent[mr]) > rel_clip)))
-        #if n_clipped > 0:
-        #    print(f"{particle} {layer_tag}: {n_clipped} relative-difference points clipped to {rel_ylim}")
 
 
 def plot_depletion_tok_vs_slab(

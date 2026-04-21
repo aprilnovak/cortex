@@ -116,10 +116,10 @@ plasma.add_element("H", 1.0)
 armor_material = materials.W(19.3)
 
 # Structural material (Eurofer if not provided by user)
-#structural_material = materials.eurofer97(7.87)
+structural_material = materials.eurofer97(7.87)
 #structural_material = materials.V4Cr4Ti(6.05)
 #structural_material = materials.SiC(2.5)
-structural_material = materials.inconel718(8.19)
+#structural_material = materials.inconel718(8.19)
 
 # Coolant material (dependent on the breeder type) (water for WCLL)
 coolant_material = materials.Water(0.866)
@@ -300,18 +300,25 @@ model.settings.source = my_source.to_openmc_source()
 # Set TALLY_CONVERGENCE_THRESHOLD to 0.01 (1%) or 0.001 (0.1%)
 TALLY_CONVERGENCE_THRESHOLD = 0.1
 
-# Choose initial batches * particles per batch > 15-20 * max_particles
-model.settings.batches = 10
-model.settings.trigger_active = True
-model.settings.trigger_batch_interval = 10   # check triggers every N batches
+USE_TRIGGER   = False
+FIXED_BATCHES = 5
+
 model.settings.particles = 1_000_000
-model.settings.trigger_max_batches = 2000     # hard ceiling
+
+if USE_TRIGGER:
+    model.settings.batches                = 5
+    model.settings.trigger_active         = True
+    model.settings.trigger_batch_interval = 1
+    model.settings.trigger_max_batches    = 2000
+else:
+    model.settings.batches        = FIXED_BATCHES
+    model.settings.trigger_active = False
 
 # output particle track, selected at random
 #import random
 #model.settings.track = [(1, 1, random.randint(1, model.settings.particles))]
 
-_WRITE_SOURCE = True
+_WRITE_SOURCE = False
 if _WRITE_SOURCE:
     model.settings.surf_source_write = {
         "surface_ids": [287],
@@ -708,13 +715,20 @@ model.tallies.append(flux_tally)
 # TODO: this does not need to be its own tally, you have all the information in flux_tally already
 # (REPLY): You are correct! (I will remove this soon)
 flux_tally_total = openmc.Tally()
-#flux_tally_total.filters = [cell_filter, n_particle_filter]
 flux_tally_total.filters = [chunk_cell_filter, n_particle_filter]
 flux_tally_total.scores = ["flux"]
-flux_tally_total.triggers = [
-    openmc.Trigger(trigger_type="rel_err", threshold=TALLY_CONVERGENCE_THRESHOLD)
-]
+if USE_TRIGGER:
+    flux_tally_total.triggers = [
+        openmc.Trigger(trigger_type="rel_err", threshold=TALLY_CONVERGENCE_THRESHOLD)
+    ]
 model.tallies.append(flux_tally_total)
+
+# heating tally
+heating_tally = openmc.Tally()
+heating_tally.filters = [cell_filter]
+heating_tally.scores = ["heating"]
+model.tallies.append(heating_tally)
+
 
 # TODO: why is this only looking at the neutrons? I guess we are only computing the albedos for the neutrons?
 # (REPLY) I have been checked neutrons only. But I agree this should have been more in depth explored with photons.
@@ -741,10 +755,6 @@ for cid in cell_ids_selected_chunk:
     model.tallies.append(p_current_tally)
     p_current_tallies[cid] = p_current_tally
 
-heating_tally = openmc.Tally()
-heating_tally.filters = [cell_filter]
-heating_tally.scores = ["heating"]
-model.tallies.append(heating_tally)
 
 # -----------------------------------------------------------------------------
 # Define Structural_materials nuclides fractions and totals
@@ -917,7 +927,7 @@ for cid in cell_ids:
 # -----------------------------------------------------------------------------
 # (n,gamma) tally
 # -----------------------------------------------------------------------------
-_N_GAMMA = True
+_N_GAMMA = False
 if _N_GAMMA:
     ngamma_tally = openmc.Tally()
     ngamma_tally.filters = [cell_filter]
@@ -940,6 +950,23 @@ if test_VV_port_fill:
     flux_tally_VV_port_fill.filters = [vv_port_fill_cell_filter, particle_filter]
     flux_tally_VV_port_fill.scores = ["flux"]
     model.tallies.append(flux_tally_VV_port_fill)
+
+_run_meta = {
+    "neutron_ratio_source": 1.0,          # tokamak fixed source, no surface-source scaling
+    "sim_type":             "tokamak",
+    "breeder_type":         "WCLL",
+    "tally_ids": {
+        "flux_spectrum":   flux_tally.id,
+        "heating":         heating_tally.id,
+        "total_current":   t_current_tally.id,
+        "ngamma":          ngamma_tally.id if _N_GAMMA else None,
+        "partial_current": {str(cid): t.id for cid, t in p_current_tallies.items()},
+        "dpa_gas":         {str(cid): t.id for cid, t in dpa_gas_tallies.items()},
+    },
+}
+with open(RUN_DIR / "run_meta.json", "w", encoding="utf-8") as _f:
+    json.dump(_run_meta, _f, indent=2)
+print(f"[neutronics_model] run_meta.json written to: {RUN_DIR}")
 
 # -----------------------------------------------------------------------------
 # Export

@@ -168,128 +168,130 @@ for cid in dose_cells_all:
 # Save the current tallies to restore later
 orig_tallies = [t for t in model.tallies]
 
-# Dose coefficients + tally
-energies, pSv_cm2 = openmc.data.dose_coefficients(particle="photon", geometry="AP")
-dose_filter = openmc.EnergyFunctionFilter(energies, pSv_cm2, interpolation="cubic")
-photon_filter = openmc.ParticleFilter("photon")
+D1S_RUN = False
+if D1S_RUN:
+    # Dose coefficients + tally
+    energies, pSv_cm2 = openmc.data.dose_coefficients(particle="photon", geometry="AP")
+    dose_filter = openmc.EnergyFunctionFilter(energies, pSv_cm2, interpolation="cubic")
+    photon_filter = openmc.ParticleFilter("photon")
 
-dose_tally = openmc.Tally(name="dose tally")
-dose_tally.filters = [dose_filter, photon_filter, cell_filter2]
-dose_tally.scores = ["flux"]
+    dose_tally = openmc.Tally(name="dose tally")
+    dose_tally.filters = [dose_filter, photon_filter, cell_filter2]
+    dose_tally.scores = ["flux"]
 
-# Use only dose tally for D1S run
-model.tallies = [dose_tally]
+    # Use only dose tally for D1S run
+    model.tallies = [dose_tally]
 
-# D1S settings
-model.settings.photon_transport = True
-model.settings.use_decay_photons = True
+    # D1S settings
+    model.settings.photon_transport = True
+    model.settings.use_decay_photons = True
 
-nuclides = d1s.prepare_tallies(model)
-factors = d1s.time_correction_factors(nuclides, timesteps, source_rates)
+    nuclides = d1s.prepare_tallies(model)
+    factors = d1s.time_correction_factors(nuclides, timesteps, source_rates)
 
-print("---------------------------")
-print("Performing D1S run")
-print("---------------------------")
+    print("---------------------------")
+    print("Performing D1S run")
+    print("---------------------------")
 
-statepoint = model.run(cwd=str(D1S_DIR), output=False, threads=TRANSPORT_THREADS)
+    statepoint = model.run(cwd=str(D1S_DIR), output=False, threads=TRANSPORT_THREADS)
 
-with openmc.StatePoint(str(statepoint)) as sp:
-    tally = sp.get_tally(name="dose tally")
+    with openmc.StatePoint(str(statepoint)) as sp:
+        tally = sp.get_tally(name="dose tally")
 
-corrected_tallies = [d1s.apply_time_correction(tally, factors, i + 1) for i in range(len(timesteps))]
+    corrected_tallies = [d1s.apply_time_correction(tally, factors, i + 1) for i in range(len(timesteps))]
 
-print("Displaying cell dose rates")
+    print("Displaying cell dose rates")
 
-profiles = []
-for t_cool, ctally in zip(timesteps[1:], corrected_tallies[1:]):
-    d1s_df = ctally.get_pandas_dataframe()
+    profiles = []
+    for t_cool, ctally in zip(timesteps[1:], corrected_tallies[1:]):
+        d1s_df = ctally.get_pandas_dataframe()
 
-    if "cell" in d1s_df.columns:
-        cell_col = "cell"
-    elif "cell_id" in d1s_df.columns:
-        cell_col = "cell_id"
-    else:
-        raise KeyError(f"Could not find a cell column in tally dataframe. Columns: {list(d1s_df.columns)}")
+        if "cell" in d1s_df.columns:
+            cell_col = "cell"
+        elif "cell_id" in d1s_df.columns:
+            cell_col = "cell_id"
+        else:
+            raise KeyError(f"Could not find a cell column in tally dataframe. Columns: {list(d1s_df.columns)}")
 
-    d1s_df["cell_volume"] = d1s_df[cell_col].map(vol_by_cell_all)
-    if d1s_df["cell_volume"].isna().any():
-        missing = d1s_df.loc[d1s_df["cell_volume"].isna(), cell_col].unique().tolist()
-        raise KeyError(f"Missing volumes for cells: {missing}")
+        d1s_df["cell_volume"] = d1s_df[cell_col].map(vol_by_cell_all)
+        if d1s_df["cell_volume"].isna().any():
+            missing = d1s_df.loc[d1s_df["cell_volume"].isna(), cell_col].unique().tolist()
+            raise KeyError(f"Missing volumes for cells: {missing}")
 
-    d1s_df["μSv/h"] = d1s_df["mean"] * (s_to_h * to_μSv) / d1s_df["cell_volume"]
-    d1s_df["mSv/h"] = d1s_df["mean"] * (s_to_h * to_mSv) / d1s_df["cell_volume"]
+        d1s_df["μSv/h"] = d1s_df["mean"] * (s_to_h * to_μSv) / d1s_df["cell_volume"]
+        d1s_df["mSv/h"] = d1s_df["mean"] * (s_to_h * to_mSv) / d1s_df["cell_volume"]
 
-    df_prof = d1s_df[d1s_df[cell_col].isin(dose_cells_all)].copy()
-    df_prof["centers"] = df_prof[cell_col].map(center_by_cell_full)
+        df_prof = d1s_df[d1s_df[cell_col].isin(dose_cells_all)].copy()
+        df_prof["centers"] = df_prof[cell_col].map(center_by_cell_full)
 
-    if df_prof["centers"].isna().any():
-        missing = df_prof.loc[df_prof["centers"].isna(), cell_col].unique().tolist()
-        raise KeyError(f"Missing centroids for OB cells: {missing}")
+        if df_prof["centers"].isna().any():
+            missing = df_prof.loc[df_prof["centers"].isna(), cell_col].unique().tolist()
+            raise KeyError(f"Missing centroids for OB cells: {missing}")
 
-    df_prof = df_prof.sort_values("centers")
-    profiles.append({"t_s": float(t_cool), "df": df_prof.copy()})
+        df_prof = df_prof.sort_values("centers")
+        profiles.append({"t_s": float(t_cool), "df": df_prof.copy()})
 
-    print(f"Cooling {t_cool:.3e} s | {OB_KEY} rows={len(df_prof)}")
+        print(f"Cooling {t_cool:.3e} s | {OB_KEY} rows={len(df_prof)}")
 
-# Plot a few profiles
-if len(profiles) == 0:
-    raise RuntimeError("profiles is empty: OB rows were never captured.")
+    # Plot a few profiles
+    if len(profiles) == 0:
+        raise RuntimeError("profiles is empty: OB rows were never captured.")
 
-ncurves = min(10, len(profiles))
-idxs = np.linspace(0, len(profiles) - 1, ncurves, dtype=int)
+    ncurves = min(10, len(profiles))
+    idxs = np.linspace(0, len(profiles) - 1, ncurves, dtype=int)
 
-plt.figure()
-for i in idxs:
-    t_s_i = profiles[i]["t_s"]
-    dfp = profiles[i]["df"]
-    plt.plot(dfp["centers"], dfp["μSv/h"], label=f"{t_s_i:.1e} s")
-plt.grid()
-plt.yscale("log")
-plt.ylim(1e-6, 1e12)
-plt.ylabel("Shutdown Dose (μSv/h)")
-plt.xlabel("Radial Position [cm]")
-plt.title(f"D1S spatial profile: {OB_KEY}")
-plt.legend()
-plt.savefig(D1S_DIR / f"sdr_profile_{OB_KEY}.png", dpi=300, bbox_inches="tight")
-plt.close()
+    plt.figure()
+    for i in idxs:
+        t_s_i = profiles[i]["t_s"]
+        dfp = profiles[i]["df"]
+        plt.plot(dfp["centers"], dfp["μSv/h"], label=f"{t_s_i:.1e} s")
+    plt.grid()
+    plt.yscale("log")
+    plt.ylim(1e-6, 1e12)
+    plt.ylabel("Shutdown Dose (μSv/h)")
+    plt.xlabel("Radial Position [cm]")
+    plt.title(f"D1S spatial profile: {OB_KEY}")
+    plt.legend()
+    plt.savefig(D1S_DIR / f"sdr_profile_{OB_KEY}.png", dpi=300, bbox_inches="tight")
+    plt.close()
 
-# -----------------------------------------------------------------------------
-# Save SDR profiles to CSV
-# -----------------------------------------------------------------------------
-SDR_DIR = D1S_DIR / "sdr_csv"
-SDR_DIR.mkdir(parents=True, exist_ok=True)
+    # -----------------------------------------------------------------------------
+    # Save SDR profiles to CSV
+    # -----------------------------------------------------------------------------
+    SDR_DIR = D1S_DIR / "sdr_csv"
+    SDR_DIR.mkdir(parents=True, exist_ok=True)
 
-# One CSV per cooling timestep
-for prof in profiles:
-    t_s = prof["t_s"]
-    df_out = prof["df"][[cell_col, "centers", "μSv/h", "mSv/h", "std. dev."]].copy()
-    df_out = df_out.rename(columns={
-        cell_col:     "cell_id",
-        "centers":    "radial_center_cm",
-        "std. dev.":  "std_dev_raw",
-    })
-    df_out["t_s"] = t_s
-    df_out["t_y"] = t_s / y_to_s
+    # One CSV per cooling timestep
+    for prof in profiles:
+        t_s = prof["t_s"]
+        df_out = prof["df"][[cell_col, "centers", "μSv/h", "mSv/h", "std. dev."]].copy()
+        df_out = df_out.rename(columns={
+            cell_col:     "cell_id",
+            "centers":    "radial_center_cm",
+            "std. dev.":  "std_dev_raw",
+        })
+        df_out["t_s"] = t_s
+        df_out["t_y"] = t_s / y_to_s
 
-    fname = SDR_DIR / f"sdr_profile_t{t_s:.4e}s.csv"
-    df_out.to_csv(fname, index=False)
+        fname = SDR_DIR / f"sdr_profile_t{t_s:.4e}s.csv"
+        df_out.to_csv(fname, index=False)
 
-# One summary CSV: rows = cooling times, columns = cell radial positions
-summary_rows = []
-for prof in profiles:
-    t_s = prof["t_s"]
-    row = {"t_s": t_s, "t_y": t_s / y_to_s}
-    for _, r in prof["df"].iterrows():
-        cid = int(r[cell_col])
-        cx  = float(r["centers"])
-        row[f"cell_{cid}_x{cx:.1f}cm_uSvh"]  = float(r["μSv/h"])
-        row[f"cell_{cid}_x{cx:.1f}cm_mSvh"]  = float(r["mSv/h"])
-    summary_rows.append(row)
+    # One summary CSV: rows = cooling times, columns = cell radial positions
+    summary_rows = []
+    for prof in profiles:
+        t_s = prof["t_s"]
+        row = {"t_s": t_s, "t_y": t_s / y_to_s}
+        for _, r in prof["df"].iterrows():
+            cid = int(r[cell_col])
+            cx  = float(r["centers"])
+            row[f"cell_{cid}_x{cx:.1f}cm_uSvh"]  = float(r["μSv/h"])
+            row[f"cell_{cid}_x{cx:.1f}cm_mSvh"]  = float(r["mSv/h"])
+        summary_rows.append(row)
 
-df_summary = pd.DataFrame(summary_rows).sort_values("t_s").reset_index(drop=True)
-df_summary.to_csv(D1S_DIR / f"sdr_summary_{OB_KEY}.csv", index=False)
-print(f"[info] Wrote SDR CSVs to {SDR_DIR}")
-print(f"[info] Wrote SDR summary to {D1S_DIR / f'sdr_summary_{OB_KEY}.csv'}")
+    df_summary = pd.DataFrame(summary_rows).sort_values("t_s").reset_index(drop=True)
+    df_summary.to_csv(D1S_DIR / f"sdr_summary_{OB_KEY}.csv", index=False)
+    print(f"[info] Wrote SDR CSVs to {SDR_DIR}")
+    print(f"[info] Wrote SDR summary to {D1S_DIR / f'sdr_summary_{OB_KEY}.csv'}")
 
 # -----------------------------------------------------------------------------
 # Depletion
@@ -298,16 +300,25 @@ print("--------------------------------")
 print("Performing depletion")
 print("--------------------------------")
 
-# Control depletion multiprocessing
 openmc.deplete.pool.NUM_PROCESSES = DEPLETION_PROCESSES
 
 # -----------------------------------------------------------------------------
 # 1. Prepare Geometry & Materials
 # -----------------------------------------------------------------------------
+# Make sure the model's materials list matches the geometry
+model.materials = openmc.Materials(list(model.geometry.get_all_materials().values()))
+model.geometry.determine_paths()
+
+#model.settings.photon_transport = False
+model.settings.use_decay_photons = False
+
 model.differentiate_mats("match cell", depletable_only=True)
 
 # Synchronize the model materials after differentiation
-model.materials = openmc.Materials(model.geometry.get_all_materials().values())
+#model.materials = openmc.Materials(model.geometry.get_all_materials().values())
+
+# include original tallies during activation and cooling
+model.tallies = orig_tallies
 
 # -----------------------------------------------------------------------------
 # 2. Build Target Lists (cells in OB_KEY present in wrapper)
@@ -339,6 +350,7 @@ if not deplete_mats:
 
 print(f"Targeting {len(deplete_mats)} cells/materials for depletion.")
 
+
 # -----------------------------------------------------------------------------
 # 3. Chain Reduction & MicroXS
 # -----------------------------------------------------------------------------
@@ -358,11 +370,12 @@ print(f"[info] Wrote reduced chain: {bluemira_chain}")
 openmc.config["chain_file"] = str(bluemira_chain)
 model.settings.depletion = {"chain_file": str(bluemira_chain)}
 
+
 fluxes, micros = openmc.deplete.get_microxs_and_flux(
     model,
     deplete_mats,
     chain_file=str(BLUEMIRA_CHAIN_XML),
-    run_kwargs={"cwd": str(DEPLETION_RUN_DIR), "output": False, "threads": TRANSPORT_THREADS},
+    run_kwargs={"cwd": str(DEPLETION_RUN_DIR), "output": True, "threads": TRANSPORT_THREADS},
 )
 
 # -----------------------------------------------------------------------------
