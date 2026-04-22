@@ -41,6 +41,7 @@ RUN_DEPLETION = True
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Import neutronics_model — gives us the fully synced model + all_cells
+# This step will be removed once running neutronics+depletion together
 # ──────────────────────────────────────────────────────────────────────────────
 import neutronics_model as nm
 
@@ -48,33 +49,32 @@ model     = nm.model
 all_cells = nm.all_cells
 
 # Save the current tallies to restore later
-orig_tallies = [t for t in model.tallies]
+orig_tallies = list(model.tallies)
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Aliases from geometry
 # ──────────────────────────────────────────────────────────────────────────────
-pydagmc_model        = geo.pydagmc_model
-neutron_source_rate  = geo.neutron_source_rate
-ob_by_key            = geo.ob_by_key      # ← from geo, not nm
-ib_by_key            = geo.ib_by_key      # ← from geo, not nm
-OB_CHUNK_SIZE        = geo.OB_CHUNK_SIZE
-IB_CHUNK_SIZE        = geo.IB_CHUNK_SIZE
-build_breeder_chunks = geo.build_breeder_chunks
+pydagmc_model       = geo.pydagmc_model
+neutron_source_rate = geo.neutron_source_rate
+ob_by_key           = geo.ob_by_key
+ib_by_key           = geo.ib_by_key
+OB_CHUNK_SIZE       = geo.OB_CHUNK_SIZE
+IB_CHUNK_SIZE       = geo.IB_CHUNK_SIZE
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Output directories
 # ──────────────────────────────────────────────────────────────────────────────
-DEPLETION_RUN_DIR = cfg.DEPLETION_RUN_DIR
+DEPLETION_RUN_DIR  = cfg.DEPLETION_RUN_DIR
 DEPLETION_RUN_DIR.mkdir(parents=True, exist_ok=True)
 
-D1S_DIR = DEPLETION_RUN_DIR / "d1s"
+D1S_DIR            = DEPLETION_RUN_DIR / "d1s"
 D1S_DIR.mkdir(parents=True, exist_ok=True)
 
 R2S_DIR            = DEPLETION_RUN_DIR / "r2s"
 R2S_ACTIVATION_DIR = R2S_DIR / "activation"
 R2S_ACTIVATION_DIR.mkdir(parents=True, exist_ok=True)
 
-SDR_DIR = D1S_DIR / "sdr"
+SDR_DIR     = D1S_DIR / "sdr"
 SDR_DIR.mkdir(parents=True, exist_ok=True)
 
 SDR_CSV_DIR = SDR_DIR / "csv"
@@ -113,7 +113,7 @@ timer = Timer()
 timer.start("Build chunk helpers")
 
 OB_KEY      = cfg.ALBEDO_CHUNK_KEY
-chunk_cells = build_breeder_chunks(cfg.INPUT_JSON, default_chunk_key=OB_KEY)
+chunk_cells = geo.build_breeder_chunks(cfg.INPUT_JSON, default_chunk_key=OB_KEY)
 
 cell_ids_all            = chunk_cells["cell_ids_all"]
 cell_ids_selected_chunk = chunk_cells["selected_chunk_cell_ids"]
@@ -141,34 +141,27 @@ timer.stop("Build chunk helpers")
 # ──────────────────────────────────────────────────────────────────────────────
 # Time grids / source rates
 # ──────────────────────────────────────────────────────────────────────────────
-s_to_h = 3_600                   # seconds per hour
-y_to_s = 24 * 365 * s_to_h       # seconds per year (non-leap, 31,536,000 s)
-to_μSv = 1e-6
-to_mSv = 1e-9
-
-# This module's plot helpers also use SECONDS_PER_YEAR = y_to_s
+s_to_h           = 3_600
+y_to_s           = 24 * 365 * s_to_h
+to_μSv           = 1e-6
+to_mSv           = 1e-9
 SECONDS_PER_YEAR = y_to_s
 
-# Irradiation interval(s) — these ARE depletion intervals
-irradiation_time_y = np.array([cfg.IRRADIATION_YEARS], dtype=float)
+irradiation_time_y      = np.array([cfg.IRRADIATION_YEARS], dtype=float)
 irradiation_intervals_s = (irradiation_time_y * y_to_s).tolist()
 
-# ── Cooling milestone times since shutdown (absolute times) ──────────────────
-#
-# These are the physical times at which we want results after shutdown.
-# They are NOT passed directly to OpenMC as depletion intervals.
-#
+# Cooling milestone times since shutdown (absolute times)
 _milestones_s = np.array([
-    1.0,                    # 1 second
-    60.0,                   # 1 minute
-    3_600.0,                # 1 hour
-    86_400.0,               # 1 day
-    7 * 86_400.0,           # 1 week
-    y_to_s / 12.0,          # 1 month
-    1 * y_to_s,             # 1 year
-    10 * y_to_s,            # 10 years
-    100 * y_to_s,           # 100 years
-    1_000 * y_to_s,         # 1000 years
+    1.0,                # 1 second
+    60.0,               # 1 minute
+    3_600.0,            # 1 hour
+    86_400.0,           # 1 day
+    7 * 86_400.0,       # 1 week
+    y_to_s / 12.0,      # 1 month
+    1 * y_to_s,         # 1 year
+    10 * y_to_s,        # 10 years
+    100 * y_to_s,       # 100 years
+    1_000 * y_to_s,     # 1000 years
 ], dtype=float)
 
 # 2 interior log-spaced points between each consecutive milestone pair
@@ -176,37 +169,30 @@ _between_s = []
 for _a, _b in zip(_milestones_s[:-1], _milestones_s[1:]):
     _between_s.extend(np.logspace(np.log10(_a), np.log10(_b), 4)[1:-1].tolist())
 
-# A few sub-second points so the plot extends to ~1e-8 y
-#_pre_s = np.logspace(np.log10(0.316), np.log10(1.0), 3)[:-1]  # ~0.316 s, ~0.562 s
-
-# Absolute cooling times since shutdown
 cooling_times_abs_s = np.unique(
     np.concatenate([_milestones_s, _between_s])
 ).astype(float)
 
-# Convert absolute cooling times into depletion interval lengths for OpenMC
-# Example:
-#   abs times:     [0.316, 0.562, 1.0, 60.0, ...]
-#   intervals:     [0.316, 0.246, 0.438, 59.0, ...]
 cooling_intervals_s = np.diff(
     np.concatenate(([0.0], cooling_times_abs_s))
 ).tolist()
 
-# Final depletion intervals passed to OpenMC
 timesteps = irradiation_intervals_s + cooling_intervals_s
 
-# Source rates: non-zero during irradiation, zero during cooling
 source_rates = (
     [cfg.CONSTANT_POWER_RATIO * neutron_source_rate] * len(irradiation_intervals_s)
     + [0.0] * len(cooling_intervals_s)
 )
 
-# Optional debug check: reconstruct absolute cooling times from intervals
+# Debug check: reconstruct absolute cooling times from intervals
 _reconstructed_cooling_abs_s = np.cumsum(cooling_intervals_s)
-
 print("[info] Cooling milestone check (years):")
-for _t in [1, 60, 3600, 86400, 7*86400, y_to_s/12.0, y_to_s, 10*y_to_s, 100*y_to_s, 1000*y_to_s]:
-    _matches = np.isclose(_reconstructed_cooling_abs_s, _t, rtol=0.0, atol=1e-9 * max(1.0, _t))
+for _t in [1, 60, 3600, 86400, 7*86400, y_to_s/12.0, y_to_s,
+           10*y_to_s, 100*y_to_s, 1000*y_to_s]:
+    _matches = np.isclose(
+        _reconstructed_cooling_abs_s, _t,
+        rtol=0.0, atol=1e-9 * max(1.0, _t)
+    )
     print(f"  target = {_t / y_to_s:12.6e} y | found = {bool(np.any(_matches))}")
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -245,14 +231,10 @@ for _cid in [plasma_vol_id, vvportfill_vol_id]:
 # ──────────────────────────────────────────────────────────────────────────────
 def _add_time_reference_lines(ax):
     """Vertical reference lines at human-readable time milestones (x in years).
- 
-    All x-positions are derived from SECONDS_PER_YEAR (= y_to_s) — the same
-    constant used everywhere to convert seconds <-> years — so the lines land
-    exactly on data points from the matching time grid.
- 
-    Labels are in strictly ascending x order (seconds -> millennia) so they
-    never visually cross on a log-x axis.  Earlier versions had "1 w" before
-    "1 d" which placed two labels out of order.
+
+    All x-positions are derived from SECONDS_PER_YEAR so the lines land
+    exactly on data points from the matching time grid. Labels are in strictly
+    ascending x order (seconds -> millennia).
     """
     refs = [
         (1.0           / SECONDS_PER_YEAR, "1 s"),
@@ -274,9 +256,9 @@ def _add_time_reference_lines(ax):
             rotation=90, va="top", ha="right",
             fontsize=8, alpha=0.8,
         )
- 
- 
+
 def _format_log_axes(ax):
+    """Apply log-log scale with clean minor ticks and grid."""
     ax.set_xscale("log")
     ax.set_yscale("log")
     ax.grid(True, which="major", linewidth=0.8, alpha=0.35)
@@ -289,7 +271,6 @@ def _format_log_axes(ax):
     )
     ax.xaxis.set_minor_formatter(mticker.NullFormatter())
     ax.yaxis.set_minor_formatter(mticker.NullFormatter())
-
 
 # ──────────────────────────────────────────────────────────────────────────────
 # D1S shutdown dose rate
@@ -306,14 +287,12 @@ if RUN_D1S:
 
     cell_filter2 = openmc.CellFilter(dose_cells_all)
 
-    vol_by_cell_all = {}
+    vol_by_cell_all: dict = {}
     for cid in dose_cells_all:
         v = vol_by_cell.get(cid)
         if v is None:
             raise KeyError(f"Missing volume for cell {cid}.")
         vol_by_cell_all[cid] = float(v)
-
-
 
     # Dose coefficients
     energies, pSv_cm2 = openmc.data.dose_coefficients(
@@ -324,14 +303,13 @@ if RUN_D1S:
     )
     photon_filter = openmc.ParticleFilter("photon")
 
-    dose_tally = openmc.Tally(name="dose tally")
+    dose_tally         = openmc.Tally(name="dose tally")
     dose_tally.filters = [dose_filter, photon_filter, cell_filter2]
     dose_tally.scores  = ["flux"]
 
     model.tallies                            = openmc.Tallies([dose_tally])
     model.settings.photon_transport          = True
     model.settings.use_decay_photons         = True
-    model.settings.source_rejection_fraction = 1e-10
 
     nuclides = d1s.prepare_tallies(model)
     factors  = d1s.time_correction_factors(nuclides, timesteps, source_rates)
@@ -342,57 +320,58 @@ if RUN_D1S:
     print("Performing D1S run")
     print("---------------------------")
     timer.start("D1S run")
- 
+
     statepoint = model.run(
         cwd=str(D1S_DIR),
         output=False,
         threads=cfg.OPENMP_THREADS,
     )
- 
+
     with openmc.StatePoint(statepoint) as sp:
         tally = sp.get_tally(name="dose tally")
- 
+
     corrected_tallies = [
         d1s.apply_time_correction(tally, factors, i + 1)
         for i in range(len(timesteps))
     ]
- 
+
     # Parse D1S results
     time_s            = []
     dose_time_by_cell = {plasma_vol_id: [], vvportfill_vol_id: []}
     profiles          = []
-    cell_col          = "cell"   # default; overwritten inside loop
- 
+    cell_col          = "cell"  # default; overwritten inside loop
+
     for t_cool, ctally in zip(cooling_times_abs_s, corrected_tallies[1:]):
         d1s_df = ctally.get_pandas_dataframe()
- 
+
         if "cell" in d1s_df.columns:
             cell_col = "cell"
         elif "cell_id" in d1s_df.columns:
             cell_col = "cell_id"
         else:
             raise KeyError("Could not find a cell column in tally dataframe.")
- 
+
         d1s_df[cell_col]      = pd.to_numeric(d1s_df[cell_col]).astype(int)
         d1s_df["mean"]        = pd.to_numeric(d1s_df["mean"])
         d1s_df["cell_volume"] = d1s_df[cell_col].map(vol_by_cell_all)
- 
+
         if d1s_df["cell_volume"].isna().any():
             missing = d1s_df.loc[
                 d1s_df["cell_volume"].isna(), cell_col
             ].unique().tolist()
             raise KeyError(f"Missing volumes for cells: {missing}")
- 
+
         d1s_df["μSv/h"] = (
             d1s_df["mean"] * (s_to_h * to_μSv) / d1s_df["cell_volume"]
         )
         d1s_df["mSv/h"] = (
             d1s_df["mean"] * (s_to_h * to_mSv) / d1s_df["cell_volume"]
         )
- 
+
+        # Time series: plasma & VV port-fill
         df_time = d1s_df[d1s_df[cell_col].isin(dose_cells_time)].copy()
         time_s.append(float(t_cool))
- 
+
         for cid in dose_cells_time:
             cid = int(cid)
             sub = df_time.loc[df_time[cell_col] == cid, "μSv/h"]
@@ -401,38 +380,39 @@ if RUN_D1S:
                     f"Missing μSv/h row for cid={cid} at t={t_cool:.3e}s"
                 )
             dose_time_by_cell[cid].append(float(sub.iloc[0]))
- 
-        df_prof = d1s_df[d1s_df[cell_col].isin(ob_1_b6_cells)].copy()
+
+        # Spatial profile: OB chunk
+        df_prof            = d1s_df[d1s_df[cell_col].isin(ob_1_b6_cells)].copy()
         df_prof["centers"] = df_prof[cell_col].map(center_by_cell_ob6)
- 
+
         if df_prof["centers"].isna().any():
             missing = df_prof.loc[
                 df_prof["centers"].isna(), cell_col
             ].unique().tolist()
             raise KeyError(f"Missing centroids for {OB_KEY} cells: {missing}")
- 
+
         df_prof = df_prof.sort_values("centers")
         profiles.append({"t_s": float(t_cool), "df": df_prof.copy()})
- 
+
         print(
             f"Cooling {t_cool:.3e} s | "
             f"plasma={dose_time_by_cell[int(plasma_vol_id)][-1]:.3e} μSv/h | "
             f"vvpf={dose_time_by_cell[int(vvportfill_vol_id)][-1]:.3e} μSv/h | "
             f"{OB_KEY} rows={len(df_prof)}"
         )
- 
+
     # Plot 1A: plasma time series
     t_rel_plot   = [t / SECONDS_PER_YEAR for t in time_s]
     plasma_doses = dose_time_by_cell[int(plasma_vol_id)]
- 
+
     fig, ax = plt.subplots()
     ax.set_xscale("log")
     _add_time_reference_lines(ax)
- 
+
     has_positive = any(v > 0 for v in plasma_doses)
     if has_positive:
         ax.set_yscale("log")
- 
+
     ax.plot(t_rel_plot, plasma_doses)
     ax.axhline(0.1,   linestyle="--", color="k", linewidth=1.0)
     ax.axhline(10,    linestyle="--", color="k", linewidth=1.0)
@@ -442,7 +422,7 @@ if RUN_D1S:
     ax.text(1e-9, 10000 * 1.5, "Remote recycling limit")
     ax.set_ylabel("Shutdown Dose [μSv/h]")
     ax.set_xlabel("Cooling Time [y]")
- 
+
     if not has_positive:
         ax.set_title(
             f"Plasma SDR — zero values "
@@ -452,41 +432,46 @@ if RUN_D1S:
             f"[warn] Plasma SDR has no positive values — "
             f"{'expected for slab SIM_TYPE' if cfg.SIM_TYPE == 'slab' else 'check D1S tally'}"
         )
- 
+
     fig.savefig(SDR_DIR / "sdr_time_plasma.png", dpi=300, bbox_inches="tight")
     plt.close(fig)
- 
-    # Plot 1B: VV port-fill (optional)
+
+    # Plot 1B: VV port-fill (optional) 
     show_VV = False
     if show_VV:
         fig, ax = plt.subplots()
         _add_time_reference_lines(ax)
         _format_log_axes(ax)
-        ax.plot(t_rel_plot, dose_time_by_cell[int(vvportfill_vol_id)],
-                label="VV port-fill (D1S)")
+        ax.plot(
+            t_rel_plot,
+            dose_time_by_cell[int(vvportfill_vol_id)],
+            label="VV port-fill (D1S)",
+        )
         ax.set_ylabel("Shutdown Dose [μSv/h]")
         ax.set_xlabel("Cooling Time [y]")
         ax.legend()
         fig.savefig(SDR_DIR / "sdr_time_vvportfill.png",
                     dpi=300, bbox_inches="tight")
         plt.close(fig)
- 
-    # Plot 2: OB_KEY spatial profiles
+
+    # Plot 2: OB chunk spatial profiles
     if not profiles:
         raise RuntimeError(
             f"profiles is empty: {OB_KEY} rows were never captured."
         )
- 
+
     ncurves = min(10, len(profiles))
     idxs    = np.linspace(0, len(profiles) - 1, ncurves, dtype=int)
- 
+
     fig, ax = plt.subplots()
     for i in idxs:
         t_s_i = profiles[i]["t_s"]
         dfp   = profiles[i]["df"]
-        ax.plot(dfp["centers"].to_numpy(float),
-                dfp["μSv/h"].to_numpy(float),
-                label=f"{t_s_i:.1e} s")
+        ax.plot(
+            dfp["centers"].to_numpy(float),
+            dfp["μSv/h"].to_numpy(float),
+            label=f"{t_s_i:.1e} s",
+        )
     ax.set_yscale("log")
     ax.set_ylim(1e-6, 1e12)
     ax.set_ylabel("Shutdown Dose [μSv/h]")
@@ -497,7 +482,7 @@ if RUN_D1S:
     fig.savefig(SDR_DIR / f"sdr_profile_{OB_KEY}.png",
                 dpi=300, bbox_inches="tight")
     plt.close(fig)
- 
+
     # Save SDR CSV outputs
     for prof in profiles:
         t_s    = prof["t_s"]
@@ -512,7 +497,7 @@ if RUN_D1S:
         df_out.to_csv(
             SDR_CSV_DIR / f"sdr_profile_t{t_s:.4e}s.csv", index=False
         )
- 
+
     pd.DataFrame({
         "t_s": time_s,
         "t_y": [t / y_to_s for t in time_s],
@@ -521,7 +506,7 @@ if RUN_D1S:
         f"vvpf_cell{int(vvportfill_vol_id)}_uSvh":
             list(dose_time_by_cell[int(vvportfill_vol_id)]),
     }).to_csv(SDR_DIR / "sdr_timeseries_plasma_vvpf.csv", index=False)
- 
+
     summary_rows = []
     for prof in profiles:
         t_s = prof["t_s"]
@@ -532,74 +517,58 @@ if RUN_D1S:
             row[f"cell_{cid}_x{cx:.1f}cm_uSvh"] = float(r["μSv/h"])
             row[f"cell_{cid}_x{cx:.1f}cm_mSvh"] = float(r["mSv/h"])
         summary_rows.append(row)
- 
+
     pd.DataFrame(summary_rows).sort_values("t_s").reset_index(drop=True).to_csv(
         SDR_DIR / f"sdr_summary_{OB_KEY}.csv", index=False
     )
- 
+
     print(f"[info] Wrote {len(profiles)} per-timestep SDR CSVs to {SDR_CSV_DIR}")
     print(f"[info] Wrote plasma/vvpf time series → "
           f"{SDR_DIR / 'sdr_timeseries_plasma_vvpf.csv'}")
     print(f"[info] Wrote OB summary → {SDR_DIR / f'sdr_summary_{OB_KEY}.csv'}")
- 
+
     timer.stop("D1S run")
- 
+
     # Restore model state after D1S
     model.tallies                    = orig_tallies
     model.settings.use_decay_photons = False
- 
+
 else:
     print("\n[info] RUN_D1S=False — skipping D1S shutdown dose calculation")
     model.tallies = orig_tallies
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Depletion (R2S)
+# Depletion
 # ──────────────────────────────────────────────────────────────────────────────
 if RUN_DEPLETION:
     print("\n--------------------------------")
     print(f"Performing depletion ({cfg.SIM_TYPE})")
     print("--------------------------------")
     timer.start("Set up depletion model")
- 
+
     openmc.deplete.pool.NUM_PROCESSES = cfg.DEPLETION_PROCESSES
- 
 
     model.settings.use_decay_photons = False
- 
-    # Restore original tallies before the flux run — extra tallies from
-    # previous steps increase memory and work per batch
-    model.tallies = orig_tallies
- 
-    # Sync materials and determine geometry paths BEFORE differentiate_mats
-    # so that all cell→material mappings are consistent
+    model.tallies                    = orig_tallies
+
+    # Sync materials and determine geometry paths BEFORE differentiate_mats (safety)
     model.materials = openmc.Materials(
         list(model.geometry.get_all_materials().values())
     )
     model.geometry.determine_paths()
- 
-    # ── Step 1: mark depletable materials BEFORE differentiate_mats ──────────
-    #
-    # depletable_only=True in differentiate_mats only clones cells whose
-    # material already has depletable=True.  We must therefore mark materials
-    # as depletable first, then differentiate, then rebuild the list of
-    # (cell, material) pairs from the now-unique clones.
-    #
-    # For tokamak: depletable cells are all DAGMC cells that have a real
-    # material fill and a valid volume — plasma/void cells are skipped.
-    # For slab: same logic but restricted to the selected chunk cell IDs.
- 
+
+    # Step 1: mark depletable materials BEFORE differentiate_mats 
+    # (Figure it out which materials will be depleted) -> matters more for slab
     if cfg.SIM_TYPE == "tokamak":
         _pre_source_cells = all_cells
         _pre_target_ids   = sorted(_pre_source_cells.keys())
-        # Disable photon transport for the flux calculation — reduces memory
-        # per batch significantly (matches the working reference implementation) (need to change surface_source.h5 if slab)
-        model.settings.photon_transport  = False
+        model.settings.photon_transport = False
     else:
         _pre_source_cells = model.geometry.get_all_cells()
         _all_json_ids     = set(int(cid) for cid in ob_by_key.get(OB_KEY, []))
         _present_ids      = set(int(c) for c in _pre_source_cells.keys())
         _pre_target_ids   = sorted(_all_json_ids & _present_ids)
- 
+
     _n_marked = 0
     for _cid in _pre_target_ids:
         _cell = _pre_source_cells.get(int(_cid))
@@ -615,30 +584,24 @@ if RUN_DEPLETION:
             _mat.volume = float(_vol)
         _mat.depletable = True
         _n_marked += 1
- 
+
     print(f"[depletion] Marked {_n_marked} materials as depletable")
- 
-    # ── Step 2: differentiate — one unique material per depletable cell ───────
-    #
-    # depletable_only=True for both sim types: plasma/void/VV cells are never
-    # marked depletable so they are never cloned, keeping the material list
-    # small and avoiding PETSc memory exhaustion on large tokamak models.
+
+    # Step 2: differentiate — one unique material per depletable cell 
     model.differentiate_mats("match cell", depletable_only=True)
- 
-    # Synchronise materials list with geometry after differentiation
+
+    # Sync materials again after differentiation
     model.materials = openmc.Materials(
         list(model.geometry.get_all_materials().values())
     )
     model.geometry.determine_paths()
- 
-    # ── Step 3: collect the now-unique (cell, material) pairs ─────────────────
+
+    # Step 3: collect the now-unique (cell, material) pairs
     dagmc_cell_ids: list = []
     deplete_cells:  list = []
     deplete_mats:   list = []
- 
+
     if cfg.SIM_TYPE == "tokamak":
-        # Use all_cells from neutronics_model (matches working reference implementation)
-        # all_cells includes the full geometry, not just the DAGMC universe subset
         _source_cells = all_cells
         target_ids    = sorted(_source_cells.keys())
         print(
@@ -654,13 +617,13 @@ if RUN_DEPLETION:
             f"[depletion] slab: {len(target_ids)} cells from "
             f"{OB_KEY} present in wrapper geometry"
         )
- 
+
     if not target_ids:
         raise RuntimeError(
             f"[depletion] No target cells found for SIM_TYPE={cfg.SIM_TYPE}. "
             f"Check geometry and chunk key {OB_KEY}."
         )
- 
+
     for cid in target_ids:
         cell = _source_cells.get(int(cid))
         if cell is None:
@@ -669,68 +632,60 @@ if RUN_DEPLETION:
         if not isinstance(mat, openmc.Material):
             continue
         if not mat.depletable:
-            continue  # not marked in step 1 (no volume, or plasma/void)
+            continue
         dagmc_cell_ids.append(int(cid))
         deplete_cells.append(cell)
         deplete_mats.append(mat)
- 
+
     print(
         f"[depletion] Found {len(deplete_mats)} depletable materials "
         f"across {len(dagmc_cell_ids)} cells"
     )
- 
+
     if not deplete_mats:
         raise RuntimeError(
             "deplete_mats is empty. Check material assignments in "
             "geometry.py / eudemo_materials.py."
         )
- 
+
     # Mappings for post-processing
-    cell_to_mat    = {
-        cid: str(mat.id)
-        for cid, mat in zip(dagmc_cell_ids, deplete_mats)
-    }
-    mat_to_cell    = {
-        str(mat.id): cid
-        for cid, mat in zip(dagmc_cell_ids, deplete_mats)
-    }
+    cell_to_mat    = {cid: str(mat.id) for cid, mat in zip(dagmc_cell_ids, deplete_mats)}
+    mat_to_cell    = {str(mat.id): cid for cid, mat in zip(dagmc_cell_ids, deplete_mats)}
     mat_id_to_name = {
         str(mat.id): (mat.name or f"material_{mat.id}")
         for mat in deplete_mats
     }
- 
-    # Get initial nuclides from geometry (matches working reference implementation)
-    initial_nuclides = model.geometry.get_all_nuclides()
- 
+
     # Build reduced chain
-    chain = openmc.deplete.Chain.from_xml(str(cfg.OPENMC_CHAIN_FILE))
+    initial_nuclides = model.geometry.get_all_nuclides()
+    chain            = openmc.deplete.Chain.from_xml(str(cfg.OPENMC_CHAIN_FILE))
     print(
         f"[chain] Loaded {len(chain.nuclides)} nuclides "
         f"from: {cfg.OPENMC_CHAIN_FILE}"
     )
- 
-    reduced_chain = chain.reduce(initial_nuclides, level=5)
+
+    reduced_chain = chain.reduce(initial_nuclides, level=cfg.REDUCED_CHAIN_LEVEL)
     print(f"[chain] Reduced to {len(reduced_chain.nuclides)} nuclides")
- 
+
     if len(reduced_chain.nuclides) == 0:
         raise RuntimeError(
             "Reduced chain has 0 nuclides — nuclide names may not match chain. "
             f"Sample initial nuclides: {list(initial_nuclides)[:10]}"
         )
- 
+
     bluemira_chain = DEPLETION_RUN_DIR / "bluemira_chain.xml"
     reduced_chain.export_to_xml(str(bluemira_chain))
     print(f"[info] Wrote reduced chain: {bluemira_chain}")
- 
+
     openmc.config["chain_file"] = str(bluemira_chain)
     model.settings.depletion    = {"chain_file": str(bluemira_chain)}
- 
-    # Flux + micro cross-sections
+
     print(
         f"[depletion] Calling get_microxs_and_flux with "
         f"{len(deplete_mats)} materials ..."
     )
- 
+
+    # Generate fluxes and microscopic cross-sections
     fluxes, micros = openmc.deplete.get_microxs_and_flux(
         model,
         deplete_mats,
@@ -741,7 +696,8 @@ if RUN_DEPLETION:
             "threads": cfg.OPENMP_THREADS,
         },
     )
- 
+
+    # Define depletion operator (coupled/independent)
     operator = openmc.deplete.IndependentOperator(
         deplete_mats,
         fluxes,
@@ -749,42 +705,46 @@ if RUN_DEPLETION:
         chain_file=str(bluemira_chain),
         normalization_mode="source-rate",
     )
+
+    # Set output directory
     operator.output_dir = str(R2S_ACTIVATION_DIR)
- 
+
+    # Set predictor integrator
     integrator = openmc.deplete.PredictorIntegrator(
         operator,
         timesteps,
         source_rates=source_rates,
     )
- 
+
     timer.stop("Set up depletion model")
- 
-    # Run depletion
+
     timer.start("Depletion run")
+    
+    # Run depletion
     integrator.integrate()
- 
+
     results = openmc.deplete.Results(
         str(R2S_ACTIVATION_DIR / "depletion_results.h5")
     )
- 
-    # Export cell-material mapping for depletion_post.py
+
+    # Save cell_id and material_id mapping for depletion_post.py
     pd.DataFrame([
         {"cell_id": cid, "mat_id": int(mat.id), "material_name": mat.name}
         for cid, mat in zip(dagmc_cell_ids, deplete_mats)
     ]).to_csv(R2S_ACTIVATION_DIR / "cell_material_map.csv", index=False)
- 
+
     print(f"[info] Written cell_material_map.csv to {R2S_ACTIVATION_DIR}")
- 
+
     timer.stop("Depletion run")
- 
+
 else:
     print("\n[info] RUN_DEPLETION=False — skipping R2S activation depletion")
- 
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Timing summary
 # ──────────────────────────────────────────────────────────────────────────────
 timer.summary()
- 
+
 # ──────────────────────────────────────────────────────────────────────────────
 # R2S decay-gamma run (placeholder)
 # ──────────────────────────────────────────────────────────────────────────────
