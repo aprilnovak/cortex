@@ -185,7 +185,7 @@ def _get_breeder_reflective_cuts(
     mb = mb_core.Core()
     mb.load_file(str(cfg.DAGMC_MODEL_FILE))
 
-    surf_map, _, _, _ = dagmc_volume_surface_info([volume_id])
+    surf_map, _, _, _ = dagmc_volume_surface_info(pydagmc_model, [volume_id])
     vol_data          = surf_map[volume_id]
 
     id_tag  = mb.tag_get_handle("GLOBAL_ID")
@@ -260,7 +260,7 @@ def _build_slab_geometry() -> openmc.Cell:
 
 if cfg.SIM_TYPE == "tokamak":
     sector_cell = _build_tokamak_geometry()
-elif cfg.SIM_TYPE == "slab":
+elif cfg.SIM_TYPE in ("slab", "fast_slab"):
     sector_cell = _build_slab_geometry()
 else:
     raise ValueError(
@@ -537,10 +537,71 @@ def build_breeder_chunks(
         "radial_bins_for_key":     radial_bins_for_key,
     }
 
+def _build_fast_slab_chunks(
+    *,
+    chunk_key: str   = "OB_1_b6",
+    n_cells:   int   = 13,
+    gap_cm:    float = cfg.CHUNK_GAP_CM,
+    start_cm:  float = cfg.CHUNK_START_CM,
+) -> dict:
+    """
+    Simplified chunk builder for fast_slab: a single flat list of n_cells
+    cells (IDs 1..n_cells), one OB chunk, no IB, no multi-region complexity.
+    Reuses the same INPUT_JSON as the full model for radial bin geometry.
+    """
+    # Load geom block from JSON — same file as full model, only used for
+    # layer thicknesses (armor_cm, fw_cm, ob_offsets_cm, etc.)
+    if not cfg.INPUT_JSON.is_file():
+        raise FileNotFoundError(f"Geometry JSON not found: {cfg.INPUT_JSON}")
+    with open(cfg.INPUT_JSON, encoding="utf-8") as f:
+        _data = json.load(f)
+    _geom = _data["geometry"]
+
+    cell_ids = list(range(1, n_cells + 1))
+
+    _ob_by_key: Dict[str, List[int]] = {chunk_key: cell_ids}
+    _ib_by_key: Dict[str, List[int]] = {}
+
+    def cell_ids_for_key(key: str) -> List[int]:
+        if key == chunk_key:
+            return cell_ids
+        raise KeyError(f"fast_slab only has key {chunk_key!r}, got {key!r}")
+
+    def radial_bins_for_key(key: str):
+        # Always use the single equatorial chunk key regardless of what is asked,
+        # since fast_slab only contains one chunk.
+        return _make_radial_bins(
+            key=chunk_key, geom=_geom, gap_cm=gap_cm, start_cm=start_cm
+        )
+
+    return {
+        "data":                    _data,
+        "geom":                    _geom,
+        "cell_ids_all":            cell_ids,
+        "ob_by_key":               _ob_by_key,
+        "ib_by_key":               _ib_by_key,
+        "armor_cell_ids":          [cell_ids[0]],
+        "ALL_KEYS":                [chunk_key],
+        "OB_CHUNK_SIZE":           n_cells,
+        "IB_CHUNK_SIZE":           0,
+        "n_breeder":               1,
+        "selected_chunk_key":      chunk_key,
+        "selected_chunk_cell_ids": cell_ids,
+        "cell_ids_for_key":        cell_ids_for_key,
+        "radial_bins_for_key":     radial_bins_for_key,
+    }
+
 # Build chunks at import time using the INPUT_JSON from inputs.py
-_chunk_result = build_breeder_chunks(
-    cfg.INPUT_JSON, default_chunk_key=cfg.ALBEDO_CHUNK_KEY
-)
+if cfg.SIM_TYPE == "fast_slab":
+    _chunk_result = _build_fast_slab_chunks(
+        chunk_key=cfg.ALBEDO_CHUNK_KEY,
+        n_cells=13,  # Armor + FW + 10 breeder layers + VV (adjust per breeder type if needed)
+    )
+else:
+    _chunk_result = build_breeder_chunks(
+        cfg.INPUT_JSON, default_chunk_key=cfg.ALBEDO_CHUNK_KEY
+    )
+
 ob_by_key     = _chunk_result["ob_by_key"]
 ib_by_key     = _chunk_result["ib_by_key"]
 n_breeder     = _chunk_result["n_breeder"]

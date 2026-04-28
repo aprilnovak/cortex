@@ -74,7 +74,20 @@ def build_mix_recipes(cfg) -> dict:
     }
 
     blanket = layer_builders[breeder_type](armor, breeder, coolant, structural, multiplier)
-    return {**blanket, **shared,}
+
+    full = {**blanket, **shared}
+
+    if cfg.SIM_TYPE == "fast_slab":
+        # Only keep materials present in the stripped equatorial OB chunk
+        _fast_slab_keep = {"Armor", "First_Wall", "VV_OB"}
+        # Also keep all OB_Layer_* keys
+        full = {
+            k: v for k, v in full.items()
+            if k in _fast_slab_keep or k.startswith("OB_Layer_")
+        }
+
+    return full
+
 
 
 def _wcll_layers(armor, breeder, coolant, structural, multiplier) -> dict:

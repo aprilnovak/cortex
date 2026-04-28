@@ -5,7 +5,7 @@ inputs.py
 Central configuration file for all tokamak / slab neutronics simulations.
 
 Edit this file to switch between:
-  - Simulation type  : "tokamak" or "slab"
+  - Simulation type  : "tokamak", "slab" , or "fast_slab"
   - Breeder type     : "WCLL", "HCLL", or "HCPB"
   - Environment      : "CORTEX" or "TESTING"
   - Run options      : triggers, surface-source write/read, albedo, etc.
@@ -19,7 +19,7 @@ import shutil
 # =============================================================================
 # SIMULATION TYPE
 # =============================================================================
-SIM_TYPE     = "tokamak"      # "tokamak"  |  "slab"
+SIM_TYPE     = "slab"      # "tokamak"  |  "slab" | "fast_slab"
 
 # =============================================================================
 # BREEDER TYPE
@@ -38,7 +38,7 @@ ENVIRONMENT  = "TESTING"      # "CORTEX"  |  "TESTING"
 # =============================================================================
 # VALIDATION
 # =============================================================================
-if SIM_TYPE not in ("tokamak", "slab"):
+if SIM_TYPE not in ("tokamak", "slab", "fast_slab"):
     sys.exit(f"[inputs] Unknown SIM_TYPE '{SIM_TYPE}'. "
              f"Choose from: tokamak, slab")
 
@@ -81,8 +81,18 @@ _DAGMC_FILENAMES = {
     "HCPB": "eudemo_hcpb.h5m",
 }
 
+_FAST_SLAB_DAGMC_FILENAMES = {
+    "WCLL": "eudemo_wcll_fast_slab.h5m",
+    "HCLL": "eudemo_hcll_fast_slab.h5m",
+    "HCPB": "eudemo_hcpb_fast_slab.h5m",
+}
+
+if SIM_TYPE == "fast_slab":
+    DAGMC_MODEL_FILE = DAGMC_DIR / _FAST_SLAB_DAGMC_FILENAMES[BREEDER_TYPE]
+else:
+    DAGMC_MODEL_FILE = DAGMC_DIR / _DAGMC_FILENAMES[BREEDER_TYPE]
+
 INPUT_JSON       = DAGMC_DIR / _JSON_FILENAMES[BREEDER_TYPE]
-DAGMC_MODEL_FILE = DAGMC_DIR / _DAGMC_FILENAMES[BREEDER_TYPE]
 EQUILIBRIUM_FILE = DAGMC_DIR  / "equilibrium_eqdsk.json"
 MATERIALS_MODULE_DIR = PROJECT_ROOT / "materials"  
 
@@ -103,6 +113,7 @@ if not OPENMC_CHAIN_FILE.is_file():
 # =============================================================================
 TRIGGER_CHUNK_KEY           = "OB_1_b6"
 ALBEDO_CHUNK_KEY            = "OB_1_b6"
+SLAB_CHUNK_KEY  = "OB_1_b6"   # DO NOT CHANGE — fixed by DAGMC slab geometry
 
 # =============================================================================
 # SLAB STATIC FILES
@@ -124,7 +135,7 @@ else:  # TESTING
     )
 
 # CORTEX + slab only: one-time copy from tokamak outputs if files missing
-if ENVIRONMENT == "CORTEX" and SIM_TYPE == "slab":
+if ENVIRONMENT == "CORTEX" and SIM_TYPE in ("slab", "fast_slab"):
     _tokamak_surface_source = (
         BASE_DIR / "tokamak" / BREEDER_TYPE / "neutronics_run" / "surface_source.h5"
     )
@@ -187,10 +198,10 @@ elif BREEDER_TYPE == "HCPB":
     breeder_material    = materials.kalos_cb(2.52)      # Li4SiO4 pebbles
     multiplier_material = materials.be12ti(2.25)        # Be12Ti neutron multiplier
 
-print("vv_material:", vv_material)
-print("structural_material:", structural_material)
-print("coolant_material:", coolant_material)
-print("breeder_material:", breeder_material)
+#print("vv_material:", vv_material)
+#print("structural_material:", structural_material)
+#print("coolant_material:", coolant_material)
+#print("breeder_material:", breeder_material)
 
 # =============================================================================
 # TOKAMAK GEOMETRY
@@ -201,9 +212,14 @@ THETA0_DEG        = 0.0
 # =============================================================================
 # SLAB GEOMETRY
 # =============================================================================
-SLAB_TARGET_VOL_ID = 66      # DO NOT CHANGE 
-SLAB_R_IN_CM       = 1140.0  # DO NOT CHANGE 
-SLAB_R_OUT_CM      = 1375.0  # DO NOT CHANGE 
+# SLAB GEOMETRY
+if SIM_TYPE == "fast_slab":      # (DO NOT CHANGE)
+    SLAB_TARGET_VOL_ID = 13      # VV in equatorial chunk in stripped dagmc
+else:
+    SLAB_TARGET_VOL_ID = 78      # VV in full dagmc Model 
+
+SLAB_R_IN_CM       = 1130.0  # DO NOT CHANGE 
+SLAB_R_OUT_CM      = 1380.0  # DO NOT CHANGE 
 
 # =============================================================================
 # REACTOR POWER & SOURCE SCALING
@@ -221,13 +237,13 @@ CHUNK_START_CM = 0.0
 # OPENMC RUN SETTINGS
 # =============================================================================
 TALLY_CONVERGENCE_THRESHOLD = 0.1        # 10 %
-BATCHES                = 5
-TRIGGER_BATCH_INTERVAL = 1
+BATCHES                = 10
+TRIGGER_BATCH_INTERVAL = 10
 PARTICLES_PER_BATCH    = 1_000_000
 TRIGGER_MAX_BATCHES    = 2000
 
-USE_TRIGGER            = False   # False = fixed batches, no convergence check
-FIXED_BATCHES          = 5    # only used when USE_TRIGGER = False
+USE_TRIGGER            = True   # False = fixed batches, no convergence check
+FIXED_BATCHES          = 10    # only used when USE_TRIGGER = False
 
 # Depletion
 OPENMP_THREADS         = None    # None for max available
@@ -242,13 +258,20 @@ SURFACE_SOURCE_SURFACE_ID    = 287 # DO NOT CHANGE
 SURFACE_SOURCE_CELL_TO       = 66  # DO NOT CHANGE 
 SURFACE_SOURCE_MAX_PARTICLES = 1_000_000
 
-TRACKS = False
-DO_ALBEDO       = True
-DO_CHECK_SOURCE = False
+
+if SIM_TYPE == "tokamak":
+    DO_ALBEDO       = True
+    DO_CHECK_SOURCE = True
+    TRACKS = True
+else:
+    DO_ALBEDO       = False
+    DO_CHECK_SOURCE = False
+    TRACKS = False
 
 # Depletion
 IRRADIATION_YEARS    = 5.0
 CONSTANT_POWER_RATIO = 0.3
+REDUCED_CHAIN_LEVEL = 5
 
 # =============================================================================
 # POST-PROCESSING CHUNK SELECTION

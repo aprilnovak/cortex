@@ -196,7 +196,7 @@ _sp_for_tallies.close()
 ev_to_joule: float = geo.ev_to_joule
 s_in_y:      float = geo.s_in_y
 
-if cfg.SIM_TYPE == "slab":
+if cfg.SIM_TYPE in ("slab", "fast_slab"):
     if not cfg.ARMOR_CURRENT_JSON.is_file():
         raise FileNotFoundError(
             f"Armor current JSON not found: {cfg.ARMOR_CURRENT_JSON}\n"
@@ -1748,7 +1748,7 @@ def process_layer_region1_only(
 with openmc.StatePoint(str(STATEPOINT_FILE)) as sp:
     dpa_gas_map = build_dpa_gas_map(sp)
 
-    if cfg.SIM_TYPE == "slab":
+    if cfg.SIM_TYPE in ("slab", "fast_slab"):
         keys_to_process = [cfg.ALBEDO_CHUNK_KEY]
     else:
         keys_to_process = cfg.NEUTRONICS_KEYS_TO_PROCESS

@@ -93,7 +93,7 @@ if cfg.SIM_TYPE == "tokamak":
     neutron_ratio_source: float = 1.0
 
 else:
-    # Surface source read (slab)
+    # Surface source read (slab / fast_slab)
     import h5py
     import numpy as np
 
@@ -152,7 +152,8 @@ openmc.reserve_ids(list(model.geometry.get_all_surfaces()), cls=openmc.Surface)
 dagmc_universe_cells: Dict[int, openmc.Cell] = geo.dagmc_universe.get_all_cells()
 for volume in geo.pydagmc_model.volumes:
     dagmc_universe_cells[volume.id].volume       = volume.volume
-    dagmc_universe_cells[volume.id].bounding_box = geo.dagmc_bounding_box(volume.id)
+    dagmc_universe_cells[volume.id].bounding_box = geo.dagmc_bounding_box(geo.pydagmc_model, volume.id)
+
 
 all_cells: Dict[int, openmc.Cell] = model.geometry.get_all_cells()
 
@@ -363,7 +364,15 @@ particle_filter = openmc.ParticleFilter(["neutron", "photon"])
 n_filter        = openmc.ParticleFilter(["neutron"])
 
 # Cell filters 
-cell_filter_all     = openmc.CellFilter(cell_ids_all)
+_slab_cells = (
+    ob_by_key[cfg.SLAB_CHUNK_KEY]
+    if cfg.SLAB_CHUNK_KEY in ob_by_key
+    else ib_by_key[cfg.SLAB_CHUNK_KEY]
+)
+
+_tally_cells = _slab_cells if cfg.SIM_TYPE in ("slab" ,"fast_slab") else cell_ids_all
+cell_filter_all = openmc.CellFilter(_tally_cells)
+
 cell_filter_trigger = openmc.CellFilter(
     ob_by_key.get(cfg.TRIGGER_CHUNK_KEY, []) or
     ib_by_key.get(cfg.TRIGGER_CHUNK_KEY, [])
@@ -427,13 +436,13 @@ if cfg.SIM_TYPE == "tokamak":
 
 # 6. DPA + gas production tallies (per cell, structural nuclides only)
 structural_nuclide_set = set(structural_nuclides)
-cell_filters_by_cid    = {
-    int(cid): openmc.CellFilter([int(cid)]) for cid in cell_ids_all
+cell_filters_by_cid = {
+    int(cid): openmc.CellFilter([int(cid)]) for cid in _tally_cells
 }
 
 dpa_gas_tallies: Dict[int, openmc.Tally] = {}
 
-for cid in cell_ids_all:
+for cid in _tally_cells:
     cid = int(cid)
     nuclides_in_cell = sorted(
         nuc for nuc in cell_nuclide_atoms.get(cid, {})
@@ -492,7 +501,7 @@ for redundant_files in ["geometry.xml", "materials.xml", "settings.xml", "tallie
 # out to make the model run faster but is helpful to make sure the plasma source is
 # behaving as we expect
 
-if cfg.DO_CHECK_SOURCE and cfg.SIM_TYPE == "tokamak":
+if cfg.DO_CHECK_SOURCE:
     openmc.lib.init(output=False, args=[str(NEUTRONICS_MODEL_XML)])
     n_samples  = 100_000
     particles  = openmc.lib.sample_external_source(n_samples=n_samples)

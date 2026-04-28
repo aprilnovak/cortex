@@ -172,7 +172,6 @@ def _safe_half_life(nuclide: str) -> Optional[float]:
 
     return hl
 
-
 def _sortable_half_life(nuclide: str) -> float:
     """
     Sort key for nuclides by half-life.
@@ -440,6 +439,17 @@ def plot_activity_nuclides_per_cell(
 
         time_grid  = np.asarray(time_nuc, float)
         n_steps    = len(time_grid)
+
+        if not (0 <= int(idx_shutdown) < n_steps):
+            raise ValueError(
+                f"idx_shutdown={idx_shutdown} out of bounds for n_steps={n_steps}"
+            )
+        if len(total_act) != n_steps:
+            raise ValueError(
+                f"Time grid mismatch: len(total_act)={len(total_act)} vs n_steps={n_steps} "
+                f"for cell {cid}, mat {mat_id}."
+            )
+
         total_act  = np.asarray(total_act, float)
         t_rel      = time_grid - time_grid[int(idx_shutdown)]
         mask       = t_rel > 0.0
@@ -644,6 +654,17 @@ def plot_decayheat_nuclides_per_cell(
 
         time_grid = np.asarray(time_nuc, float)
         n_steps   = len(time_grid)
+
+        if not (0 <= int(idx_shutdown) < n_steps):
+            raise ValueError(
+                f"idx_shutdown={idx_shutdown} out of bounds for n_steps={n_steps}"
+            )
+        if len(total_h) != n_steps:
+            raise ValueError(
+                f"Time grid mismatch: len(total_act)={len(total_h)} vs n_steps={n_steps} "
+                f"for cell {cid}, mat {mat_id}."
+            )
+
         total_h   = np.asarray(total_h, float)
         t_rel     = time_grid - time_grid[int(idx_shutdown)]
         mask      = t_rel > 0.0
@@ -698,6 +719,11 @@ def plot_decayheat_nuclides_per_cell(
             vp = _m(nuc_series[nuc])
             if not _has_positive_finite(vp):
                 continue
+
+            others_pos = others_plot[others_plot > 0.0]
+            if others_pos.size > 0 and np.max(vp[vp > 0], initial=0.0) < 10 ** math.floor(math.log10(np.min(others_pos))):
+                continue
+
             ax.loglog(t_plot, vp,
                       label=nuc + display_half_life(nuc),
                       color=colors[sorted_nucs.index(nuc) % len(colors)],
@@ -932,7 +958,7 @@ if __name__ == "__main__":
             print(f"[warn] DEPLETION_CHUNKS key {key!r} not found – skipping")
 
     # For slab: restrict to cells present in the depletion results
-    if cfg.SIM_TYPE == "slab":
+    if cfg.SIM_TYPE in ("slab", "fast_slab"):
         _present = set(
             int(k) for k in load_depletion_mapping(results).cell_to_mat.keys()
         )

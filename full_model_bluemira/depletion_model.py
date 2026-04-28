@@ -208,23 +208,23 @@ print(f"[info] vol_by_cell populated for {len(vol_by_cell)} cells")
 # ──────────────────────────────────────────────────────────────────────────────
 # Identify plasma and VV port-fill cells (last two DAGMC volumes)
 # ──────────────────────────────────────────────────────────────────────────────
-vols = list(pydagmc_model.volumes)
-if len(vols) < 2:
-    raise RuntimeError(
-        f"PyDAGMC model has only {len(vols)} volumes; expected >= 2."
-    )
+if cfg.SIM_TYPE == "tokamak":
+    vols = list(pydagmc_model.volumes)
+    plasma_vol_id     = vols[-2].id
+    vvportfill_vol_id = vols[-1].id
+    print(f"[info] SDR cells: plasma={plasma_vol_id}, vv_port_fill={vvportfill_vol_id}")
 
-plasma_vol_id     = vols[-2].id
-vvportfill_vol_id = vols[-1].id
-print(f"[info] SDR cells: plasma={plasma_vol_id}, vv_port_fill={vvportfill_vol_id}")
-
-for _cid in [plasma_vol_id, vvportfill_vol_id]:
-    if _cid not in vol_by_cell:
-        raise KeyError(
-            f"Cell {_cid} has no volume. "
-            f"Available (sample): {list(vol_by_cell)[:10]}"
-        )
-    print(f"[info] Cell {_cid} volume = {vol_by_cell[_cid]:.4e} cm³")
+    for _cid in [plasma_vol_id, vvportfill_vol_id]:
+        if _cid not in vol_by_cell:
+            raise KeyError(
+                f"Cell {_cid} has no volume. "
+                f"Available (sample): {list(vol_by_cell)[:10]}"
+            )
+        print(f"[info] Cell {_cid} volume = {vol_by_cell[_cid]:.4e} cm³")
+else:
+    plasma_vol_id     = None
+    vvportfill_vol_id = None
+    print(f"[info] SIM_TYPE={cfg.SIM_TYPE}: plasma/vvportfill cells not present — skipping SDR time-series")
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Plot helpers
@@ -281,7 +281,11 @@ if RUN_D1S:
     print("==========================")
     timer.start("Build D1S model")
 
-    dose_cells_time = [plasma_vol_id, vvportfill_vol_id]
+    if cfg.SIM_TYPE == "tokamak":
+        dose_cells_time = [plasma_vol_id, vvportfill_vol_id]
+    else:
+        dose_cells_time = []   # no plasma or port-fill in slab/fast_slab geometry
+
     dose_cells_prof = list(ob_1_b6_cells)
     dose_cells_all  = dose_cells_time + dose_cells_prof
 
@@ -337,7 +341,13 @@ if RUN_D1S:
 
     # Parse D1S results
     time_s            = []
-    dose_time_by_cell = {plasma_vol_id: [], vvportfill_vol_id: []}
+
+    dose_time_by_cell = (
+        {plasma_vol_id: [], vvportfill_vol_id: []}
+        if cfg.SIM_TYPE == "tokamak"
+        else {}
+    )
+    
     profiles          = []
     cell_col          = "cell"  # default; overwritten inside loop
 
@@ -368,18 +378,18 @@ if RUN_D1S:
             d1s_df["mean"] * (s_to_h * to_mSv) / d1s_df["cell_volume"]
         )
 
-        # Time series: plasma & VV port-fill
-        df_time = d1s_df[d1s_df[cell_col].isin(dose_cells_time)].copy()
-        time_s.append(float(t_cool))
-
-        for cid in dose_cells_time:
-            cid = int(cid)
-            sub = df_time.loc[df_time[cell_col] == cid, "μSv/h"]
-            if len(sub) == 0:
-                raise RuntimeError(
-                    f"Missing μSv/h row for cid={cid} at t={t_cool:.3e}s"
-                )
-            dose_time_by_cell[cid].append(float(sub.iloc[0]))
+        # Time series: plasma & VV port-fill (tokamak only)
+        if cfg.SIM_TYPE == "tokamak":
+            df_time = d1s_df[d1s_df[cell_col].isin(dose_cells_time)].copy()
+            time_s.append(float(t_cool))
+            for cid in dose_cells_time:
+                cid = int(cid)
+                sub = df_time.loc[df_time[cell_col] == cid, "μSv/h"]
+                if len(sub) == 0:
+                    raise RuntimeError(
+                        f"Missing μSv/h row for cid={cid} at t={t_cool:.3e}s"
+                    )
+                dose_time_by_cell[cid].append(float(sub.iloc[0]))
 
         # Spatial profile: OB chunk
         df_prof            = d1s_df[d1s_df[cell_col].isin(ob_1_b6_cells)].copy()
@@ -394,118 +404,122 @@ if RUN_D1S:
         df_prof = df_prof.sort_values("centers")
         profiles.append({"t_s": float(t_cool), "df": df_prof.copy()})
 
-        print(
-            f"Cooling {t_cool:.3e} s | "
-            f"plasma={dose_time_by_cell[int(plasma_vol_id)][-1]:.3e} μSv/h | "
-            f"vvpf={dose_time_by_cell[int(vvportfill_vol_id)][-1]:.3e} μSv/h | "
-            f"{OB_KEY} rows={len(df_prof)}"
-        )
+        if cfg.SIM_TYPE == "tokamak":
+            print(
+                f"Cooling {t_cool:.3e} s | "
+                f"plasma={dose_time_by_cell[int(plasma_vol_id)][-1]:.3e} μSv/h | "
+                f"vvpf={dose_time_by_cell[int(vvportfill_vol_id)][-1]:.3e} μSv/h | "
+                f"{OB_KEY} rows={len(df_prof)}"
+            )
+        else:
+            print(f"Cooling {t_cool:.3e} s | {OB_KEY} rows={len(df_prof)}")
 
     # Plot 1A: plasma time series
-    t_rel_plot   = [t / SECONDS_PER_YEAR for t in time_s]
-    plasma_doses = dose_time_by_cell[int(plasma_vol_id)]
+    if cfg.SIM_TYPE == "tokamak":
+        t_rel_plot   = [t / SECONDS_PER_YEAR for t in time_s]
+        plasma_doses = dose_time_by_cell[int(plasma_vol_id)]
 
-    fig, ax = plt.subplots()
-    ax.set_xscale("log")
-    _add_time_reference_lines(ax)
-
-    has_positive = any(v > 0 for v in plasma_doses)
-    if has_positive:
-        ax.set_yscale("log")
-
-    ax.plot(t_rel_plot, plasma_doses)
-    ax.axhline(0.1,   linestyle="--", color="k", linewidth=1.0)
-    ax.axhline(10,    linestyle="--", color="k", linewidth=1.0)
-    ax.axhline(10000, linestyle="--", color="k", linewidth=1.0)
-    ax.text(1e-9, 0.1   * 1.5, "Natural background")
-    ax.text(1e-9, 10    * 1.5, "Hands-on limit")
-    ax.text(1e-9, 10000 * 1.5, "Remote recycling limit")
-    ax.set_ylabel("Shutdown Dose [μSv/h]")
-    ax.set_xlabel("Cooling Time [y]")
-
-    if not has_positive:
-        ax.set_title(
-            f"Plasma SDR — zero values "
-            f"({'expected for slab' if cfg.SIM_TYPE == 'slab' else 'check D1S result'})"
-        )
-        print(
-            f"[warn] Plasma SDR has no positive values — "
-            f"{'expected for slab SIM_TYPE' if cfg.SIM_TYPE == 'slab' else 'check D1S tally'}"
-        )
-
-    fig.savefig(SDR_DIR / "sdr_time_plasma.png", dpi=300, bbox_inches="tight")
-    plt.close(fig)
-
-    # Plot 1B: VV port-fill (optional) 
-    show_VV = False
-    if show_VV:
         fig, ax = plt.subplots()
+        ax.set_xscale("log")
         _add_time_reference_lines(ax)
-        _format_log_axes(ax)
-        ax.plot(
-            t_rel_plot,
-            dose_time_by_cell[int(vvportfill_vol_id)],
-            label="VV port-fill (D1S)",
-        )
+
+        has_positive = any(v > 0 for v in plasma_doses)
+        if has_positive:
+            ax.set_yscale("log")
+
+        ax.plot(t_rel_plot, plasma_doses)
+        ax.axhline(0.1,   linestyle="--", color="k", linewidth=1.0)
+        ax.axhline(10,    linestyle="--", color="k", linewidth=1.0)
+        ax.axhline(10000, linestyle="--", color="k", linewidth=1.0)
+        ax.text(1e-9, 0.1   * 1.5, "Natural background")
+        ax.text(1e-9, 10    * 1.5, "Hands-on limit")
+        ax.text(1e-9, 10000 * 1.5, "Remote recycling limit")
         ax.set_ylabel("Shutdown Dose [μSv/h]")
         ax.set_xlabel("Cooling Time [y]")
+
+        if not has_positive:
+            ax.set_title(
+                f"Plasma SDR — zero values "
+                f"({'expected for slab' if cfg.SIM_TYPE == 'slab' else 'check D1S result'})"
+            )
+            print(
+                f"[warn] Plasma SDR has no positive values — "
+                f"{'expected for slab SIM_TYPE' if cfg.SIM_TYPE == 'slab' else 'check D1S tally'}"
+            )
+
+        fig.savefig(SDR_DIR / "sdr_time_plasma.png", dpi=300, bbox_inches="tight")
+        plt.close(fig)
+
+        # Plot 1B: VV port-fill (optional) 
+        show_VV = False
+        if show_VV:
+            fig, ax = plt.subplots()
+            _add_time_reference_lines(ax)
+            _format_log_axes(ax)
+            ax.plot(
+                t_rel_plot,
+                dose_time_by_cell[int(vvportfill_vol_id)],
+                label="VV port-fill (D1S)",
+            )
+            ax.set_ylabel("Shutdown Dose [μSv/h]")
+            ax.set_xlabel("Cooling Time [y]")
+            ax.legend()
+            fig.savefig(SDR_DIR / "sdr_time_vvportfill.png",
+                        dpi=300, bbox_inches="tight")
+            plt.close(fig)
+
+        # Plot 2: OB chunk spatial profiles
+        if not profiles:
+            raise RuntimeError(
+                f"profiles is empty: {OB_KEY} rows were never captured."
+            )
+
+        ncurves = min(10, len(profiles))
+        idxs    = np.linspace(0, len(profiles) - 1, ncurves, dtype=int)
+
+        fig, ax = plt.subplots()
+        for i in idxs:
+            t_s_i = profiles[i]["t_s"]
+            dfp   = profiles[i]["df"]
+            ax.plot(
+                dfp["centers"].to_numpy(float),
+                dfp["μSv/h"].to_numpy(float),
+                label=f"{t_s_i:.1e} s",
+            )
+        ax.set_yscale("log")
+        ax.set_ylim(1e-6, 1e12)
+        ax.set_ylabel("Shutdown Dose [μSv/h]")
+        ax.set_xlabel("Radial Position [cm]")
+        ax.set_title(f"D1S spatial profile: {OB_KEY}")
+        ax.grid(True, which="both")
         ax.legend()
-        fig.savefig(SDR_DIR / "sdr_time_vvportfill.png",
+        fig.savefig(SDR_DIR / f"sdr_profile_{OB_KEY}.png",
                     dpi=300, bbox_inches="tight")
         plt.close(fig)
 
-    # Plot 2: OB chunk spatial profiles
-    if not profiles:
-        raise RuntimeError(
-            f"profiles is empty: {OB_KEY} rows were never captured."
-        )
+        # Save SDR CSV outputs
+        for prof in profiles:
+            t_s    = prof["t_s"]
+            t_y    = t_s / y_to_s
+            df_out = prof["df"][[cell_col, "centers", "μSv/h", "mSv/h"]].copy()
+            df_out = df_out.rename(columns={
+                cell_col:  "cell_id",
+                "centers": "radial_center_cm",
+            })
+            df_out["t_s"] = t_s
+            df_out["t_y"] = t_y
+            df_out.to_csv(
+                SDR_CSV_DIR / f"sdr_profile_t{t_s:.4e}s.csv", index=False
+            )
 
-    ncurves = min(10, len(profiles))
-    idxs    = np.linspace(0, len(profiles) - 1, ncurves, dtype=int)
-
-    fig, ax = plt.subplots()
-    for i in idxs:
-        t_s_i = profiles[i]["t_s"]
-        dfp   = profiles[i]["df"]
-        ax.plot(
-            dfp["centers"].to_numpy(float),
-            dfp["μSv/h"].to_numpy(float),
-            label=f"{t_s_i:.1e} s",
-        )
-    ax.set_yscale("log")
-    ax.set_ylim(1e-6, 1e12)
-    ax.set_ylabel("Shutdown Dose [μSv/h]")
-    ax.set_xlabel("Radial Position [cm]")
-    ax.set_title(f"D1S spatial profile: {OB_KEY}")
-    ax.grid(True, which="both")
-    ax.legend()
-    fig.savefig(SDR_DIR / f"sdr_profile_{OB_KEY}.png",
-                dpi=300, bbox_inches="tight")
-    plt.close(fig)
-
-    # Save SDR CSV outputs
-    for prof in profiles:
-        t_s    = prof["t_s"]
-        t_y    = t_s / y_to_s
-        df_out = prof["df"][[cell_col, "centers", "μSv/h", "mSv/h"]].copy()
-        df_out = df_out.rename(columns={
-            cell_col:  "cell_id",
-            "centers": "radial_center_cm",
-        })
-        df_out["t_s"] = t_s
-        df_out["t_y"] = t_y
-        df_out.to_csv(
-            SDR_CSV_DIR / f"sdr_profile_t{t_s:.4e}s.csv", index=False
-        )
-
-    pd.DataFrame({
-        "t_s": time_s,
-        "t_y": [t / y_to_s for t in time_s],
-        f"plasma_cell{int(plasma_vol_id)}_uSvh":
-            list(dose_time_by_cell[int(plasma_vol_id)]),
-        f"vvpf_cell{int(vvportfill_vol_id)}_uSvh":
-            list(dose_time_by_cell[int(vvportfill_vol_id)]),
-    }).to_csv(SDR_DIR / "sdr_timeseries_plasma_vvpf.csv", index=False)
+        pd.DataFrame({
+            "t_s": time_s,
+            "t_y": [t / y_to_s for t in time_s],
+            f"plasma_cell{int(plasma_vol_id)}_uSvh":
+                list(dose_time_by_cell[int(plasma_vol_id)]),
+            f"vvpf_cell{int(vvportfill_vol_id)}_uSvh":
+                list(dose_time_by_cell[int(vvportfill_vol_id)]),
+        }).to_csv(SDR_DIR / "sdr_timeseries_plasma_vvpf.csv", index=False)
 
     summary_rows = []
     for prof in profiles:
@@ -563,7 +577,7 @@ if RUN_DEPLETION:
         _pre_source_cells = all_cells
         _pre_target_ids   = sorted(_pre_source_cells.keys())
         model.settings.photon_transport = False
-    else:
+    else: # slab or fast_slab
         _pre_source_cells = model.geometry.get_all_cells()
         _all_json_ids     = set(int(cid) for cid in ob_by_key.get(OB_KEY, []))
         _present_ids      = set(int(c) for c in _pre_source_cells.keys())
