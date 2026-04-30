@@ -30,14 +30,25 @@ import openmc.data
 import openmc.deplete
 from openmc.deplete import d1s
 
+import json
+import h5py
+
 import inputs as cfg
 import geometry as geo
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Feature toggles
 # ──────────────────────────────────────────────────────────────────────────────
-RUN_D1S       = True
+RUN_D1S       = False
 RUN_DEPLETION = True
+
+#openmc.config['cross_sections']  # check which library is loaded
+
+# Verify each nuclide is available
+#lib = openmc.data.DataLibrary.from_xml()
+#for nuc in ['H1', 'H2', 'O16', 'O17', 'O18', 'Na23', 'Al27', 'Si28', 'Si29', 'Si30']:
+#    entry = lib.get_by_material(nuc)
+#    print(nuc, "→", "FOUND" if entry else "MISSING")
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Import neutronics_model — gives us the fully synced model + all_cells
@@ -60,6 +71,9 @@ ob_by_key           = geo.ob_by_key
 ib_by_key           = geo.ib_by_key
 OB_CHUNK_SIZE       = geo.OB_CHUNK_SIZE
 IB_CHUNK_SIZE       = geo.IB_CHUNK_SIZE
+
+TRANSPORT_THREADS   = cfg.OPENMP_THREADS
+DEPLETION_PROCESSES = cfg.DEPLETION_PROCESSES
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Output directories
@@ -139,6 +153,46 @@ center_by_cell_ob6 = dict(zip(ob_1_b6_cells, xcentroids_ob))
 timer.stop("Build chunk helpers")
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Neutron source rate
+# ──────────────────────────────────────────────────────────────────────────────
+if cfg.SIM_TYPE in ("slab", "fast_slab"):
+
+    # Neutron ratio from surface source file (mirrors neutronics_model.py)
+    if not cfg.SURFACE_SOURCE_FILE.is_file():
+        raise FileNotFoundError(
+            f"Surface source file not found: {cfg.SURFACE_SOURCE_FILE}"
+        )
+    with h5py.File(str(cfg.SURFACE_SOURCE_FILE), "r") as _f:
+        _particles = _f["source_bank"]["particle"][:]
+    _total                = len(_particles)
+    _n_neutrons           = int((_particles == 0).sum())
+    _neutron_ratio_source = _total / _n_neutrons if _n_neutrons > 0 else 1.0
+
+    # J_in from armor current JSON (written by tokamak neutronics_post.py)
+    if not cfg.ARMOR_CURRENT_JSON.is_file():
+        raise FileNotFoundError(
+            f"Armor current JSON not found: {cfg.ARMOR_CURRENT_JSON}\n"
+            f"Run tokamak neutronics_post.py first to generate it."
+        )
+    with open(cfg.ARMOR_CURRENT_JSON) as _f:
+        _records = json.load(_f)
+    _J_in = float(_records[0]["J_in_mean"])
+
+    neutron_source_rate: float = (
+        _neutron_ratio_source
+        * _J_in
+        * (cfg.TOTAL_FUSION_POWER_W / cfg.NUMBER_OF_SECTORS)
+        / (geo.ev_to_joule * cfg.EV_PER_FUSION)
+    )
+    print(f"[source] SIM_TYPE={cfg.SIM_TYPE}: neutron_source_rate (surface-scaled) = {neutron_source_rate:.6e} n/s")
+    print(f"  neutron_ratio_source = {_neutron_ratio_source:.6f}")
+    print(f"  J_in                 = {_J_in:.6e}")
+
+else:
+    neutron_source_rate: float = geo.neutron_source_rate
+    print(f"[source] SIM_TYPE={cfg.SIM_TYPE}: neutron_source_rate = {neutron_source_rate:.6e} n/s")
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Time grids / source rates
 # ──────────────────────────────────────────────────────────────────────────────
 s_to_h           = 3_600
@@ -184,16 +238,82 @@ source_rates = (
     + [0.0] * len(cooling_intervals_s)
 )
 
-# Debug check: reconstruct absolute cooling times from intervals
-_reconstructed_cooling_abs_s = np.cumsum(cooling_intervals_s)
-print("[info] Cooling milestone check (years):")
-for _t in [1, 60, 3600, 86400, 7*86400, y_to_s/12.0, y_to_s,
-           10*y_to_s, 100*y_to_s, 1000*y_to_s]:
-    _matches = np.isclose(
-        _reconstructed_cooling_abs_s, _t,
-        rtol=0.0, atol=1e-9 * max(1.0, _t)
+# ──────────────────────────────────────────────────────────────────────────────
+# Surface-source helper for slab depletion
+# ──────────────────────────────────────────────────────────────────────────────
+def write_neutron_only_surface_source(src_path: Path, dst_path: Path) -> tuple[Path, float]:
+    """
+    Copy an OpenMC surface_source.h5 file but keep only neutron source particles.
+
+    OpenMC particle IDs in source_bank:
+      0 = neutron
+      1 = photon
+      2 = electron
+      3 = positron
+
+    Returns
+    -------
+    dst_path : Path
+        Path to the neutron-only surface source.
+    """
+    src_path = Path(src_path).resolve()
+    dst_path = Path(dst_path).resolve()
+
+    if not src_path.exists():
+        raise FileNotFoundError(f"Surface source file not found: {src_path}")
+
+    dst_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with h5py.File(src_path, "r") as src:
+        if "source_bank" not in src:
+            raise KeyError(f"{src_path} does not contain /source_bank")
+
+        bank = src["source_bank"][:]
+
+        if "particle" not in bank.dtype.names:
+            raise KeyError("source_bank does not contain a 'particle' field")
+
+        neutron_bank = bank[bank["particle"] == 0]
+
+        n_total = len(bank)
+        n_neutrons = len(neutron_bank)
+
+        if n_total == 0:
+            raise RuntimeError(f"{src_path} contains an empty source_bank")
+
+        if n_neutrons == 0:
+            raise RuntimeError(
+                f"No neutron particles found in {src_path}. "
+                "Cannot use this source for neutron depletion."
+            )
+
+        neutron_fraction_in_file = n_neutrons / n_total
+
+        with h5py.File(dst_path, "w") as dst:
+            # Copy root attributes
+            for key, val in src.attrs.items():
+                dst.attrs[key] = val
+
+            # Copy every dataset/group except source_bank.
+            # Most surface source files only need source_bank + attributes,
+            # but this keeps the copy safer if extra metadata exists.
+            for key in src.keys():
+                if key == "source_bank":
+                    continue
+                src.copy(key, dst)
+
+            dst.create_dataset("source_bank", data=neutron_bank)
+
+    print(
+        "\n[surface source] Wrote neutron-only surface source"
+        f"\n  input file          : {src_path}"
+        f"\n  output file         : {dst_path}"
+    #    f"\n  total particles     : {n_total}"
+    #    f"\n  neutron particles   : {n_neutrons}"
+    #    f"\n  neutron fraction    : {neutron_fraction_in_file:.8e}"
     )
-    print(f"  target = {_t / y_to_s:12.6e} y | found = {bool(np.any(_matches))}")
+
+    return dst_path
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Cell volumes from all_cells (populated after DAGMC sync in neutronics_model)
@@ -328,7 +448,7 @@ if RUN_D1S:
     statepoint = model.run(
         cwd=str(D1S_DIR),
         output=False,
-        threads=cfg.OPENMP_THREADS,
+        threads=TRANSPORT_THREADS,
     )
 
     with openmc.StatePoint(statepoint) as sp:
@@ -543,13 +663,8 @@ if RUN_D1S:
 
     timer.stop("D1S run")
 
-    # Restore model state after D1S
-    model.tallies                    = orig_tallies
-    model.settings.use_decay_photons = False
-
 else:
     print("\n[info] RUN_D1S=False — skipping D1S shutdown dose calculation")
-    model.tallies = orig_tallies
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Depletion
@@ -560,75 +675,128 @@ if RUN_DEPLETION:
     print("--------------------------------")
     timer.start("Set up depletion model")
 
-    openmc.deplete.pool.NUM_PROCESSES = cfg.DEPLETION_PROCESSES
+    openmc.deplete.pool.NUM_PROCESSES = DEPLETION_PROCESSES
 
+    # -------------------------------------------------------------------------
+    # Reset model state after D1S
+    # -------------------------------------------------------------------------
     model.settings.use_decay_photons = False
-    model.tallies                    = orig_tallies
+    model.settings.photon_transport  = False
 
-    # Sync materials and determine geometry paths BEFORE differentiate_mats (safety)
+    # Restore original neutronics tallies before microXS generation.
+    model.tallies = orig_tallies
+
+    # -------------------------------------------------------------------------
+    # Slab/fast_slab: swap to neutron-only surface source for get_microxs_and_flux
+    # -------------------------------------------------------------------------
+    # For depletion, the source file should sample only neutrons.
+    # The physical source strength is handled separately through source_rates.
+    if cfg.SIM_TYPE in ("slab", "fast_slab"):
+        print("\n[depletion] Preparing neutron-only slab surface source")
+
+        mixed_surface_source        = Path(cfg.SURFACE_SOURCE_FILE).resolve()
+        neutron_only_surface_source = DEPLETION_RUN_DIR / "surface_source_neutrons_only.h5"
+
+        neutron_only_surface_source = write_neutron_only_surface_source(
+            mixed_surface_source,
+            neutron_only_surface_source,
+        )
+
+        model.settings.surf_source_read  = {"path": str(neutron_only_surface_source)}
+        model.settings.surf_source_write = {}
+
+    # source_rates and timesteps are defined at module level — no recomputation needed
+    print("\n[depletion] Source-rate normalization")
+    print(f"  SIM_TYPE                 = {cfg.SIM_TYPE}")
+    print(f"  neutron_source_rate      = {neutron_source_rate:.8e} n/s")
+    print(f"  cfg.CONSTANT_POWER_RATIO = {cfg.CONSTANT_POWER_RATIO:.8e}")
+    print(f"  depletion source rate    = {source_rates[0]:.8e} n/s")
+
+    # -------------------------------------------------------------------------
+    # Sync materials and geometry paths before differentiate_mats
+    # -------------------------------------------------------------------------
     model.materials = openmc.Materials(
         list(model.geometry.get_all_materials().values())
     )
     model.geometry.determine_paths()
 
-    # Step 1: mark depletable materials BEFORE differentiate_mats 
-    # (Figure it out which materials will be depleted) -> matters more for slab
+    # -------------------------------------------------------------------------
+    # Step 1: mark depletable materials before differentiate_mats
+    # -------------------------------------------------------------------------
     if cfg.SIM_TYPE == "tokamak":
         _pre_source_cells = all_cells
         _pre_target_ids   = sorted(_pre_source_cells.keys())
-        model.settings.photon_transport = False
-    else: # slab or fast_slab
+    else:
         _pre_source_cells = model.geometry.get_all_cells()
         _all_json_ids     = set(int(cid) for cid in ob_by_key.get(OB_KEY, []))
         _present_ids      = set(int(c) for c in _pre_source_cells.keys())
         _pre_target_ids   = sorted(_all_json_ids & _present_ids)
 
     _n_marked = 0
+
     for _cid in _pre_target_ids:
         _cell = _pre_source_cells.get(int(_cid))
         if _cell is None:
             continue
+
         _mat = _cell.fill
         if not isinstance(_mat, openmc.Material):
             continue
+
         _vol = vol_by_cell.get(int(_cid))
         if _vol is None or float(_vol) <= 0.0:
             continue
+
         if _mat.volume is None:
             _mat.volume = float(_vol)
+
         _mat.depletable = True
         _n_marked += 1
 
-    print(f"[depletion] Marked {_n_marked} materials as depletable")
+    print(f"\n[depletion] Marked {_n_marked} materials as depletable")
 
-    # Step 2: differentiate — one unique material per depletable cell 
+    if _n_marked == 0:
+        raise RuntimeError(
+            "[depletion] No materials were marked as depletable. "
+            "Check target cell IDs, material assignments, and cell volumes."
+        )
+
+    # -------------------------------------------------------------------------
+    # Step 2: differentiate materials
+    # -------------------------------------------------------------------------
+    # This creates one unique material per depletable cell.
     model.differentiate_mats("match cell", depletable_only=True)
 
-    # Sync materials again after differentiation
+    # Sync again after differentiation.
     model.materials = openmc.Materials(
         list(model.geometry.get_all_materials().values())
     )
     model.geometry.determine_paths()
 
-    # Step 3: collect the now-unique (cell, material) pairs
-    dagmc_cell_ids: list = []
-    deplete_cells:  list = []
-    deplete_mats:   list = []
+    # -------------------------------------------------------------------------
+    # Step 3: collect unique cell/material pairs after differentiation
+    # -------------------------------------------------------------------------
+    dagmc_cell_ids: list[int] = []
+    deplete_cells:  list[openmc.Cell] = []
+    deplete_mats:   list[openmc.Material] = []
 
     if cfg.SIM_TYPE == "tokamak":
         _source_cells = all_cells
         target_ids    = sorted(_source_cells.keys())
+
         print(
-            f"[depletion] tokamak: scanning "
+            f"\n[depletion] tokamak: scanning "
             f"{len(target_ids)} cells for depletable materials"
         )
+
     else:
         _source_cells = model.geometry.get_all_cells()
         _all_json_ids = set(int(cid) for cid in ob_by_key.get(OB_KEY, []))
         _present_ids  = set(int(c) for c in _source_cells.keys())
         target_ids    = sorted(_all_json_ids & _present_ids)
+
         print(
-            f"[depletion] slab: {len(target_ids)} cells from "
+            f"\n[depletion] slab: {len(target_ids)} cells from "
             f"{OB_KEY} present in wrapper geometry"
         )
 
@@ -642,11 +810,27 @@ if RUN_DEPLETION:
         cell = _source_cells.get(int(cid))
         if cell is None:
             continue
+
         mat = cell.fill
         if not isinstance(mat, openmc.Material):
             continue
+
         if not mat.depletable:
             continue
+
+        # Make sure each depletable material has a positive volume.
+        if mat.volume is None or float(mat.volume) <= 0.0:
+            v = vol_by_cell.get(int(cid))
+            if v is not None and float(v) > 0.0:
+                mat.volume = float(v)
+
+        if mat.volume is None or float(mat.volume) <= 0.0:
+            print(
+                f"[warn] Skipping cell {cid}: depletable material "
+                f"{mat.id} has no positive volume"
+            )
+            continue
+
         dagmc_cell_ids.append(int(cid))
         deplete_cells.append(cell)
         deplete_mats.append(mat)
@@ -662,56 +846,69 @@ if RUN_DEPLETION:
             "geometry.py / eudemo_materials.py."
         )
 
+    # -------------------------------------------------------------------------
     # Mappings for post-processing
-    cell_to_mat    = {cid: str(mat.id) for cid, mat in zip(dagmc_cell_ids, deplete_mats)}
-    mat_to_cell    = {str(mat.id): cid for cid, mat in zip(dagmc_cell_ids, deplete_mats)}
+    # -------------------------------------------------------------------------
+    cell_to_mat = {
+        cid: str(mat.id)
+        for cid, mat in zip(dagmc_cell_ids, deplete_mats)
+    }
+
+    mat_to_cell = {
+        str(mat.id): cid
+        for cid, mat in zip(dagmc_cell_ids, deplete_mats)
+    }
+
     mat_id_to_name = {
         str(mat.id): (mat.name or f"material_{mat.id}")
         for mat in deplete_mats
     }
 
-    # Build reduced chain
+    # -------------------------------------------------------------------------
+    # Build reduced depletion chain
+    # -------------------------------------------------------------------------
     initial_nuclides = model.geometry.get_all_nuclides()
-    chain            = openmc.deplete.Chain.from_xml(str(cfg.OPENMC_CHAIN_FILE))
+    chain = openmc.deplete.Chain.from_xml(str(cfg.OPENMC_CHAIN_FILE))
+
     print(
-        f"[chain] Loaded {len(chain.nuclides)} nuclides "
+        f"\n[chain] Loaded {len(chain.nuclides)} nuclides "
         f"from: {cfg.OPENMC_CHAIN_FILE}"
     )
 
-    reduced_chain = chain.reduce(initial_nuclides, level=cfg.REDUCED_CHAIN_LEVEL)
-    print(f"[chain] Reduced to {len(reduced_chain.nuclides)} nuclides")
-
-    if len(reduced_chain.nuclides) == 0:
-        raise RuntimeError(
-            "Reduced chain has 0 nuclides — nuclide names may not match chain. "
-            f"Sample initial nuclides: {list(initial_nuclides)[:10]}"
-        )
+    reduced_chain = chain.reduce(
+        initial_nuclides,
+        level=cfg.REDUCED_CHAIN_LEVEL,
+    )
 
     bluemira_chain = DEPLETION_RUN_DIR / "bluemira_chain.xml"
     reduced_chain.export_to_xml(str(bluemira_chain))
-    print(f"[info] Wrote reduced chain: {bluemira_chain}")
+
+    print(f"[chain] Reduced to {len(reduced_chain.nuclides)} nuclides")
 
     openmc.config["chain_file"] = str(bluemira_chain)
-    model.settings.depletion    = {"chain_file": str(bluemira_chain)}
+    model.settings.depletion = {
+        "chain_file": str(bluemira_chain)
+    }
 
-    print(
-        f"[depletion] Calling get_microxs_and_flux with "
-        f"{len(deplete_mats)} materials ..."
-    )
+    # -------------------------------------------------------------------------
+    # Generate fluxes and microscopic cross sections
+    # -------------------------------------------------------------------------
+    
 
-    # Generate fluxes and microscopic cross-sections
     fluxes, micros = openmc.deplete.get_microxs_and_flux(
         model,
         deplete_mats,
         chain_file=str(bluemira_chain),
         run_kwargs={
             "cwd":     str(DEPLETION_RUN_DIR),
-            "output":  True,
-            "threads": cfg.OPENMP_THREADS,
+            "output":  True, # False 
+            "threads": TRANSPORT_THREADS,
         },
     )
 
-    # Define depletion operator (coupled/independent)
+    # -------------------------------------------------------------------------
+    # Define independent depletion operator
+    # -------------------------------------------------------------------------
     operator = openmc.deplete.IndependentOperator(
         deplete_mats,
         fluxes,
@@ -720,10 +917,11 @@ if RUN_DEPLETION:
         normalization_mode="source-rate",
     )
 
-    # Set output directory
     operator.output_dir = str(R2S_ACTIVATION_DIR)
 
-    # Set predictor integrator
+    # -------------------------------------------------------------------------
+    # Predictor integrator
+    # -------------------------------------------------------------------------
     integrator = openmc.deplete.PredictorIntegrator(
         operator,
         timesteps,
@@ -732,20 +930,32 @@ if RUN_DEPLETION:
 
     timer.stop("Set up depletion model")
 
-    timer.start("Depletion run")
-    
+    # -------------------------------------------------------------------------
     # Run depletion
+    # -------------------------------------------------------------------------
+    timer.start("Depletion run")
+
     integrator.integrate()
 
     results = openmc.deplete.Results(
         str(R2S_ACTIVATION_DIR / "depletion_results.h5")
     )
 
-    # Save cell_id and material_id mapping for depletion_post.py
+    # -------------------------------------------------------------------------
+    # Save cell/material map for depletion_post.py
+    # -------------------------------------------------------------------------
     pd.DataFrame([
-        {"cell_id": cid, "mat_id": int(mat.id), "material_name": mat.name}
+        {
+            "cell_id": cid,
+            "mat_id": int(mat.id),
+            "material_name": mat.name,
+            "volume_cm3": float(mat.volume) if mat.volume is not None else np.nan,
+        }
         for cid, mat in zip(dagmc_cell_ids, deplete_mats)
-    ]).to_csv(R2S_ACTIVATION_DIR / "cell_material_map.csv", index=False)
+    ]).to_csv(
+        R2S_ACTIVATION_DIR / "cell_material_map.csv",
+        index=False,
+    )
 
     print(f"[info] Written cell_material_map.csv to {R2S_ACTIVATION_DIR}")
 

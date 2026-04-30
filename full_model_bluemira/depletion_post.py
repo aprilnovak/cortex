@@ -21,6 +21,7 @@ Outputs per chunk key → cfg.DEPLETION_RESULTS_DIR/<chunk_key>/
 
 from __future__ import annotations
 
+import json
 import math
 from dataclasses import dataclass
 from itertools import cycle
@@ -47,6 +48,7 @@ RESULTS_OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 SECONDS_PER_YEAR = 365.0 * 24.0 * 3600.0
 MAX_HALFLIFE = 60*60*24*365/12*1e6*100
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Colour / style helpers
 # ──────────────────────────────────────────────────────────────────────────────
@@ -208,8 +210,9 @@ def display_half_life(nuclide):
 # Nuclide selection
 # ──────────────────────────────────────────────────────────────────────────────
 def _select_topn(
-    sorted_items: list[tuple[str, float]]
-    ) -> list[tuple[str, float]]:
+    sorted_items: list[tuple[str, float]],
+    label: str = "",
+) -> list[tuple[str, float]]:
     """
     For a given step, we add nuclides to plot until the next incremental percent of
     total activity to show is below 5% of the total. This limits the number of nuclides
@@ -224,7 +227,7 @@ def _select_topn(
 
     # No induced activity 
     if total == 0.0:
-        print("zero induced activity")
+        print(f"[warn] zero induced activity{f' for {label}' if label else ''}")
         return []
 
     running_total = 0.0
@@ -246,7 +249,7 @@ def _select_topn(
 
     return sorted_items[:index + 1]
 
-def _select(dict_list, n_steps):
+def _select(dict_list, n_steps, label: str = ""):
     # selections per step; first, loop through all the time steps to find the top nuclides
     # on each given step. Then, we take the union of these and then obtain the data to
     # plot on each step by writing that nuclide for all time steps
@@ -254,15 +257,20 @@ def _select(dict_list, n_steps):
     top_nucs_union: set[str] = set()
 
     for istep in range(n_steps):
+        if istep == 0:
+            continue          # skip pre-irradiation state
         d = dict_list[istep] or {}
         if not d:
             continue
 
+        step_label = f"{label} step {istep}" if label else f"step {istep}"
         step_sorted = sorted(d.items(), key=lambda x: x[1], reverse=True)
-        for nuc, _ in _select_topn(step_sorted):
+        for nuc, _ in _select_topn(step_sorted, label=step_label):
             top_nucs_union.add(nuc)
 
     for istep in range(n_steps):
+        if istep == 0:
+            continue
         d = dict_list[istep] or {}
         if not d:
             continue
@@ -462,7 +470,9 @@ def plot_activity_nuclides_per_cell(
             print(f"[Activity] Skipping plot for cell {cid} ({region}): zero activity.")
             continue
 
-        topn_by_step, top_nucs_union = _select(act_list, n_steps)
+        topn_by_step, top_nucs_union = _select(
+            act_list, n_steps, label=f"cell {cid} ({region}) activity"
+        )
         top_nucs = sorted(top_nucs_union)
 
         nuc_series    = {nuc: np.full(n_steps, np.nan) for nuc in top_nucs}
@@ -680,7 +690,9 @@ def plot_decayheat_nuclides_per_cell(
             print(f"[DecayHeat] Skipping plot for cell {cid} ({region}): zero decay heat.")
             continue
 
-        topn_by_step, top_nucs_union = _select(heat_list, n_steps)
+        topn_by_step, top_nucs_union = _select(
+            heat_list, n_steps, label=f"cell {cid} ({region}) decay heat"
+        )
         top_nucs = sorted(top_nucs_union)
 
         nuc_series    = {nuc: np.full(n_steps, np.nan) for nuc in top_nucs}
