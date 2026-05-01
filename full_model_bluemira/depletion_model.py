@@ -287,8 +287,6 @@ def write_neutron_only_surface_source(src_path: Path, dst_path: Path) -> tuple[P
                 "Cannot use this source for neutron depletion."
             )
 
-        neutron_fraction_in_file = n_neutrons / n_total
-
         with h5py.File(dst_path, "w") as dst:
             # Copy root attributes
             for key, val in src.attrs.items():
@@ -308,9 +306,6 @@ def write_neutron_only_surface_source(src_path: Path, dst_path: Path) -> tuple[P
         "\n[surface source] Wrote neutron-only surface source"
         f"\n  input file          : {src_path}"
         f"\n  output file         : {dst_path}"
-    #    f"\n  total particles     : {n_total}"
-    #    f"\n  neutron particles   : {n_neutrons}"
-    #    f"\n  neutron fraction    : {neutron_fraction_in_file:.8e}"
     )
 
     return dst_path
@@ -454,26 +449,26 @@ if RUN_D1S:
     with openmc.StatePoint(statepoint) as sp:
         tally = sp.get_tally(name="dose tally")
 
+    # Apply time correction
     corrected_tallies = [
         d1s.apply_time_correction(tally, factors, i + 1)
         for i in range(len(timesteps))
     ]
 
-    # Parse D1S results
+    # Storage
     time_s            = []
-
     dose_time_by_cell = (
         {plasma_vol_id: [], vvportfill_vol_id: []}
         if cfg.SIM_TYPE == "tokamak"
         else {}
     )
-    
     profiles          = []
     cell_col          = "cell"  # default; overwritten inside loop
 
     for t_cool, ctally in zip(cooling_times_abs_s, corrected_tallies[1:]):
         d1s_df = ctally.get_pandas_dataframe()
 
+        # Identify cell column
         if "cell" in d1s_df.columns:
             cell_col = "cell"
         elif "cell_id" in d1s_df.columns:
@@ -483,14 +478,16 @@ if RUN_D1S:
 
         d1s_df[cell_col]      = pd.to_numeric(d1s_df[cell_col]).astype(int)
         d1s_df["mean"]        = pd.to_numeric(d1s_df["mean"])
-        d1s_df["cell_volume"] = d1s_df[cell_col].map(vol_by_cell_all)
 
+        # Map volumes
+        d1s_df["cell_volume"] = d1s_df[cell_col].map(vol_by_cell_all)
         if d1s_df["cell_volume"].isna().any():
             missing = d1s_df.loc[
                 d1s_df["cell_volume"].isna(), cell_col
             ].unique().tolist()
             raise KeyError(f"Missing volumes for cells: {missing}")
 
+        # Convert to dose rate
         d1s_df["μSv/h"] = (
             d1s_df["mean"] * (s_to_h * to_μSv) / d1s_df["cell_volume"]
         )
@@ -498,10 +495,14 @@ if RUN_D1S:
             d1s_df["mean"] * (s_to_h * to_mSv) / d1s_df["cell_volume"]
         )
 
-        # Time series: plasma & VV port-fill (tokamak only)
+        # --------------------------------------------------
+        # (A) Time series: plasma & VV port-fill (tokamak only)
+        # --------------------------------------------------
         if cfg.SIM_TYPE == "tokamak":
+
             df_time = d1s_df[d1s_df[cell_col].isin(dose_cells_time)].copy()
             time_s.append(float(t_cool))
+
             for cid in dose_cells_time:
                 cid = int(cid)
                 sub = df_time.loc[df_time[cell_col] == cid, "μSv/h"]
@@ -511,7 +512,9 @@ if RUN_D1S:
                     )
                 dose_time_by_cell[cid].append(float(sub.iloc[0]))
 
-        # Spatial profile: OB chunk
+        # --------------------------------------------------
+        # (B) Spatial profile: OB chunk
+        # --------------------------------------------------
         df_prof            = d1s_df[d1s_df[cell_col].isin(ob_1_b6_cells)].copy()
         df_prof["centers"] = df_prof[cell_col].map(center_by_cell_ob6)
 
@@ -534,7 +537,9 @@ if RUN_D1S:
         else:
             print(f"Cooling {t_cool:.3e} s | {OB_KEY} rows={len(df_prof)}")
 
+    # ------------------------------------------------------------------
     # Plot 1A: plasma time series
+    # ------------------------------------------------------------------
     if cfg.SIM_TYPE == "tokamak":
         t_rel_plot   = [t / SECONDS_PER_YEAR for t in time_s]
         plasma_doses = dose_time_by_cell[int(plasma_vol_id)]
@@ -570,7 +575,10 @@ if RUN_D1S:
         fig.savefig(SDR_DIR / "sdr_time_plasma.png", dpi=300, bbox_inches="tight")
         plt.close(fig)
 
-        # Plot 1B: VV port-fill (optional) 
+        # ------------------------------------------------------------------
+        # Plot 1B: VV port-fill time series (OPTIONAL)
+        # ------------------------------------------------------------------ 
+        # TODO: SDR currently shows zero here. Checks are scheduled for the following weeks
         show_VV = False
         if show_VV:
             fig, ax = plt.subplots()
@@ -588,7 +596,9 @@ if RUN_D1S:
                         dpi=300, bbox_inches="tight")
             plt.close(fig)
 
+        # ------------------------------------------------------------------
         # Plot 2: OB chunk spatial profiles
+        # ------------------------------------------------------------------
         if not profiles:
             raise RuntimeError(
                 f"profiles is empty: {OB_KEY} rows were never captured."
@@ -617,7 +627,11 @@ if RUN_D1S:
                     dpi=300, bbox_inches="tight")
         plt.close(fig)
 
-        # Save SDR CSV outputs
+        # ------------------------------------------------------------------
+        # Save SDR (D1S) results to CSV
+        # ------------------------------------------------------------------
+        
+        # Per-timestep CSV: one row per cell
         for prof in profiles:
             t_s    = prof["t_s"]
             t_y    = t_s / y_to_s
@@ -632,6 +646,7 @@ if RUN_D1S:
                 SDR_CSV_DIR / f"sdr_profile_t{t_s:.4e}s.csv", index=False
             )
 
+        # Time-series CSV: one row per cooling time, per point-of-interest cell
         pd.DataFrame({
             "t_s": time_s,
             "t_y": [t / y_to_s for t in time_s],
@@ -641,6 +656,7 @@ if RUN_D1S:
                 list(dose_time_by_cell[int(vvportfill_vol_id)]),
         }).to_csv(SDR_DIR / "sdr_timeseries_plasma_vvpf.csv", index=False)
 
+    # Summary CSV: one row per cooling time, columns = OB_1_b6 cells
     summary_rows = []
     for prof in profiles:
         t_s = prof["t_s"]
@@ -675,6 +691,7 @@ if RUN_DEPLETION:
     print("--------------------------------")
     timer.start("Set up depletion model")
 
+    # Control depletion multiprocessing
     openmc.deplete.pool.NUM_PROCESSES = DEPLETION_PROCESSES
 
     # -------------------------------------------------------------------------
@@ -715,14 +732,17 @@ if RUN_DEPLETION:
     # -------------------------------------------------------------------------
     # Sync materials and geometry paths before differentiate_mats
     # -------------------------------------------------------------------------
+    # Make sure the model's materials list matches the geometry
     model.materials = openmc.Materials(
         list(model.geometry.get_all_materials().values())
     )
     model.geometry.determine_paths()
 
     # -------------------------------------------------------------------------
-    # Step 1: mark depletable materials before differentiate_mats
+    # Mark depletable materials before differentiate_mats
     # -------------------------------------------------------------------------
+    # Set each cell in the working universe as depletable 
+    # (all for tokamak, OB_1_b6 for slab and fast_slab)
     if cfg.SIM_TYPE == "tokamak":
         _pre_source_cells = all_cells
         _pre_target_ids   = sorted(_pre_source_cells.keys())
@@ -762,12 +782,12 @@ if RUN_DEPLETION:
         )
 
     # -------------------------------------------------------------------------
-    # Step 2: differentiate materials
+    # Differentiate materials
     # -------------------------------------------------------------------------
-    # This creates one unique material per depletable cell.
+    # Place unique materials in each cell, to be activated individually
     model.differentiate_mats("match cell", depletable_only=True)
 
-    # Sync again after differentiation.
+    # Sync again after differentiation (to be safe - most likely not necessary).
     model.materials = openmc.Materials(
         list(model.geometry.get_all_materials().values())
     )
@@ -849,6 +869,7 @@ if RUN_DEPLETION:
     # -------------------------------------------------------------------------
     # Mappings for post-processing
     # -------------------------------------------------------------------------
+    # Prepare list cells_ids/mat for post processing of depletion
     cell_to_mat = {
         cid: str(mat.id)
         for cid, mat in zip(dagmc_cell_ids, deplete_mats)
@@ -882,7 +903,6 @@ if RUN_DEPLETION:
 
     bluemira_chain = DEPLETION_RUN_DIR / "bluemira_chain.xml"
     reduced_chain.export_to_xml(str(bluemira_chain))
-
     print(f"[chain] Reduced to {len(reduced_chain.nuclides)} nuclides")
 
     openmc.config["chain_file"] = str(bluemira_chain)
@@ -893,8 +913,6 @@ if RUN_DEPLETION:
     # -------------------------------------------------------------------------
     # Generate fluxes and microscopic cross sections
     # -------------------------------------------------------------------------
-    
-
     fluxes, micros = openmc.deplete.get_microxs_and_flux(
         model,
         deplete_mats,
