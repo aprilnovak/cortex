@@ -66,8 +66,8 @@ NEUTRONICS_RESULTS_DIR = SIM_DIR / "neutronics_results"
 DEPLETION_RUN_DIR      = SIM_DIR / "depletion_run"
 DEPLETION_RESULTS_DIR  = SIM_DIR / "depletion_results"
 
-# Important input files — all live in BASE_DIR/dagmc_files/
-DAGMC_DIR = BASE_DIR / "dagmc_files"
+# Important input files — all live in PROJECT_ROOT/dagmc_files/ 
+DAGMC_DIR = PROJECT_ROOT / "dagmc_files"
 
 _JSON_FILENAMES = {
     "WCLL": "EUDEMO_WCLL_inputs.json",
