@@ -51,13 +51,15 @@ INPUT_JSON = (BLUEMIRA_DIR / "EUDEMO_WCLL_inputs.json")
 
 # Fixed-source run configuration
 # Read the surface source written by the detailed_bluemira neutronics run
-SURF_SOURCE_FILE = (BLUEMIRA_DIR / "neutronics_run" / "surface_source.h5")
+#SURF_SOURCE_FILE = (BLUEMIRA_DIR / "neutronics_run" / "surface_source.h5")
+SURF_SOURCE_FILE = (SCRIPT_DIR / "surface_source.h5")
+
 
 TARGET_VOL_ID = 78
 
 # Radial vacuum cylinders (cm)
-R_IN_CM = 1140.0
-R_OUT_CM = 1375.0
+R_IN_CM = 1130.0
+R_OUT_CM = 1380.0
 
 # -----------------------------------------------------------------------------
 # SURFACE INFO HELPERS
@@ -435,7 +437,7 @@ model.settings.run_mode = "fixed source"
 model.settings.surf_source_read = {"path": str(SURF_SOURCE_FILE)}
 
 # Set TALLY_CONVERGENCE_THRESHOLD to 0.01 (1%) or 0.001 (0.1%)
-TALLY_CONVERGENCE_THRESHOLD = 0.01
+TALLY_CONVERGENCE_THRESHOLD = 0.1
 
 model.settings.batches = 10           # minimum batches before triggers are checked
 model.settings.trigger_active = True
@@ -789,6 +791,10 @@ flux_tally_total.triggers = [
 ]
 model.tallies.append(flux_tally_total)
 
+heating_tally = openmc.Tally()
+heating_tally.filters = [cell_filter]
+heating_tally.scores = ["heating"]
+model.tallies.append(heating_tally)
 
 # Turn it off current tallies for albedo in the slab model
 DO_ALBEDO = False
@@ -814,11 +820,6 @@ if DO_ALBEDO:
 
         model.tallies.append(p_current_tally)
         p_current_tallies[cid] = p_current_tally
-
-heating_tally = openmc.Tally()
-heating_tally.filters = [cell_filter]
-heating_tally.scores = ["heating"]
-model.tallies.append(heating_tally)
 
 # -----------------------------------------------------------------------------
 # Define Structural_materials nuclides fractions and totals
@@ -1001,3 +1002,36 @@ redundant_files = ["geometry.xml", "materials.xml", "settings.xml", "tallies.xml
 for f in redundant_files:
     if os.path.exists(f):
         os.remove(f)
+
+
+def print_cell_volume(cell_id: int = 66):
+    """
+    Print the volume for a given cell_id as seen by the old slab model.
+    Sources:
+      1. pydagmc_model.volumes  -> volume.volume  (what gets assigned to the cell)
+      2. dagmc_universe_cells   -> cell.volume    (the OpenMC cell object after sync)
+    """
+    cid = int(cell_id)
+
+    # Source 1: pydagmc directly
+    try:
+        vol_pydagmc = pydagmc_model.volumes_by_id[cid].volume
+        print(f"[pydagmc]          cell {cid} volume = {vol_pydagmc:.6f} cm3")
+    except KeyError:
+        print(f"[pydagmc]          cell {cid} not found in pydagmc_model.volumes_by_id")
+
+    # Source 2: the OpenMC cell object after sync
+    try:
+        vol_cell = dagmc_universe_cells[cid].volume
+        print(f"[dagmc_universe]   cell {cid} volume = {vol_cell} cm3")
+    except KeyError:
+        print(f"[dagmc_universe]   cell {cid} not found in dagmc_universe_cells")
+
+    # Source 3: full geometry (includes wrapper cell 10_000)
+    try:
+        vol_geom = all_cells[cid].volume
+        print(f"[all_cells]        cell {cid} volume = {vol_geom} cm3")
+    except KeyError:
+        print(f"[all_cells]        cell {cid} not found in all_cells")
+
+print_cell_volume(66)

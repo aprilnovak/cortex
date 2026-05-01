@@ -575,7 +575,7 @@ cell_to_mat = {cid: str(mat.id) for cid, mat in zip(dagmc_cell_ids, deplete_mats
 mat_to_cell = {str(mat.id): cid for cid, mat in zip(dagmc_cell_ids, deplete_mats)}
 mat_id_to_name = {str(mat.id): (mat.name or f"material_{mat.id}") for mat in deplete_mats}
 
-# ---- Build + use reduced chain everywhere below ----
+# Build + use reduced chain everywhere below
 initial_nuclides = model.geometry.get_all_nuclides()
 
 chain = openmc.deplete.Chain.from_xml(openmc.config["chain_file"])
