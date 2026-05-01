@@ -256,8 +256,8 @@ def write_neutron_only_surface_source(src_path: Path, dst_path: Path) -> tuple[P
     dst_path : Path
         Path to the neutron-only surface source.
     """
-    src_path = Path(src_path).resolve()
-    dst_path = Path(dst_path).resolve()
+    src_path = Path(src_path)
+    dst_path = Path(dst_path)
 
     if not src_path.exists():
         raise FileNotFoundError(f"Surface source file not found: {src_path}")
@@ -711,7 +711,7 @@ if RUN_DEPLETION:
     if cfg.SIM_TYPE in ("slab", "fast_slab"):
         print("\n[depletion] Preparing neutron-only slab surface source")
 
-        mixed_surface_source        = Path(cfg.SURFACE_SOURCE_FILE).resolve()
+        mixed_surface_source        = Path(cfg.SURFACE_SOURCE_FILE)
         neutron_only_surface_source = DEPLETION_RUN_DIR / "surface_source_neutrons_only.h5"
 
         neutron_only_surface_source = write_neutron_only_surface_source(
