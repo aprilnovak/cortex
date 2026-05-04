@@ -19,7 +19,7 @@ import shutil
 # =============================================================================
 # SIMULATION TYPE
 # =============================================================================
-SIM_TYPE     = "slab"      # "tokamak"  |  "slab" | "fast_slab"
+SIM_TYPE     = "tokamak"      # "tokamak"  |  "slab" | "fast_slab"
 
 # =============================================================================
 # BREEDER TYPE
@@ -178,29 +178,8 @@ print("SIM_TYPE:", SIM_TYPE)
 print("BREEDER_TYPE:", BREEDER_TYPE)
 
 # Materials common to all breeder types 
-#armor_material      = materials.W(19.3)
-import openmc 
-armor_material = openmc.Material()
-armor_material.set_density("g/cc", 2.25)
-for n in (
-    ["H1", 0.1738930434782609],
-    ["H2", 2e-05],
-    ["O16", 0.5204713043478261],
-    ["O17", 0.0001982608695652174],
-    ["O18", 0.001069565217391304],
-    ["Na23", 0.08695652173913043],
-    ["Al27", 0.08695652173913043],
-    ["Si28", 0.1202908695652174],
-    ["Si29", 0.006110869565217392],
-    ["Si30", 0.0040330434782608685],
-):
-    armor_material.add_nuclide(n[0], n[1], "ao")
-
-#armor_material.add_element("Ta", 1e-4, "wo") 
-
-
+armor_material      = materials.W(19.3)
 structural_material = materials.eurofer97(7.87)
-#structural_material = materials.SiC(2.5)
 vv_material = materials.ss316Ln_ig(7.93)
 
 # Breeder-specific materials 

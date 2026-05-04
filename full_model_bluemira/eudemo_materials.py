@@ -33,6 +33,7 @@ bronze   = materials.Bronze(8.8775)
 nbti     = materials.NbTi(6.538)
 cu       = materials.Cu(8.96)
 ss304_b4 = materials.ss304_b4(7.8)
+water    = materials.Water(0.866)       # pressurised water
 
 # Plasma fill 
 plasma_mat = openmc.Material(name="plasma")
@@ -54,10 +55,10 @@ def build_mix_recipes(cfg) -> dict:
     shared: dict = {
         "Divertor":            {ccz: 0.00552, cu: 0.00438, structural: 0.5238,
                                 armor: 0.01026, coolant: 0.45604},
-        "VV_IB":               {vv: 0.6, coolant: 0.4},
-        "VV_OB":               {vv: 0.6, coolant: 0.4},
-        "VV_ports_all":        {vv: 0.6, coolant: 0.4},
-        "VV_port_Fill":        {vv: 0.6, coolant: 0.4},
+        "VV_IB":               {vv: 0.6, water: 0.4},
+        "VV_OB":               {vv: 0.6, water: 0.4},
+        "VV_ports_all":        {vv: 0.6, water: 0.4},
+        "VV_port_Fill":        {vv: 0.6, water: 0.4},
         "PC_PFC":              {nbti: 0.02895, cu: 0.1169, epoxy: 0.18,
                                 bronze: 0.0735, he_low: 0.1682, vv: 0.43245},
         "TFcoil":              {nb3sn: 0.02895, cu: 0.1169, epoxy: 0.18,
