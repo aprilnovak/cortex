@@ -262,11 +262,11 @@ SURFACE_SOURCE_MAX_PARTICLES = 1_000_000
 if SIM_TYPE == "tokamak":
     DO_ALBEDO       = True
     DO_CHECK_SOURCE = True
-    TRACKS = True
+    #TRACKS = True
 else:
     DO_ALBEDO       = False
     DO_CHECK_SOURCE = False
-    TRACKS = False
+    #TRACKS = False
 
 # Depletion
 IRRADIATION_YEARS    = 5.0

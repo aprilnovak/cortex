@@ -133,12 +133,11 @@ else:
     model.settings.batches        = cfg.FIXED_BATCHES
     model.settings.trigger_active = False
 
-
-if cfg.TRACKS:
-    if cfg.SIM_TYPE == "tokamak":
-        model.settings.track = [
-            (1, 1, random.randint(1, cfg.PARTICLES_PER_BATCH))
-        ]
+#if cfg.TRACKS:
+#    if cfg.SIM_TYPE == "tokamak":
+#        model.settings.track = [
+#            (1, 1, random.randint(1, cfg.PARTICLES_PER_BATCH))
+#        ]
 
 # ──────────────────────────────────────────────────────────────────────────────
 # DAGMC volume sync  (requires settings to be defined first)
