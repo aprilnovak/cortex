@@ -377,7 +377,7 @@ def save_total_timeseries_csv(
 
     Output columns:
       Cooling_time_years,
-      <RegionName>__cell_<cid>, ...
+      <RegionName>_cell_<cid>, ...
     """
     if not total_by_cell:
         return
@@ -385,12 +385,105 @@ def save_total_timeseries_csv(
     # Build one dataframe per cell, then outer-merge on time
     dfs = []
     for cid, (t_rel_y, values) in total_by_cell.items():
-        col = f"{_safe_csv_label(cell_id_to_name.get(cid, str(cid)))}__cell_{cid}"
+        col = f"{_safe_csv_label(cell_id_to_name.get(cid, str(cid)))}_cell_{cid}"
         dfs.append(pd.DataFrame({"Cooling_time_years": t_rel_y, col: values}))
     df_out = dfs[0]
     for df_i in dfs[1:]:
         df_out = df_out.merge(df_i, on="Cooling_time_years", how="outer")
     df_out.sort_values("Cooling_time_years").to_csv(out_csv, index=False)
+
+def update_summary_results_with_activity(
+    results: "openmc.deplete.Results",
+    *,
+    neutronics_csv: "Path",
+    out_csv: "Path",
+    activity_units: str = "Bq/kg",
+    decayheat_units: str = "W/cm3",
+    target_cooling_year: float = 100.0,
+) -> "pd.DataFrame":
+    """
+    Read activity and decay heat at target_cooling_year directly from the
+    already-written timeseries CSVs, then append to the summary neutronics CSV.
+    """
+    neutronics_csv = Path(neutronics_csv)
+    if not neutronics_csv.is_file():
+        raise FileNotFoundError(f"Peak neutronics CSV not found: {neutronics_csv}")
+
+    df_summary = pd.read_csv(neutronics_csv)
+
+    # chunk_key is the same for all rows
+    chunk_key = str(df_summary["chunk_key"].iloc[0])
+    chunk_dir = cfg.DEPLETION_RESULTS_DIR / chunk_key
+
+    # Load timeseries CSVs written by run_chunk_postprocess 
+    act_csv = chunk_dir / "activity_all_cells.csv"
+    dh_csv  = chunk_dir / "decayheat_all_cells.csv"
+
+    if not act_csv.is_file():
+        raise FileNotFoundError(f"Activity CSV not found: {act_csv}")
+    if not dh_csv.is_file():
+        raise FileNotFoundError(f"Decay heat CSV not found: {dh_csv}")
+
+    df_act = pd.read_csv(act_csv)
+    df_dh  = pd.read_csv(dh_csv)
+
+    # Find row closest to target_cooling_year
+    t_act = df_act["Cooling_time_years"].to_numpy(float)
+    t_dh  = df_dh["Cooling_time_years"].to_numpy(float)
+
+    idx_act = int(np.argmin(np.abs(t_act - target_cooling_year)))
+    idx_dh  = int(np.argmin(np.abs(t_dh  - target_cooling_year)))
+
+    actual_act_year = float(t_act[idx_act])
+    actual_dh_year  = float(t_dh[idx_dh])
+
+    print(f"[activity]   using t = {actual_act_year:.2f} y  (target {target_cooling_year} y)")
+    print(f"[decayheat]  using t = {actual_dh_year:.2f} y  (target {target_cooling_year} y)")
+
+    # Column name format: <RegionName>_cell_<cid>
+    act_unit_tag = activity_units.replace("/", "_per_")
+    dh_unit_tag  = decayheat_units.replace("/", "_per_")
+    col_act      = f"activity_{act_unit_tag}_at_{int(target_cooling_year)}y"
+    col_act_year = "activity_cooling_year"
+    col_dh       = f"decayheat_{dh_unit_tag}_at_{int(target_cooling_year)}y"
+    col_dh_year  = "decayheat_cooling_year"
+
+    act_vals, act_years, dh_vals, dh_years = [], [], [], []
+
+    for _, row in df_summary.iterrows():
+        cid   = int(row["cell_id"])
+        layer = str(row.get("layer", cid))
+
+        # Match column by cell_id suffix: e.g. "Armor_cell_66"
+        act_col = next((c for c in df_act.columns if c.endswith(f"_cell_{cid}")), None)
+        dh_col  = next((c for c in df_dh.columns  if c.endswith(f"_cell_{cid}")), None)
+
+        if act_col is None:
+            print(f"[warn] cell {cid} ({layer}) not found in activity CSV — NaN.")
+            act_vals.append(float("nan")); act_years.append(float("nan"))
+        else:
+            val = float(df_act[act_col].iloc[idx_act])
+            act_vals.append(val); act_years.append(actual_act_year)
+            print(f"  {layer:<14}  cell={cid}  activity @ {actual_act_year:.1f} y = {val:.4e} {activity_units}")
+
+        if dh_col is None:
+            print(f"[warn] cell {cid} ({layer}) not found in decay heat CSV — NaN.")
+            dh_vals.append(float("nan")); dh_years.append(float("nan"))
+        else:
+            val = float(df_dh[dh_col].iloc[idx_dh])
+            dh_vals.append(val); dh_years.append(actual_dh_year)
+            print(f"  {layer:<14}  cell={cid}  decayheat @ {actual_dh_year:.1f} y = {val:.4e} {decayheat_units}")
+
+    df_summary[col_act]      = act_vals
+    df_summary[col_act_year] = act_years
+    df_summary[col_dh]       = dh_vals
+    df_summary[col_dh_year]  = dh_years
+
+    out_csv = Path(out_csv)
+    out_csv.parent.mkdir(parents=True, exist_ok=True)
+    df_summary.to_csv(out_csv, index=False)
+    print(f"[saved] peak results (with activity + decay heat) → {out_csv}")
+    return df_summary
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Shutdown index
@@ -537,7 +630,6 @@ def plot_activity_nuclides_per_cell(
 
     return total_all, float(global_min_topn_edge) if np.isfinite(global_min_topn_edge) else 0.0
 
-
 def plot_activity_all_cells(
     total_all: Dict[int, Tuple[np.ndarray, np.ndarray]],
     cell_id_to_name: Dict[int, str],
@@ -573,7 +665,6 @@ def plot_activity_all_cells(
     fig.subplots_adjust(right=0.72)
     fig.savefig(out_dir / "activity_all_cells.png", dpi=200, bbox_inches="tight")
     plt.close(fig)
-
 
 def plot_activity_radial(
     total_all: Dict[int, Tuple[np.ndarray, np.ndarray]],
@@ -629,7 +720,6 @@ def plot_activity_radial(
     fig.savefig(out_dir / "radial_activity_profiles.png",
                 dpi=200, bbox_inches="tight")
     plt.close(fig)
-
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Decay heat
@@ -1012,4 +1102,12 @@ if __name__ == "__main__":
         activity_units      = "Bq/kg",
         decayheat_units     = "W/cm3",
         idx_to_plot         = cfg.DEPLETION_IDX_TO_PLOT,
+    )
+
+    update_summary_results_with_activity(
+        results,
+        neutronics_csv  = cfg.SUMMARY_RESULTS_CSV,
+        out_csv         = cfg.SUMMARY_RESULTS_CSV,
+        activity_units  = "Bq/kg",
+        decayheat_units = "W/cm3",
     )

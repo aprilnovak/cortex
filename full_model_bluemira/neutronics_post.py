@@ -324,31 +324,37 @@ def tally_mean_std(
                             value="std_dev").ravel()[0])
     return m, s
 
-def corrected_sum(
+def corrected_sum_detailed(
     t: openmc.Tally,
     *,
     score: str,
     nuclides: List[str],
     f_struct: Dict[str, float],
-    ) -> Tuple[float, float]:
+    ) -> Tuple[float, float, Dict[str, Tuple[float, float]]]:
+    """
+    Returns (mean_total, std_total, per_nuc) where
+    per_nuc[nuc] = (weighted_mean, weighted_std)
+    """
     mean_tot = 0.0
-    var_tot = 0.0
+    var_tot  = 0.0
+    per_nuc: Dict[str, Tuple[float, float]] = {}
 
     for nuc in nuclides:
         nuc = str(nuc)
         w   = float(f_struct.get(nuc, 0.0))
         if w == 0.0:
             continue
-
         try:
             m, sd = tally_mean_std(t, score=score, nuclide=nuc)
         except Exception:
             continue
+        wm = w * m
+        ws = w * sd
+        mean_tot        += wm
+        var_tot         += ws ** 2
+        per_nuc[nuc]     = (wm, ws)
 
-        mean_tot += w * m
-        var_tot  += (w * sd) ** 2
-
-    return mean_tot, math.sqrt(max(var_tot, 0.0))
+    return mean_tot, math.sqrt(max(var_tot, 0.0)), per_nuc
 
 def element_from_nuclide(nuc: str) -> str:
     m = re.match(r"[A-Za-z]+", nuc)
@@ -373,6 +379,31 @@ def make_chunk_base_df(
         "x_center_cm": np.asarray(xcent,  float).ravel(),
         "x_left_cm":   np.asarray(xedges, float).ravel()[:-1],
         "x_right_cm":  np.asarray(xedges, float).ravel()[1:],
+    })
+
+def make_layer_base_df(
+    *,
+    layer_tag: str,
+    cell_ids: List[int],
+    chunk_labels: List[str],
+    poloidal_index: List[int],
+    ) -> pd.DataFrame:
+    """
+    Base DataFrame for poloidal-layer sweeps (process_layer_region1_only).
+
+    No radial x_cm columns — one row per poloidal region.
+    ``chunk_key`` holds the poloidal chunk label (e.g. 'OB_1_b2'),
+    ``layer_tag`` identifies which radial layer this file represents
+    (e.g. 'armor', 'fw', 'vv').
+    ``poloidal_index`` is the integer position along the poloidal sweep
+    (0-based), used for stable ordering.
+    """
+    n = len(cell_ids)
+    return pd.DataFrame({
+        "layer_tag":      [layer_tag] * n,
+        "chunk_key":      list(chunk_labels),
+        "cell_id":        [int(c) for c in cell_ids],
+        "poloidal_index": list(poloidal_index),
     })
 
 def save_profile(
@@ -412,9 +443,17 @@ def save_profile(
 
     if "x_left_cm" in df.columns:
         df = df.sort_values(["x_left_cm", "cell_id"]).reset_index(drop=True)
+    elif "poloidal_index" in df.columns:
+        df = df.sort_values("poloidal_index").reset_index(drop=True)
 
-    chunk_key = str(df["chunk_key"].iloc[0])
-    path      = outdir / f"profile_{quantity}_{chunk_key}.csv"
+    # Poloidal-layer base_df uses layer_tag as the file discriminator;
+    # radial-chunk base_df uses chunk_key.
+    if "layer_tag" in df.columns:
+        file_key = str(df["layer_tag"].iloc[0])
+    else:
+        file_key = str(df["chunk_key"].iloc[0])
+
+    path = outdir / f"profile_{quantity}_{file_key}.csv"
     df.to_csv(path, index=False)
     return path
 
@@ -943,7 +982,7 @@ def compute_albedo_for_chunk(
             out_path = outdir / f"armor_current_{particle}.json"
             with open(out_path, "w") as f:
                 json.dump(incident_records, f, indent=2)
-            print(f"[saved] {out_path}")
+            print(f"[completed] {out_path}")
 
         # Save external filtered
         df_external_rest = df_alb[
@@ -1058,7 +1097,7 @@ def compute_albedo_for_chunk(
         print(f"[warn] {chunk_key}: no particle-specific albedo outputs were created.")
         return {}
 
-    print(f"[ok] {chunk_key}: albedo done for particles = {list(results_by_particle.keys())}")
+    print(f"[completed] {chunk_key}: albedo done for particles = {list(results_by_particle.keys())}")
 
     return {
         "by_particle":        results_by_particle,
@@ -1067,6 +1106,371 @@ def compute_albedo_for_chunk(
         "special_owner_cell": special_owner_cell,
         "special_debug":      special_debug,
         "excluded_surfaces":  EXCLUDED_SURFACES,
+    }
+
+def save_summary_neutronics_results(
+    *,
+    chunk_key: str,
+    out_csv: "Path",
+    results_dir: "Path" = None,
+) -> "pd.DataFrame":
+    """
+    Read the profile CSVs already written by process_chunk() and extract the
+    summary (mean ± std) DPA, H, and He appm/fpy for the Armor, First Wall,
+    and Vacuum Vessel layers. Save to ``out_csv``.
+
+    Reads (from results_dir / chunk_key /)
+    ----------------------------------------
+    profile_dpa_fpy_struct_origin_<chunk_key>.csv
+    profile_He_appm_fpy_struct_origin_<chunk_key>.csv
+    profile_H_appm_fpy_struct_origin_<chunk_key>.csv
+
+    Parameters
+    ----------
+    chunk_key : str
+        The reference chunk, e.g. cfg.TRIGGER_CHUNK_KEY = "OB_1_b6".
+    out_csv : Path
+        Destination file (cfg.PEAK_RESULTS_CSV).
+    results_dir : Path, optional
+        Top-level neutronics results directory. Defaults to
+        cfg.NEUTRONICS_RESULTS_DIR.
+    """
+    results_dir = Path(results_dir) if results_dir else cfg.NEUTRONICS_RESULTS_DIR
+    chunk_dir = results_dir / chunk_key / "profiles"
+
+    # Label normalisation (just in case)
+    LAYER_ALIASES = {
+        "Armor":         "Armor",
+        "First_Wall":    "First_Wall",
+        "First wall":    "First_Wall",
+        "Vacuum Vessel": "Vacuum Vessel",
+        "VV":            "Vacuum Vessel",
+    }
+
+    TARGET_LAYERS = ["Armor", "First_Wall", "Vacuum Vessel"]
+
+    # Profile CSV paths
+    _profiles = {
+        "dpa": f"profile_dpa_fpy_struct_origin_{chunk_key}.csv",
+        "He":  f"profile_He_appm_fpy_struct_origin_{chunk_key}.csv",
+        "H":   f"profile_H_appm_fpy_struct_origin_{chunk_key}.csv",
+    }
+
+    dfs: "Dict[str, pd.DataFrame]" = {}
+    for name, fname in _profiles.items():
+        fpath = chunk_dir / fname
+        if not fpath.is_file():
+            raise FileNotFoundError(
+                f"Profile CSV not found: {fpath}\n"
+                f"Make sure process_chunk() has already run for '{chunk_key}'."
+            )
+        df = pd.read_csv(fpath)
+        df["layer_label"] = df["layer_label"].map(lambda x: LAYER_ALIASES.get(x, x))
+        dfs[name] = df
+
+    # Cell lookup helper
+    def _get(df: "pd.DataFrame", cid: int, col_mean: str = "mean", col_std: str = "std"):
+        """Extract mean and std for cid from a profile dataframe."""
+        r = df[df["cell_id"] == cid]
+        if r.empty:
+            return float("nan"), float("nan")
+        return float(r.iloc[0][col_mean]), float(r.iloc[0][col_std])
+
+    # Per-layer extraction 
+    rows: "List[dict]" = []
+
+    for layer_label in TARGET_LAYERS:
+        ref   = dfs["dpa"]
+        match = ref[ref["layer_label"] == layer_label]
+
+        if match.empty:
+            print(
+                f"[warn] save_summary_neutronics_results: layer '{layer_label}' "
+                f"not found in {chunk_key} DPA profile — skipping."
+            )
+            continue
+
+        if len(match) > 1:
+            print(
+                f"[warn] save_summary_neutronics_results: {len(match)} rows found "
+                f"for layer '{layer_label}' in {chunk_key} — using the first."
+            )
+
+        cell_id = int(match.iloc[0]["cell_id"])
+
+        dpa_mean, dpa_std = _get(dfs["dpa"], cell_id)
+        he_mean,  he_std  = _get(dfs["He"],  cell_id)
+        h_mean,   h_std   = _get(dfs["H"],   cell_id)
+
+        rows.append(dict(
+            chunk_key       = chunk_key,
+            layer           = layer_label,
+            cell_id         = cell_id,
+            dpa_fpy         = dpa_mean,
+            dpa_fpy_std     = dpa_std,
+            H_appm_fpy      = h_mean,
+            H_appm_fpy_std  = h_std,
+            He_appm_fpy     = he_mean,
+            He_appm_fpy_std = he_std,
+        ))
+
+        # inline print
+        #print(
+        #    f"  [{chunk_key}] {layer_label:<14}  cell={cell_id}  "
+        #    f"DPA={dpa_mean:.3f}±{dpa_std:.4f}  "
+        #    f"H={h_mean:.3f}±{h_std:.4f} appm/fpy  "
+        #    f"He={he_mean:.3f}±{he_std:.4f} appm/fpy"
+        #)
+
+    if not rows:
+        raise RuntimeError(
+            f"No rows found for any target layer {TARGET_LAYERS} "
+            f"in {chunk_key} profile CSVs. "
+            f"Check that process_chunk() completed successfully."
+        )
+
+    # Build and save DataFrame
+    col_order = [
+        "chunk_key", "layer", "cell_id",
+        "dpa_fpy",      "dpa_fpy_std",
+        "H_appm_fpy",   "H_appm_fpy_std",
+        "He_appm_fpy",  "He_appm_fpy_std",
+    ]
+    df = pd.DataFrame(rows)
+    df = df[[c for c in col_order if c in df.columns]]
+
+    out_csv = Path(out_csv)
+    out_csv.parent.mkdir(parents=True, exist_ok=True)
+    df.to_csv(out_csv, index=False)
+    print(f"[completed] summary neutronics results → {out_csv}")
+    return df
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Gas-production breakdown
+# ──────────────────────────────────────────────────────────────────────────────
+def _save_nuclide_breakdown(
+    df: pd.DataFrame,
+    col_total: str,
+    gas_or_dpa: str,
+    cid: int,
+    outdir: Path,
+) -> None:
+    """Save nuclide CSV, element CSV, and print console summary."""
+    outdir = Path(outdir)
+    outdir.mkdir(parents=True, exist_ok=True)
+
+    # Determine percentage column — already computed in df
+    pct_col = next((c for c in df.columns if c.endswith("_pct") and "cumulative" not in c), None)
+
+    elem_summary = (
+        df.groupby("element", sort=False)
+          .agg(val_total=(col_total, "sum"),
+               val_pct=(pct_col, "sum") if pct_col else (col_total, "sum"))
+          .sort_values("val_total", ascending=False)
+          .reset_index()
+    )
+
+    N_total    = float(df["N_total_struct"].iloc[0]) if "N_total_struct" in df.columns else float("nan")
+    factor     = float(df["factor"].iloc[0])         if "factor"         in df.columns else float("nan")
+    total_val  = float(df[col_total].sum())
+    units      = "appm/fpy" if "appm" in col_total else "DPA/fpy"
+
+    #inline print
+    #print(f"\n{'='*70}")
+    #print(f"  {gas_or_dpa} diagnostic  |  cell {cid}")
+    #print(f"{'='*70}")
+    #print(f"  N_total_struct         = {N_total:.6e} atoms")
+    #print(f"  factor / source_scale  = {factor:.6e}")
+    #print(f"  Total {gas_or_dpa:<6}           = {total_val:.6f} {units}")
+    #print(f"\n  {'Element':<8} {gas_or_dpa:>14}  {'%':>7}")
+    #print(f"  {'-'*8}  {'-'*14}  {'-'*7}")
+    #for _, r in elem_summary.iterrows():
+    #    print(f"  {r['element']:<8} {r['val_total']:>14.4f}  {r['val_pct']:>6.2f}%")
+
+    nuclide_path = outdir / f"{gas_or_dpa.lower()}_nuclide.csv"
+    df.to_csv(nuclide_path, index=False)
+    #print(f"[saved] {nuclide_path}")
+
+    element_path = outdir / f"{gas_or_dpa.lower()}_element.csv"
+    elem_summary.to_csv(element_path, index=False)
+    #print(f"[saved] {element_path}")
+
+def compute_gas_cell_detailed(
+    cid: int,
+    t: openmc.Tally,
+    *,
+    he3_score: str,
+    he4_score: str,
+    h1_score: str,
+    h2_score: str,
+    h3_score: str,
+) -> Dict[str, object]:
+    """
+    Compute He and H appm/fpy for a single cell, returning both
+    scalar totals and per-nuclide breakdown DataFrames.
+
+    Returns
+    -------
+    {
+        "he_appm":     float,
+        "he_appm_std": float,
+        "h_appm":      float,
+        "h_appm_std":  float,
+        "df_He":       pd.DataFrame,   # per-nuclide He breakdown
+        "df_H":        pd.DataFrame,   # per-nuclide H breakdown
+    }
+    """
+    cid          = int(cid)
+    f_struct     = cell_struct_origin_frac.get(cid, {}) or {}
+    N_total      = float(cell_total_atoms_struct.get(cid, 0.0))
+    nuclides     = list(t.nuclides or [])
+    factor       = neutron_source_rate * s_in_y / N_total * 1e6 if N_total > 0 else 0.0
+    struct_atoms = cell_struct_nuclide_atoms.get(cid, {}) or {}
+
+    gas_configs = {
+        "He": {
+            "scores":    [he3_score,          he4_score         ],
+            "col_raws":  [("he3_raw","he3_raw_std"), ("he4_raw","he4_raw_std")],
+            "col_total": "he_appm_contrib",
+        },
+        "H": {
+            "scores":    [h1_score,   h2_score,   h3_score  ],
+            "col_raws":  [("h1_raw","h1_raw_std"), ("h2_raw","h2_raw_std"),
+                          ("h3_raw","h3_raw_std")],
+            "col_total": "h_appm_contrib",
+        },
+    }
+
+    out = {}
+    for gas, gcfg in gas_configs.items():
+        rows = []
+        total_mean = 0.0
+        total_var  = 0.0
+
+        for nuc in nuclides:
+            nuc = str(nuc)
+            f   = float(f_struct.get(nuc, 0.0))
+            N   = float(struct_atoms.get(nuc, 0.0))
+            raw_vals      = {}
+            total_weighted = 0.0
+
+            for (col_m, col_s), score in zip(gcfg["col_raws"], gcfg["scores"]):
+                try:
+                    m, s = tally_mean_std(t, score=score, nuclide=nuc)
+                except Exception:
+                    m, s = 0.0, 0.0
+                raw_vals[col_m]  = m
+                raw_vals[col_s]  = s
+                total_weighted  += f * m
+
+            appm_contrib  = total_weighted * factor
+            total_mean   += appm_contrib
+            # propagate std: recompute weighted std per score
+            for (col_m, col_s), score in zip(gcfg["col_raws"], gcfg["scores"]):
+                ws = f * raw_vals.get(col_s, 0.0) * factor
+                total_var += ws ** 2
+
+            row = dict(
+                nuclide        = nuc,
+                element        = element_from_nuclide(nuc),
+                N_atoms_struct = N,
+                f_struct       = f,
+                **raw_vals,
+                weighted_total  = total_weighted,
+                N_total_struct  = N_total,
+                factor          = factor,
+            )
+            row[gcfg["col_total"]] = appm_contrib
+            rows.append(row)
+
+        col_total  = gcfg["col_total"]
+        df         = pd.DataFrame(rows)
+        df         = df.sort_values(col_total, ascending=False).reset_index(drop=True)
+        total_appm = df[col_total].sum()
+        pct_col    = f"{gas.lower()}_appm_pct"
+        df[pct_col]         = df[col_total] / total_appm * 100.0 if total_appm > 0 else 0.0
+        df["cumulative_pct"] = df[pct_col].cumsum()
+
+        out[f"{gas.lower()}_appm"]     = total_mean
+        out[f"{gas.lower()}_appm_std"] = math.sqrt(max(total_var, 0.0))
+        out[f"df_{gas}"]               = df
+
+    return out
+
+def compute_dpa_cell_detailed(
+    cid: int,
+    t: openmc.Tally,
+) -> Dict[str, object]:
+    """
+    Compute NRT-dpa/fpy for a single cell, returning both
+    scalar total and per-nuclide breakdown DataFrame.
+
+    Returns
+    -------
+    {
+        "dpa":     float,
+        "dpa_std": float,
+        "df_dpa":  pd.DataFrame,
+    }
+    """
+    cid          = int(cid)
+    f_struct     = cell_struct_origin_frac.get(cid, {}) or {}
+    N_total      = float(cell_total_atoms_struct.get(cid, 0.0))
+    nuclides     = list(t.nuclides or [])
+    source_scale = neutron_source_rate * s_in_y
+    struct_atoms = cell_struct_nuclide_atoms.get(cid, {}) or {}
+
+    rows     = []
+    sum_mean = 0.0
+    sum_var  = 0.0
+
+    for nuc in nuclides:
+        nuc = str(nuc)
+        f   = float(f_struct.get(nuc, 0.0))
+        N   = float(struct_atoms.get(nuc, 0.0))
+
+        try:
+            dmg_m, dmg_s = tally_mean_std(t, score="damage-energy", nuclide=nuc)
+        except Exception:
+            dmg_m, dmg_s = 0.0, 0.0
+
+        if f == 0.0 or N_total <= 0.0:
+            dpa_contrib = 0.0
+            Ed         = float("nan")
+            disp_scale = float("nan")
+        else:
+            el          = element_from_nuclide(nuc)
+            Ed          = float(geo.materials.Ed(el))
+            disp_scale  = 0.8 / (2.0 * Ed)
+            dpa_contrib = disp_scale * source_scale * f * dmg_m / N_total
+            dpa_std_c   = disp_scale * source_scale * f * dmg_s  / N_total
+            sum_mean   += dpa_contrib
+            sum_var    += dpa_std_c ** 2
+
+        rows.append(dict(
+            nuclide        = nuc,
+            element        = element_from_nuclide(nuc),
+            N_atoms_struct = N,
+            f_struct       = f,
+            dmg_raw        = dmg_m,
+            dmg_raw_std    = dmg_s,
+            Ed_eV          = Ed,
+            disp_scale     = disp_scale,
+            N_total_struct = N_total,
+            dpa_contrib    = dpa_contrib,
+        ))
+
+    df        = pd.DataFrame(rows)
+    df        = df.sort_values("dpa_contrib", ascending=False).reset_index(drop=True)
+    total_dpa = df["dpa_contrib"].sum()
+    df["dpa_pct"]        = df["dpa_contrib"] / total_dpa * 100.0 if total_dpa > 0 else 0.0
+    df["cumulative_pct"] = df["dpa_pct"].cumsum()
+
+    return {
+        "dpa":     sum_mean,
+        "dpa_std": math.sqrt(max(sum_var, 0.0)),
+        "df_dpa":  df,
     }
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1084,6 +1488,15 @@ def process_chunk(
 ) -> None:
     outdir = RESULTS_DIR / chunk_key
     outdir.mkdir(parents=True, exist_ok=True)
+
+    profiles_dir  = outdir / "profiles"
+    spectra_dir   = outdir / "spectra"
+    plots_dir     = outdir / "plots"
+    albedo_dir    = outdir / "albedo"
+    breakdown_dir = outdir / "nuclide_breakdown"
+
+    for d in (profiles_dir, spectra_dir, plots_dir, albedo_dir, breakdown_dir):
+        d.mkdir(parents=True, exist_ok=True)
 
     is_ob      = chunk_key.startswith("OB_")
     region_tag = "OB" if is_ob else "IB"
@@ -1132,7 +1545,7 @@ def process_chunk(
            ylabel="Neutron flux per unit lethargy [1/cm²/s]")
     ax.grid(True, which="both", linestyle="--", linewidth=0.5)
     ax.legend(fontsize=8, ncol=2)
-    fig.savefig(outdir / f"n_flux_spectrum_{chunk_key}.png",
+    fig.savefig(spectra_dir / f"n_flux_spectrum_{chunk_key}.png",
                 dpi=300, bbox_inches="tight")
     plt.close(fig)
 
@@ -1150,7 +1563,7 @@ def process_chunk(
            ylabel="Photon flux per unit lethargy [1/cm²/s]")
     ax.grid(True, which="both", linestyle="--", linewidth=0.5)
     ax.legend(fontsize=8, ncol=2)
-    fig.savefig(outdir / f"p_flux_spectrum_{chunk_key}.png",
+    fig.savefig(spectra_dir / f"p_flux_spectrum_{chunk_key}.png",
                 dpi=300, bbox_inches="tight")
     plt.close(fig)
 
@@ -1164,7 +1577,7 @@ def process_chunk(
             s             = scaling[int(cell_ids[i])]
             df[lab]       = fl_arr[i].flatten() * s / unit_lethargy
             df[f"{lab}_std"] = fl_std[i].flatten() * s / unit_lethargy
-        df.to_csv(outdir / f"{name}_spectrum_{chunk_key}.csv", index=False)
+        df.to_csv(spectra_dir / f"{name}_spectrum_{chunk_key}.csv", index=False)
 
     # ==========================================
     # Total flux reconstructed from spectrum
@@ -1197,13 +1610,13 @@ def process_chunk(
     ax.set(xlabel="Radial Position [cm]", ylabel="Total Flux [1/cm²/s]")
     ax.grid(True, which="both", linestyle="--", linewidth=0.5)
     ax.legend()
-    fig.savefig(outdir / f"flux_total_{chunk_key}.png",
+    fig.savefig(plots_dir / f"flux_total_{chunk_key}.png",
                 dpi=300, bbox_inches="tight")
     plt.close(fig)
 
-    save_profile(base_df, outdir, quantity="flux_total_neutron",
+    save_profile(base_df, profiles_dir, quantity="flux_total_neutron",
                  mean=direct_total_neut, std=direct_total_neut_std, units="1/cm2/s")
-    save_profile(base_df, outdir, quantity="flux_total_photon",
+    save_profile(base_df, profiles_dir, quantity="flux_total_photon",
                  mean=direct_total_phot, std=direct_total_phot_std, units="1/cm2/s")
 
     # ==========================================
@@ -1236,50 +1649,66 @@ def process_chunk(
                     step="post", alpha=0.3)
     ax.set(xlabel="Radial Position [cm]", ylabel="Heating [W/cm³]")
     ax.grid(True, which="both", linestyle="--", linewidth=0.5)
-    fig.savefig(outdir / f"heating_{chunk_key}.png",
+    fig.savefig(plots_dir / f"heating_{chunk_key}.png",
                 dpi=300, bbox_inches="tight")
     plt.close(fig)
 
-    save_profile(base_df, outdir, quantity="heating",
+    save_profile(base_df, profiles_dir, quantity="heating",
                  mean=heat_w, std=heat_w_std, units="W/cm3")
 
     # ==========================================
-    # H production (H1 + H2 + H3)
+    # H, He, DPA — computed once per cell,
+    # nuclide breakdown saved automatically
     # ==========================================
-    h_appm_y     = np.zeros(len(cell_ids), dtype=float)
-    h_appm_y_std = np.zeros(len(cell_ids), dtype=float)
+    h_appm_y      = np.zeros(len(cell_ids), dtype=float)
+    h_appm_y_std  = np.zeros(len(cell_ids), dtype=float)
+    he_appm_y     = np.zeros(len(cell_ids), dtype=float)
+    he_appm_y_std = np.zeros(len(cell_ids), dtype=float)
+    dpa_y         = np.zeros(len(cell_ids), dtype=float)
+    dpa_y_std     = np.zeros(len(cell_ids), dtype=float)
 
     for i, cid in enumerate(cell_ids):
         cid = int(cid)
         t   = dpa_gas_map.get(cid)
         if t is None:
             continue
+
         scores = {str(s) for s in (t.scores or [])}
         if GAS_SCORES_EXPLICIT.issubset(scores):
-            h1_score, h2_score, h3_score = (
-                "H1-production", "H2-production", "H3-production"
-            )
+            he3_score, he4_score         = "He3-production", "He4-production"
+            h1_score, h2_score, h3_score = "H1-production", "H2-production", "H3-production"
         elif GAS_SCORES_REACTION.issubset(scores):
+            he3_score, he4_score         = "(n,X3He)", "(n,Xa)"
             h1_score, h2_score, h3_score = "(n,Xp)", "(n,Xd)", "(n,Xt)"
         else:
             continue
 
-        f_struct = cell_struct_origin_frac.get(cid, {}) or {}
-        nuclides = list(t.nuclides or [])
+        cell_breakdown_dir = breakdown_dir / f"cell_{cid}"
 
-        m1, s1 = corrected_sum(t, score=h1_score, nuclides=nuclides, f_struct=f_struct)
-        m2, s2 = corrected_sum(t, score=h2_score, nuclides=nuclides, f_struct=f_struct)
-        m3, s3 = corrected_sum(t, score=h3_score, nuclides=nuclides, f_struct=f_struct)
+        # Gas (He + H) 
+        gas_result = compute_gas_cell_detailed(
+            cid, t,
+            he3_score=he3_score, he4_score=he4_score,
+            h1_score=h1_score,   h2_score=h2_score, h3_score=h3_score,
+        )
+        h_appm_y[i]      = gas_result["h_appm"]
+        h_appm_y_std[i]  = gas_result["h_appm_std"]
+        he_appm_y[i]     = gas_result["he_appm"]
+        he_appm_y_std[i] = gas_result["he_appm_std"]
 
-        h_mean_corr = m1 + m2 + m3
-        h_std_corr  = math.sqrt(s1 ** 2 + s2 ** 2 + s3 ** 2)
+        for gas, col in [("He", "he_appm_contrib"), ("H", "h_appm_contrib")]:
+            _save_nuclide_breakdown(gas_result[f"df_{gas}"], col, gas, cid, cell_breakdown_dir)
 
-        denom = float(cell_total_atoms_struct.get(cid, 0.0))
-        if denom > 0.0:
-            factor           = neutron_source_rate * s_in_y / denom * 1e6
-            h_appm_y[i]     = h_mean_corr * factor
-            h_appm_y_std[i] = h_std_corr  * factor
+        # DPA 
+        dpa_result   = compute_dpa_cell_detailed(cid, t)
+        dpa_y[i]     = dpa_result["dpa"]
+        dpa_y_std[i] = dpa_result["dpa_std"]
 
+        _save_nuclide_breakdown(dpa_result["df_dpa"], "dpa_contrib", "DPA", cid, cell_breakdown_dir)
+
+    # ==========================================
+    # H (H1 + H2 + H3) production plot + CSV
+    # ==========================================
     lo = np.maximum(h_appm_y - h_appm_y_std, 1e-30)
     hi = h_appm_y + h_appm_y_std
 
@@ -1290,46 +1719,15 @@ def process_chunk(
                     step="post", alpha=0.3)
     ax.set(xlabel="Radial Position [cm]", ylabel="H [appm/fpy]")
     ax.grid(True, which="both", linestyle="--", linewidth=0.5)
-    fig.savefig(outdir / f"h1_{chunk_key}.png", dpi=300, bbox_inches="tight")
+    fig.savefig(plots_dir / f"h1_{chunk_key}.png", dpi=300, bbox_inches="tight")
     plt.close(fig)
 
-    save_profile(base_df, outdir, quantity="H_appm_fpy_struct_origin",
+    save_profile(base_df, profiles_dir, quantity="H_appm_fpy_struct_origin",
                  mean=h_appm_y, std=h_appm_y_std, units="appm/fpy")
 
     # ==========================================
-    # He production (He3 + He4)
+    # He (He3 + He4) production plot + CSV
     # ==========================================
-    he_appm_y     = np.zeros(len(cell_ids), dtype=float)
-    he_appm_y_std = np.zeros(len(cell_ids), dtype=float)
-
-    for i, cid in enumerate(cell_ids):
-        cid = int(cid)
-        t   = dpa_gas_map.get(cid)
-        if t is None:
-            continue
-        scores = {str(s) for s in (t.scores or [])}
-        if GAS_SCORES_EXPLICIT.issubset(scores):
-            he3_score, he4_score = "He3-production", "He4-production"
-        elif GAS_SCORES_REACTION.issubset(scores):
-            he3_score, he4_score = "(n,X3He)", "(n,Xa)"
-        else:
-            continue
-
-        f_struct = cell_struct_origin_frac.get(cid, {}) or {}
-        nuclides = list(t.nuclides or [])
-
-        m3, s3 = corrected_sum(t, score=he3_score, nuclides=nuclides, f_struct=f_struct)
-        m4, s4 = corrected_sum(t, score=he4_score, nuclides=nuclides, f_struct=f_struct)
-
-        he_mean_corr = m3 + m4
-        he_std_corr  = math.sqrt(s3 ** 2 + s4 ** 2)
-
-        denom = float(cell_total_atoms_struct.get(cid, 0.0))
-        if denom > 0.0:
-            factor            = neutron_source_rate * s_in_y / denom * 1e6
-            he_appm_y[i]     = he_mean_corr * factor
-            he_appm_y_std[i] = he_std_corr  * factor
-
     lo = np.maximum(he_appm_y - he_appm_y_std, 1e-30)
     hi = he_appm_y + he_appm_y_std
 
@@ -1340,61 +1738,15 @@ def process_chunk(
                     step="post", alpha=0.3)
     ax.set(xlabel="Radial Position [cm]", ylabel="He [appm/fpy]")
     ax.grid(True, which="both", linestyle="--", linewidth=0.5)
-    fig.savefig(outdir / f"he_{chunk_key}.png", dpi=300, bbox_inches="tight")
+    fig.savefig(plots_dir / f"he_{chunk_key}.png", dpi=300, bbox_inches="tight")
     plt.close(fig)
 
-    save_profile(base_df, outdir, quantity="He_appm_fpy_struct_origin",
+    save_profile(base_df, profiles_dir, quantity="He_appm_fpy_struct_origin",
                  mean=he_appm_y, std=he_appm_y_std, units="appm/fpy")
 
     # ==========================================
-    # DPA (dpa/fpy)
+    # DPA plot + CSV
     # ==========================================
-    dpa_y     = np.zeros(len(cell_ids), dtype=float)
-    dpa_y_std = np.zeros(len(cell_ids), dtype=float)
-
-    for i, cid in enumerate(cell_ids):
-        cid = int(cid)
-        t   = dpa_gas_map.get(cid)
-        if t is None:
-            continue
-
-        denom_atoms = float(cell_total_atoms_struct.get(cid, 0.0))
-        if denom_atoms <= 0.0:
-            continue
-
-        f_struct = cell_struct_origin_frac.get(cid, {}) or {}
-        nuclides = list(t.nuclides or [])
-
-        sum_mean = 0.0
-        sum_var  = 0.0
-
-        for nuc in nuclides:
-            nuc = str(nuc)
-            try:
-                dmg_mean, dmg_std = tally_mean_std(t, score="damage-energy", nuclide=nuc)
-            except Exception:
-                continue
-
-            fs = float(f_struct.get(nuc, 0.0))
-            if fs == 0.0:
-                continue
-            dmg_mean *= fs
-            dmg_std  *= fs
-
-            el           = element_from_nuclide(nuc)
-            Ed           = float(geo.materials.Ed(el))
-            disp_scale   = 0.8 / (2.0 * Ed)
-            source_scale = neutron_source_rate * s_in_y
-
-            dpa_mean_per_nuclide = disp_scale * source_scale * dmg_mean / denom_atoms
-            dpa_std_per_nuclide  = disp_scale * source_scale * dmg_std  / denom_atoms
-
-            sum_mean += dpa_mean_per_nuclide
-            sum_var  += dpa_std_per_nuclide ** 2
-
-        dpa_y[i]     = sum_mean
-        dpa_y_std[i] = math.sqrt(sum_var)
-
     lo = np.maximum(dpa_y - dpa_y_std, 1e-30)
     hi = dpa_y + dpa_y_std
 
@@ -1405,10 +1757,10 @@ def process_chunk(
                     step="post", alpha=0.3)
     ax.set(xlabel="Radial Position [cm]", ylabel="NRT-dpa/fpy")
     ax.grid(True, which="both", linestyle="--", linewidth=0.5)
-    fig.savefig(outdir / f"dpa_{chunk_key}.png", dpi=300, bbox_inches="tight")
+    fig.savefig(plots_dir / f"dpa_{chunk_key}.png", dpi=300, bbox_inches="tight")
     plt.close(fig)
 
-    save_profile(base_df, outdir, quantity="dpa_fpy_struct_origin",
+    save_profile(base_df, profiles_dir, quantity="dpa_fpy_struct_origin",
                  mean=dpa_y, std=dpa_y_std, units="DPA/fpy")
 
     if do_albedo:
@@ -1416,12 +1768,12 @@ def process_chunk(
             sp,
             cell_ids=cell_ids,
             labels=labels,
-            outdir=outdir,
+            outdir=albedo_dir,
             chunk_key=chunk_key,
             excluded_surfaces=set(),
         )
 
-    print(f"[done] {chunk_key} → {outdir}")
+    print(f"[completed] {chunk_key} → {outdir}")
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Poloidal layer sweep  (tokamak only)
@@ -1561,6 +1913,12 @@ def process_layer_region1_only(
     outdir = Path(outdir)
     outdir.mkdir(parents=True, exist_ok=True)
 
+    # Subdirectories
+    profiles_dir = outdir / "profiles"
+    plots_dir    = outdir / "plots"
+    for d in (profiles_dir, plots_dir):
+        d.mkdir(parents=True, exist_ok=True)
+
     cell_ids_layer, _chunk_labels = _layer_cells_region1(layer_index)
     n = len(cell_ids_layer)
     if n == 0:
@@ -1569,9 +1927,16 @@ def process_layer_region1_only(
         return
 
     scaling = scaling_for_cells(cell_ids_layer)
-    x       = _pad(np.arange(n, dtype=float))
+    x = _pad(np.arange(n, dtype=float))
 
-    def _plot_step(y, ys, ylabel, fname, yscale="auto"):
+    base_df = make_layer_base_df(
+        layer_tag=layer_tag,
+        cell_ids=cell_ids_layer,
+        chunk_labels=_chunk_labels,
+        poloidal_index=list(range(n)),
+    )
+
+    def _plot_step(y, ys, ylabel, fname, yscale="auto", save_dir=None):
         y  = np.asarray(y,  float)
         ys = np.asarray(ys, float)
         yp  = _pad(y)
@@ -1585,7 +1950,8 @@ def process_layer_region1_only(
         ax.fill_between(x, lo, hi, step="mid", alpha=0.15)
         ax.set_ylabel(ylabel, fontsize=11)
         ax.set_title(f"{ylabel} — {layer_tag}", fontsize=12)
-        fig.savefig(outdir / fname, dpi=300, bbox_inches="tight")
+        save_to = (save_dir or outdir) / fname
+        fig.savefig(save_to, dpi=300, bbox_inches="tight")
         plt.close(fig)
 
     # ==========================================
@@ -1614,6 +1980,11 @@ def process_layer_region1_only(
     phot_std = np.array([np.sqrt((photon_flux_std_layer[i] ** 2).sum()) * scaling[int(c)]
                          for i, c in enumerate(cell_ids_layer)], dtype=float)
 
+    save_profile(base_df, profiles_dir, quantity="flux_total_neutron",
+                 mean=neut, std=neut_std, units="1/cm2/s")
+    save_profile(base_df, profiles_dir, quantity="flux_total_photon",
+                 mean=phot, std=phot_std, units="1/cm2/s")
+
     fig, ax = _empty_poloidal_plot(x, n)
     set_ylim_and_ticks(ax, np.r_[_pad(neut), _pad(phot)], scale="auto")
     ax.step(x, _pad(np.clip(neut, 1e-99, None)),
@@ -1627,7 +1998,7 @@ def process_layer_region1_only(
     ax.set_ylabel("Total Flux [1/cm²/s]", fontsize=11)
     ax.set_title(f"Total Flux — {layer_tag}", fontsize=12)
     ax.legend()
-    fig.savefig(outdir / f"flux_total_{layer_tag}.png",
+    fig.savefig(plots_dir / f"flux_total_{layer_tag}.png",
                 dpi=300, bbox_inches="tight")
     plt.close(fig)
 
@@ -1650,7 +2021,11 @@ def process_layer_region1_only(
         [heat_std_layer[i] * scaling[int(c)] * ev_to_joule
          for i, c in enumerate(cell_ids_layer)], dtype=float,
     )
-    _plot_step(heat_w, heat_w_std, "Heating [W/cm³]", f"heating_{layer_tag}.png")
+    _plot_step(heat_w, heat_w_std, "Heating [W/cm³]", f"heating_{layer_tag}.png",
+               save_dir=plots_dir)
+
+    save_profile(base_df, profiles_dir, quantity="heating",
+                 mean=heat_w, std=heat_w_std, units="W/cm3")
 
     # ==========================================
     # H production (H1 + H2 + H3)
@@ -1676,9 +2051,9 @@ def process_layer_region1_only(
         f_struct = cell_struct_origin_frac.get(cid, {}) or {}
         nuclides = list(t.nuclides or [])
 
-        m1, s1 = corrected_sum(t, score=h1_score, nuclides=nuclides, f_struct=f_struct)
-        m2, s2 = corrected_sum(t, score=h2_score, nuclides=nuclides, f_struct=f_struct)
-        m3, s3 = corrected_sum(t, score=h3_score, nuclides=nuclides, f_struct=f_struct)
+        m1, s1, _ = corrected_sum_detailed(t, score=h1_score, nuclides=nuclides, f_struct=f_struct)
+        m2, s2, _ = corrected_sum_detailed(t, score=h2_score, nuclides=nuclides, f_struct=f_struct)
+        m3, s3, _ = corrected_sum_detailed(t, score=h3_score, nuclides=nuclides, f_struct=f_struct)
 
         h_mean_corr = m1 + m2 + m3
         h_std_corr  = math.sqrt(s1 ** 2 + s2 ** 2 + s3 ** 2)
@@ -1690,7 +2065,11 @@ def process_layer_region1_only(
             h_appm_y_std[i] = h_std_corr  * factor
 
     _plot_step(h_appm_y, h_appm_y_std,
-               "H production [appm/fpy]", f"h1_{layer_tag}.png")
+               "H production [appm/fpy]", f"h1_{layer_tag}.png",
+               save_dir=plots_dir)
+
+    save_profile(base_df, profiles_dir, quantity="H_appm_fpy_struct_origin",
+                 mean=h_appm_y, std=h_appm_y_std, units="appm/fpy")
 
     # ==========================================
     # He production (He3 + He4)
@@ -1714,8 +2093,8 @@ def process_layer_region1_only(
         f_struct = cell_struct_origin_frac.get(cid, {}) or {}
         nuclides = list(t.nuclides or [])
 
-        m3, s3 = corrected_sum(t, score=he3_score, nuclides=nuclides, f_struct=f_struct)
-        m4, s4 = corrected_sum(t, score=he4_score, nuclides=nuclides, f_struct=f_struct)
+        m3, s3, _ = corrected_sum_detailed(t, score=he3_score, nuclides=nuclides, f_struct=f_struct)
+        m4, s4, _ = corrected_sum_detailed(t, score=he4_score, nuclides=nuclides, f_struct=f_struct)
 
         he_mean_corr = m3 + m4
         he_std_corr  = math.sqrt(s3 ** 2 + s4 ** 2)
@@ -1727,8 +2106,12 @@ def process_layer_region1_only(
             he_appm_y_std[i] = he_std_corr  * factor
 
     _plot_step(he_appm_y, he_appm_y_std,
-               "He production [appm/fpy]", f"he_{layer_tag}.png")
-    
+               "He production [appm/fpy]", f"he_{layer_tag}.png",
+               save_dir=plots_dir)
+
+    save_profile(base_df, profiles_dir, quantity="He_appm_fpy_struct_origin",
+                 mean=he_appm_y, std=he_appm_y_std, units="appm/fpy")
+
     # ==========================================
     # DPA/fpy
     # ==========================================
@@ -1737,10 +2120,12 @@ def process_layer_region1_only(
         dpa_gas_map=dpa_gas_map,
     )
     _plot_step(dpa_y, dpa_y_std, "NRT-dpa/fpy", f"dpa_{layer_tag}.png",
-               yscale="linear")
+               yscale="linear", save_dir=plots_dir)
 
-    print(f"[done] layer {layer_tag} → {outdir}")
+    save_profile(base_df, profiles_dir, quantity="dpa_fpy_struct_origin",
+                 mean=dpa_y, std=dpa_y_std, units="DPA/fpy")
 
+    print(f"[completed] layer {layer_tag} → {outdir}")
 
 # ──────────────────────────────────────────────────────────────────────────────
 # MAIN RUN
@@ -1761,13 +2146,13 @@ with openmc.StatePoint(str(STATEPOINT_FILE)) as sp:
         elif key in ib_by_key:
             chunk_cells = ib_by_key[key]
         else:
-            print(f"[warn] Unknown chunk key: {key} (skipping)")
+            print(f"[skipped] Unknown chunk key: {key} (skipping)")
             continue
 
         try:
             xcent, _, xedges = radial_bins_for_key(key)
         except Exception as e:
-            print(f"[warn] No radial bins for {key}: {e} (skipping)")
+            print(f"[skipped] No radial bins for {key}: {e} (skipping)")
             continue
 
         process_chunk(
@@ -1778,6 +2163,12 @@ with openmc.StatePoint(str(STATEPOINT_FILE)) as sp:
             do_albedo=do_albedo,
         )
 
+    save_summary_neutronics_results(
+        results_dir = RESULTS_DIR,
+        chunk_key   = cfg.TRIGGER_CHUNK_KEY,
+        out_csv     = cfg.SUMMARY_RESULTS_CSV,
+    )
+      
     if cfg.SIM_TYPE == "tokamak":
         for layer_tag, layer_index in cfg.POLOIDAL_LAYERS:
             layer_outdir = RESULTS_DIR / f"layer_{layer_tag}_region1_only"

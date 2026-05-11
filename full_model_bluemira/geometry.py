@@ -58,11 +58,22 @@ s_in_y: float              = 365.0 * 24.0 * 60.0 * 60.0
 # ──────────────────────────────────────────────────────────────────────────────
 # DAGMC load
 # ──────────────────────────────────────────────────────────────────────────────
+import warnings
+
 if not cfg.DAGMC_MODEL_FILE.is_file():
     raise FileNotFoundError(f"DAGMC file not found: {cfg.DAGMC_MODEL_FILE}")
 
+with warnings.catch_warnings():
+    warnings.filterwarnings(
+        "ignore",
+        message="Assigned geom_dimension=",
+        category=UserWarning,
+        module="pydagmc",
+    )
+    pydagmc_model = pydagmc.Model(str(cfg.DAGMC_MODEL_FILE))
+
 dagmc_universe = openmc.DAGMCUniverse(filename=str(cfg.DAGMC_MODEL_FILE))
-pydagmc_model  = pydagmc.Model(str(cfg.DAGMC_MODEL_FILE))
+#pydagmc_model  = pydagmc.Model(str(cfg.DAGMC_MODEL_FILE))
 
 openmc.reserve_ids([v.id for v in pydagmc_model.volumes],  cls=openmc.Cell)
 openmc.reserve_ids([s.id for s in pydagmc_model.surfaces], cls=openmc.Surface)

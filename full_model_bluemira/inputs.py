@@ -65,6 +65,7 @@ NEUTRONICS_RUN_DIR     = SIM_DIR / "neutronics_run"
 NEUTRONICS_RESULTS_DIR = SIM_DIR / "neutronics_results"
 DEPLETION_RUN_DIR      = SIM_DIR / "depletion_run"
 DEPLETION_RESULTS_DIR  = SIM_DIR / "depletion_results"
+SUMMARY_RESULTS_CSV = NEUTRONICS_RESULTS_DIR / "OB_1_b6" / "summary_results.csv"
 
 # Important input files — all live in PROJECT_ROOT/dagmc_files/ 
 DAGMC_DIR = PROJECT_ROOT / "dagmc_files"
@@ -76,7 +77,7 @@ _JSON_FILENAMES = {
 }
 
 _DAGMC_FILENAMES = {
-    "WCLL": "eudemo.h5m",
+    "WCLL": "eudemo_wcll.h5m",
     "HCLL": "eudemo_hcll.h5m",
     "HCPB": "eudemo_hcpb.h5m",
 }
@@ -131,7 +132,7 @@ else:  # TESTING
     )
     ARMOR_CURRENT_JSON  = (
         BASE_DIR / "tokamak" / BREEDER_TYPE / "neutronics_results"
-        / ALBEDO_CHUNK_KEY / "armor_current_neutron.json"
+        / ALBEDO_CHUNK_KEY / "albedo" /"armor_current_neutron.json"
     )
 
 # CORTEX + slab only: one-time copy from tokamak outputs if files missing
@@ -141,7 +142,7 @@ if ENVIRONMENT == "CORTEX" and SIM_TYPE in ("slab", "fast_slab"):
     )
     _tokamak_armor_current = (
         BASE_DIR / "tokamak" / BREEDER_TYPE / "neutronics_results"
-        / ALBEDO_CHUNK_KEY / "armor_current_neutron.json"
+        / ALBEDO_CHUNK_KEY / "albedo" / "armor_current_neutron.json"
     )
     _file_map = {
         SURFACE_SOURCE_FILE: _tokamak_surface_source,
@@ -237,12 +238,12 @@ CHUNK_START_CM = 0.0
 # OPENMC RUN SETTINGS
 # =============================================================================
 TALLY_CONVERGENCE_THRESHOLD = 0.1        # 10 %
-BATCHES                = 10
-TRIGGER_BATCH_INTERVAL = 10
-PARTICLES_PER_BATCH    = 1_000_000
+BATCHES                = 15
+TRIGGER_BATCH_INTERVAL = 5
+PARTICLES_PER_BATCH    = 100_000
 TRIGGER_MAX_BATCHES    = 2000
 
-USE_TRIGGER            = True   # False = fixed batches, no convergence check
+USE_TRIGGER            = False   # False = fixed batches, no convergence check
 FIXED_BATCHES          = 10    # only used when USE_TRIGGER = False
 
 # Depletion
@@ -253,7 +254,7 @@ DEPLETION_PROCESSES    = None    # None for max available
 # FEATURE TOGGLES
 # =============================================================================
 DO_PHOTON_TRANSPORT          = True
-DO_WRITE_SURFACE_SOURCE      = False # TBD: Add if statement to "False" if CORTEX?
+DO_WRITE_SURFACE_SOURCE      = True # TBD: Add if statement to "False" if CORTEX?
 SURFACE_SOURCE_SURFACE_ID    = 287 # DO NOT CHANGE 
 SURFACE_SOURCE_CELL_TO       = 66  # DO NOT CHANGE 
 SURFACE_SOURCE_MAX_PARTICLES = 1_000_000
@@ -295,11 +296,9 @@ DEPLETION_IDX_TO_PLOT = (0, 3, 6, 9, 12, 15, 18, 21, 24, 27)
 
 
 # Improvements ideas
-# A) Change DAGMC slab file for only slab cells.
-# B) Introduce Random RAY
-# C) Fine tune number of particles
-# D)
-# E) Clear code to Cortex to improve performance:
+# A) Introduce Random RAY
+# B) Fine tune number of particles
+# C) Clear code to Cortex to improve performance:
 #   1 - Remove albedo tallies and calculations.
 #   2 - Merge neutronics/post/depletion/post in same script.
 #       2.1 - Avoid re-loading neutronics_model.py

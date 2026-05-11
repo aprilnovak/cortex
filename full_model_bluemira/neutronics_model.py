@@ -12,7 +12,7 @@ Exports (for post-processing scripts)
 --------------------------------------
 model, all_cells
 neutron_source_rate, s_in_y, ev_to_joule
-flux_tally, heating_tally, t_current_tally, p_current_tallies, dpa_gas_tallies
+flux_tally, heating_tally, blanket_current_tally, t_current_tally, p_current_tallies, dpa_gas_tallies
 structural_nuclides, cell_nuclide_atoms, cell_struct_nuclide_atoms
 cell_total_atoms_struct, cell_struct_origin_frac, cell_volumes
 """
@@ -81,10 +81,10 @@ if cfg.SIM_TYPE == "tokamak":
     )
     #dt_fusion_power = 1.91480972334663875e+09
     #my_source.normalise_fusion_power(dt_fusion_power)
-    model.settings.source = my_source.to_openmc_source(
-            start_angle=0.0,
-            end_angle=np.radians(22.5),
-            )
+    model.settings.source = my_source.to_openmc_source()
+            #start_angle=0.0,
+            #end_angle=np.radians(22.5),
+            #)
 
     # Surface source write (optional) 
     if cfg.DO_WRITE_SURFACE_SOURCE:
@@ -406,7 +406,7 @@ heating_tally.filters = [cell_filter_all]
 heating_tally.scores  = ["heating"]
 model.tallies.append(heating_tally)
 
-# 4. Total current tally 
+# 4 Total current tally 
 # (tokamak only, for albedo and calculating
 #  _J_in in neutron_source_rate for slab models) 
 t_current_tally:   openmc.Tally | None        = None
@@ -480,11 +480,11 @@ _run_meta = {
     "sim_type":              cfg.SIM_TYPE,
     "breeder_type":          cfg.BREEDER_TYPE,
     "tally_ids": {
-        "flux_spectrum":   flux_tally.id,
-        "heating":         heating_tally.id,
-        "total_current":   t_current_tally.id if t_current_tally else None,
-        "partial_current": {str(cid): t.id for cid, t in p_current_tallies.items()},
-        "dpa_gas":         {str(cid): t.id for cid, t in dpa_gas_tallies.items()},
+        "flux_spectrum":     flux_tally.id,
+        "heating":           heating_tally.id,
+        "total_current":     t_current_tally.id if t_current_tally else None,
+        "partial_current":   {str(cid): t.id for cid, t in p_current_tallies.items()},
+        "dpa_gas":           {str(cid): t.id for cid, t in dpa_gas_tallies.items()},
     },
 }
 with open(cfg.NEUTRONICS_RESULTS_DIR / "run_meta.json", "w", encoding="utf-8") as _f:
