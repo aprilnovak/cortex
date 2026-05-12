@@ -81,10 +81,10 @@ if cfg.SIM_TYPE == "tokamak":
     )
     #dt_fusion_power = 1.91480972334663875e+09
     #my_source.normalise_fusion_power(dt_fusion_power)
-    model.settings.source = my_source.to_openmc_source(
-            start_angle=0.0,
-            end_angle=np.radians(22.5),
-            )
+    model.settings.source = my_source.to_openmc_source()
+            #start_angle=0.0,
+            #end_angle=np.radians(22.5),
+            #)
 
     # Surface source write (optional) 
     if cfg.DO_WRITE_SURFACE_SOURCE:

@@ -177,9 +177,15 @@ print("materials file:", materials.__file__)
 print("SIM_TYPE:", SIM_TYPE)
 print("BREEDER_TYPE:", BREEDER_TYPE)
 
-# Materials common to all breeder types 
-armor_material      = materials.W(19.3)
+# Materials common to all breeder types
+armor_material      = materials.W(19.3, os.getenv('OPENMC_MATERIAL_SEED'))
 structural_material = materials.eurofer97(7.87)
+#structural_material = materials.eurofer97(7.87, os.getenv('OPENMC_MATERIAL_SEED'))
+#structural_material = materials.V4Cr4Ti(6.05)
+#structural_material = materials.SiC(2.5)
+#structural_material = materials.inconel718(8.19)
+#structural_material = materials.ht9(7.86)
+#structural_material = materials.ods_eurofer(7.87)
 vv_material = materials.ss316Ln_ig(7.93)
 
 # Breeder-specific materials 
@@ -236,7 +242,7 @@ CHUNK_START_CM = 0.0
 # =============================================================================
 # OPENMC RUN SETTINGS
 # =============================================================================
-TALLY_CONVERGENCE_THRESHOLD = 0.1        # 10 %
+TALLY_CONVERGENCE_THRESHOLD = 0.01        # 10 %
 BATCHES                = 10
 TRIGGER_BATCH_INTERVAL = 10
 PARTICLES_PER_BATCH    = 1_000_000
