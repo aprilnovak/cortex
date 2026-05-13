@@ -72,6 +72,19 @@ STATEPOINT_FILE = _find_latest_statepoint(cfg.NEUTRONICS_RUN_DIR)
 print(f"Using statepoint: {STATEPOINT_FILE.name}")
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Load Reference Run (gold)
+# ──────────────────────────────────────────────────────────────────────────────
+from reference_manager import load_reference
+
+_ref_data = None
+if cfg.REFERENCE_LABEL:
+    try:
+        _ref_data = load_reference(cfg.REFERENCE_LABEL)
+        print(f"[reference] Loaded gold run: {cfg.REFERENCE_LABEL}")
+    except FileNotFoundError:
+        print(f"[reference] WARNING: reference '{cfg.REFERENCE_LABEL}' not found — skipping overlay")
+
+# ──────────────────────────────────────────────────────────────────────────────
 # model.xml presence check  (DROP THIS)
 # ──────────────────────────────────────────────────────────────────────────────
 _model_xml = cfg.NEUTRONICS_RUN_DIR / "model.xml"
@@ -554,6 +567,88 @@ def set_ylim_and_ticks(
     ax.yaxis.set_major_formatter(mticker.StrMethodFormatter("{x:g}"))
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Overlay Gold Run
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _overlay_ref(ax: plt.Axes, chunk_key: str, quantity: str,
+                 label: str = "Reference",
+                 color: str = "black",
+                 ls: str = "--") -> None:
+    if _ref_data is None or _ref_data.get("neutronics_dir") is None:
+        return
+    csv = (
+        _ref_data["neutronics_dir"]
+        / chunk_key / "profiles" / f"profile_{quantity}_{chunk_key}.csv"
+    )
+    if not csv.is_file():
+        return
+    df = pd.read_csv(csv)
+    if "x_left_cm" not in df.columns or "mean" not in df.columns:
+        return
+    df = df.sort_values("x_left_cm").reset_index(drop=True)
+    x  = df["x_left_cm"].to_numpy(float)
+    y  = df["mean"].to_numpy(float)
+    lo = df["lower_1sigma"].to_numpy(float)
+    hi = df["upper_1sigma"].to_numpy(float)
+
+    # use x_right_cm of the last cell as the closing edge if available,
+    # otherwise fall back to extrapolation from last bin width
+    if "x_right_cm" in df.columns:
+        x_final = float(df["x_right_cm"].iloc[-1])
+    else:
+        x_final = x[-1] + (x[-1] - x[-2])
+
+    xp = np.append(x, x_final)
+    ax.step(xp, np.append(y, y[-1]),
+            where="post", color=color, ls=ls, lw=1.2,
+            alpha=0.65, label=label, zorder=0)
+    ax.fill_between(xp, np.append(lo, lo[-1]), np.append(hi, hi[-1]),
+                    step="post", color=color, alpha=0.08, zorder=0)
+
+def _overlay_ref_poloidal(ax: plt.Axes, layer_tag: str, quantity: str,
+                           label: str = "Reference") -> None:
+    """
+    Overlay a dashed reference line + shaded band for a poloidal-layer sweep.
+
+    Profile CSVs for poloidal sweeps live at:
+        neutronics_dir / layer_<layer_tag>_region1_only / profiles /
+            profile_<quantity>_<layer_tag>.csv
+
+    The x-axis is poloidal_index (integer), padded with one extra point on
+    each side to match the _pad() / ax.step(where="mid") convention.
+    """
+    if _ref_data is None or _ref_data.get("neutronics_dir") is None:
+        return
+    csv = (
+        _ref_data["neutronics_dir"]
+        / f"layer_{layer_tag}_region1_only"
+        / "profiles"
+        / f"profile_{quantity}_{layer_tag}.csv"
+    )
+    if not csv.is_file():
+        return
+    try:
+        df = pd.read_csv(csv)
+        if "poloidal_index" not in df.columns or "mean" not in df.columns:
+            return
+        df = df.sort_values("poloidal_index").reset_index(drop=True)
+        y  = df["mean"].to_numpy(float)
+        lo = df["lower_1sigma"].to_numpy(float)
+        hi = df["upper_1sigma"].to_numpy(float)
+        # mirror the _pad() applied to current-run data
+        yp  = _pad(y)
+        lop = _pad(lo)
+        hip = _pad(hi)
+        # x matches the padded index array used by _empty_poloidal_plot
+        xp = _pad(np.arange(len(y), dtype=float))
+        ax.step(xp, yp, where="mid", color="black", ls="--", lw=1.2,
+                alpha=0.65, label=label, zorder=0)
+        ax.fill_between(xp, lop, hip, step="mid",
+                        color="black", alpha=0.08, zorder=0)
+    except Exception as e:
+        print(f"[reference] poloidal overlay failed for {quantity}/{layer_tag}: {e}")
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Layer naming
 # ──────────────────────────────────────────────────────────────────────────────
 def layer_names_for_chunk(chunk_cells: List[int], region_tag: str) -> List[str]:
@@ -570,10 +665,8 @@ def layer_names_for_chunk(chunk_cells: List[int], region_tag: str) -> List[str]:
 def _pydagmc_surface(pydagmc_model, sid: int):
     return pydagmc_model.surfaces_by_id[int(sid)]
 
-
 def _surface_area(pydagmc_model, sid: int) -> float:
     return float(_pydagmc_surface(pydagmc_model, sid).area)
-
 
 def _is_surface_unshared(pydagmc_model, sid: int) -> bool:
     s = _pydagmc_surface(pydagmc_model, sid)
@@ -584,7 +677,6 @@ def _is_surface_unshared(pydagmc_model, sid: int) -> bool:
         vols   = [v for v in senses if v is not None]
         return len(vols) == 1
 
-
 def _cell_surface_ids_from_info_flat(info_flat: dict, cell_id: int) -> List[int]:
     out = []
     for rec in info_flat.get(int(cell_id), []):
@@ -593,7 +685,6 @@ def _cell_surface_ids_from_info_flat(info_flat: dict, cell_id: int) -> List[int]
         except Exception:
             pass
     return out
-
 
 def _rank_sids_by_area(pydagmc_model, sids: List[int]) -> List[int]:
     pairs = []
@@ -604,7 +695,6 @@ def _rank_sids_by_area(pydagmc_model, sids: List[int]) -> List[int]:
             continue
     pairs.sort(key=lambda x: x[0], reverse=True)
     return [sid for _, sid in pairs]
-
 
 def _build_special_surfaces(
     pydagmc_model,
@@ -1147,7 +1237,7 @@ def save_summary_neutronics_results(
         "VV":            "Vacuum Vessel",
     }
 
-    TARGET_LAYERS = ["Armor", "First_Wall", "Vacuum Vessel"]
+    TARGET_LAYERS = list(cfg.SUMMARY_TARGET_LAYERS)
 
     # Profile CSV paths
     _profiles = {
@@ -1245,7 +1335,6 @@ def save_summary_neutronics_results(
     print(f"[completed] summary neutronics results → {out_csv}")
     return df
 
-
 # ──────────────────────────────────────────────────────────────────────────────
 # Gas-production breakdown
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1260,7 +1349,7 @@ def _save_nuclide_breakdown(
     outdir = Path(outdir)
     outdir.mkdir(parents=True, exist_ok=True)
 
-    # Determine percentage column — already computed in df
+    # Determine percentage column 
     pct_col = next((c for c in df.columns if c.endswith("_pct") and "cumulative" not in c), None)
 
     elem_summary = (
@@ -1549,6 +1638,7 @@ def process_chunk(
                 dpi=300, bbox_inches="tight")
     plt.close(fig)
 
+
     # Photon spectrum plot
     fig, ax = plt.subplots()
     for i, cid in enumerate(cell_ids):
@@ -1612,6 +1702,17 @@ def process_chunk(
     ax.legend()
     fig.savefig(plots_dir / f"flux_total_{chunk_key}.png",
                 dpi=300, bbox_inches="tight")
+
+    if _ref_data:
+        _overlay_ref(ax, chunk_key, "flux_total_neutron",
+                     label="Ref. neutron", color="tab:blue", ls=(0, (5, 2)))
+        _overlay_ref(ax, chunk_key, "flux_total_photon",
+                     label="Ref. photon",  color="tab:orange", ls=(0, (5, 2)))
+        handles, _ = ax.get_legend_handles_labels()
+        if handles:
+            ax.legend()
+        fig.savefig(plots_dir / f"flux_total_{chunk_key}_vs_ref.png",
+                    dpi=300, bbox_inches="tight")
     plt.close(fig)
 
     save_profile(base_df, profiles_dir, quantity="flux_total_neutron",
@@ -1651,10 +1752,21 @@ def process_chunk(
     ax.grid(True, which="both", linestyle="--", linewidth=0.5)
     fig.savefig(plots_dir / f"heating_{chunk_key}.png",
                 dpi=300, bbox_inches="tight")
+
+    if _ref_data:
+        _overlay_ref(ax, chunk_key, "heating",
+                     label="Reference", color="tab:blue", ls=(0, (5, 2)))
+        handles, _ = ax.get_legend_handles_labels()
+        if handles:
+            ax.legend()
+        fig.savefig(plots_dir / f"heating_{chunk_key}_vs_ref.png",
+                    dpi=300, bbox_inches="tight")
     plt.close(fig)
 
     save_profile(base_df, profiles_dir, quantity="heating",
                  mean=heat_w, std=heat_w_std, units="W/cm3")
+
+
 
     # ==========================================
     # H, He, DPA — computed once per cell,
@@ -1720,10 +1832,21 @@ def process_chunk(
     ax.set(xlabel="Radial Position [cm]", ylabel="H [appm/fpy]")
     ax.grid(True, which="both", linestyle="--", linewidth=0.5)
     fig.savefig(plots_dir / f"h1_{chunk_key}.png", dpi=300, bbox_inches="tight")
+
+    if _ref_data:
+        _overlay_ref(ax, chunk_key, "H_appm_fpy_struct_origin",
+                    label="Reference", color="tab:blue", ls=(0, (5, 2)))
+        handles, _ = ax.get_legend_handles_labels()
+        if handles:
+            ax.legend()
+        fig.savefig(plots_dir / f"h1_{chunk_key}_vs_ref.png",
+                    dpi=300, bbox_inches="tight")
     plt.close(fig)
 
     save_profile(base_df, profiles_dir, quantity="H_appm_fpy_struct_origin",
                  mean=h_appm_y, std=h_appm_y_std, units="appm/fpy")
+
+
 
     # ==========================================
     # He (He3 + He4) production plot + CSV
@@ -1739,10 +1862,21 @@ def process_chunk(
     ax.set(xlabel="Radial Position [cm]", ylabel="He [appm/fpy]")
     ax.grid(True, which="both", linestyle="--", linewidth=0.5)
     fig.savefig(plots_dir / f"he_{chunk_key}.png", dpi=300, bbox_inches="tight")
+
+    if _ref_data:
+        _overlay_ref(ax, chunk_key, "He_appm_fpy_struct_origin",
+                        label="Reference", color="tab:blue", ls=(0, (5, 2)))
+        handles, _ = ax.get_legend_handles_labels()
+        if handles:
+            ax.legend()
+        fig.savefig(plots_dir / f"he_{chunk_key}_vs_ref.png",
+                    dpi=300, bbox_inches="tight")
     plt.close(fig)
 
     save_profile(base_df, profiles_dir, quantity="He_appm_fpy_struct_origin",
                  mean=he_appm_y, std=he_appm_y_std, units="appm/fpy")
+
+
 
     # ==========================================
     # DPA plot + CSV
@@ -1758,8 +1892,17 @@ def process_chunk(
     ax.set(xlabel="Radial Position [cm]", ylabel="NRT-dpa/fpy")
     ax.grid(True, which="both", linestyle="--", linewidth=0.5)
     fig.savefig(plots_dir / f"dpa_{chunk_key}.png", dpi=300, bbox_inches="tight")
-    plt.close(fig)
 
+    if _ref_data:
+        _overlay_ref(ax, chunk_key, "dpa_fpy_struct_origin",
+                            label="Reference", color="tab:blue", ls=(0, (5, 2)))
+        handles, _ = ax.get_legend_handles_labels()
+        if handles:
+            ax.legend()
+        fig.savefig(plots_dir / f"dpa_{chunk_key}_vs_ref.png",
+                    dpi=300, bbox_inches="tight")
+    plt.close(fig)
+ 
     save_profile(base_df, profiles_dir, quantity="dpa_fpy_struct_origin",
                  mean=dpa_y, std=dpa_y_std, units="DPA/fpy")
 
@@ -1950,9 +2093,9 @@ def process_layer_region1_only(
         ax.fill_between(x, lo, hi, step="mid", alpha=0.15)
         ax.set_ylabel(ylabel, fontsize=11)
         ax.set_title(f"{ylabel} — {layer_tag}", fontsize=12)
-        save_to = (save_dir or outdir) / fname
+        save_to = (save_dir or plots_dir) / fname
         fig.savefig(save_to, dpi=300, bbox_inches="tight")
-        plt.close(fig)
+        return fig, ax
 
     # ==========================================
     # Total flux reconstructed from spectrum
@@ -2000,6 +2143,14 @@ def process_layer_region1_only(
     ax.legend()
     fig.savefig(plots_dir / f"flux_total_{layer_tag}.png",
                 dpi=300, bbox_inches="tight")
+                
+    if _ref_data:
+        _overlay_ref_poloidal(ax, layer_tag, "flux_total_neutron")
+        handles, _ = ax.get_legend_handles_labels()
+        if handles:
+            ax.legend(fontsize=8)
+        fig.savefig(plots_dir / f"flux_total_{layer_tag}_vs_ref.png",
+                    dpi=300, bbox_inches="tight")
     plt.close(fig)
 
     # ==========================================
@@ -2021,8 +2172,17 @@ def process_layer_region1_only(
         [heat_std_layer[i] * scaling[int(c)] * ev_to_joule
          for i, c in enumerate(cell_ids_layer)], dtype=float,
     )
-    _plot_step(heat_w, heat_w_std, "Heating [W/cm³]", f"heating_{layer_tag}.png",
-               save_dir=plots_dir)
+
+    fig, ax = _plot_step(heat_w, heat_w_std, "Heating [W/cm³]",
+                         f"heating_{layer_tag}.png", save_dir=plots_dir)
+    if _ref_data:
+        _overlay_ref_poloidal(ax, layer_tag, "heating")
+        handles, _ = ax.get_legend_handles_labels()
+        if handles:
+            ax.legend(fontsize=8)
+        fig.savefig(plots_dir / f"heating_{layer_tag}_vs_ref.png",
+                    dpi=300, bbox_inches="tight")
+    plt.close(fig)
 
     save_profile(base_df, profiles_dir, quantity="heating",
                  mean=heat_w, std=heat_w_std, units="W/cm3")
@@ -2064,9 +2224,17 @@ def process_layer_region1_only(
             h_appm_y[i]     = h_mean_corr * factor
             h_appm_y_std[i] = h_std_corr  * factor
 
-    _plot_step(h_appm_y, h_appm_y_std,
-               "H production [appm/fpy]", f"h1_{layer_tag}.png",
-               save_dir=plots_dir)
+    fig, ax = _plot_step(h_appm_y, h_appm_y_std,
+                         "H production [appm/fpy]", f"h1_{layer_tag}.png",
+                         save_dir=plots_dir)
+    if _ref_data:
+        _overlay_ref_poloidal(ax, layer_tag, "H_appm_fpy_struct_origin")
+        handles, _ = ax.get_legend_handles_labels()
+        if handles:
+            ax.legend(fontsize=8)
+        fig.savefig(plots_dir / f"h1_{layer_tag}_vs_ref.png",
+                    dpi=300, bbox_inches="tight")
+    plt.close(fig)
 
     save_profile(base_df, profiles_dir, quantity="H_appm_fpy_struct_origin",
                  mean=h_appm_y, std=h_appm_y_std, units="appm/fpy")
@@ -2105,9 +2273,17 @@ def process_layer_region1_only(
             he_appm_y[i]     = he_mean_corr * factor
             he_appm_y_std[i] = he_std_corr  * factor
 
-    _plot_step(he_appm_y, he_appm_y_std,
-               "He production [appm/fpy]", f"he_{layer_tag}.png",
-               save_dir=plots_dir)
+    fig, ax = _plot_step(he_appm_y, he_appm_y_std,
+                         "He production [appm/fpy]", f"he_{layer_tag}.png",
+                         save_dir=plots_dir)
+    if _ref_data:
+        _overlay_ref_poloidal(ax, layer_tag, "He_appm_fpy_struct_origin")
+        handles, _ = ax.get_legend_handles_labels()
+        if handles:
+            ax.legend(fontsize=8)
+        fig.savefig(plots_dir / f"he_{layer_tag}_vs_ref.png",
+                    dpi=300, bbox_inches="tight")
+    plt.close(fig)
 
     save_profile(base_df, profiles_dir, quantity="He_appm_fpy_struct_origin",
                  mean=he_appm_y, std=he_appm_y_std, units="appm/fpy")
@@ -2119,8 +2295,17 @@ def process_layer_region1_only(
         cell_ids_layer,
         dpa_gas_map=dpa_gas_map,
     )
-    _plot_step(dpa_y, dpa_y_std, "NRT-dpa/fpy", f"dpa_{layer_tag}.png",
-               yscale="linear", save_dir=plots_dir)
+
+    fig, ax = _plot_step(dpa_y, dpa_y_std, "NRT-dpa/fpy", f"dpa_{layer_tag}.png",
+                         yscale="linear", save_dir=plots_dir)
+    if _ref_data:
+        _overlay_ref_poloidal(ax, layer_tag, "dpa_fpy_struct_origin")
+        handles, _ = ax.get_legend_handles_labels()
+        if handles:
+            ax.legend(fontsize=8)
+        fig.savefig(plots_dir / f"dpa_{layer_tag}_vs_ref.png",
+                    dpi=300, bbox_inches="tight")
+    plt.close(fig)
 
     save_profile(base_df, profiles_dir, quantity="dpa_fpy_struct_origin",
                  mean=dpa_y, std=dpa_y_std, units="DPA/fpy")

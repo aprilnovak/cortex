@@ -180,7 +180,8 @@ print("BREEDER_TYPE:", BREEDER_TYPE)
 
 # Materials common to all breeder types 
 armor_material      = materials.W(19.3)
-structural_material = materials.eurofer97(7.87)
+#structural_material = materials.eurofer97(7.87)
+structural_material = materials.inconel718(8.19)
 vv_material = materials.ss316Ln_ig(7.93)
 
 # Breeder-specific materials 
@@ -238,7 +239,7 @@ CHUNK_START_CM = 0.0
 # OPENMC RUN SETTINGS
 # =============================================================================
 TALLY_CONVERGENCE_THRESHOLD = 0.1        # 10 %
-BATCHES                = 15
+BATCHES                = 10
 TRIGGER_BATCH_INTERVAL = 5
 PARTICLES_PER_BATCH    = 100_000
 TRIGGER_MAX_BATCHES    = 2000
@@ -254,7 +255,7 @@ DEPLETION_PROCESSES    = None    # None for max available
 # FEATURE TOGGLES
 # =============================================================================
 DO_PHOTON_TRANSPORT          = True
-DO_WRITE_SURFACE_SOURCE      = True # TBD: Add if statement to "False" if CORTEX?
+DO_WRITE_SURFACE_SOURCE      = False # TBD: Add if statement to "False" if CORTEX?
 SURFACE_SOURCE_SURFACE_ID    = 287 # DO NOT CHANGE 
 SURFACE_SOURCE_CELL_TO       = 66  # DO NOT CHANGE 
 SURFACE_SOURCE_MAX_PARTICLES = 1_000_000
@@ -278,8 +279,21 @@ REDUCED_CHAIN_LEVEL = 5
 # POST-PROCESSING CHUNK SELECTION
 # =============================================================================
 NEUTRONICS_KEYS_TO_PROCESS = [
-    "OB_1_b6",
+    "OB_1_b6", # DO NOT REMOVE THIS ONE ! TBD: add safe guards for slab tokamak/slab interaction
     "IB_1_b4",
+]
+
+if "OB_1_b6" not in NEUTRONICS_KEYS_TO_PROCESS:
+    sys.exit(
+        "[inputs] NEUTRONICS_KEYS_TO_PROCESS must include 'OB_1_b6' — "
+    )
+
+# Initial desired layers for CORTEX SUMMARY
+# Can be added others, such as "Breeder layer 1"
+SUMMARY_TARGET_LAYERS = [
+    "Armor",
+    "First_Wall",
+    "Vacuum Vessel",
 ]
 
 POLOIDAL_LAYERS = [
@@ -293,6 +307,12 @@ DEPLETION_CHUNKS = {
 }
 
 DEPLETION_IDX_TO_PLOT = (0, 3, 6, 9, 12, 15, 18, 21, 24, 27)
+
+# =============================================================================
+# REFERENCE (GOLD) RUN COMPARISON
+# =============================================================================
+REFERENCE_LABEL       = "W_armor_eurofer_structural"   # None = disabled
+REFERENCE_PLOT_SUFFIX = "_vs_ref"                      # appended to overlay figs
 
 
 # Improvements ideas

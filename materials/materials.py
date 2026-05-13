@@ -31,6 +31,7 @@ def inconel718(density):
     weight_sum += nuclide.percent
 
   inconel718.add_element('Fe', 1 - weight_sum, 'wo')
+  print('Adding Inconel material...')
   print('\tIron (weight %):    ', (1 - weight_sum) * 100)
   inconel718.set_density('g/cc', density)
   return inconel718
@@ -75,6 +76,7 @@ def V4Cr4Ti(density):
     weight_sum += nuclide.percent
 
   V4Cr4Ti.add_element('V', 1 - weight_sum, 'wo')
+  print('Adding Vanadium material...')
   print('\tVanadium (weight %):    ', (1 - weight_sum) * 100)
 
   V4Cr4Ti.set_density('g/cc', density)
@@ -182,6 +184,7 @@ def eurofer97(density):
   for nuclide in eurofer97.nuclides:
     alloy_weight_sum += nuclide.percent
 
+  print('Adding Eurofer97 material...')
   print('\tAlloying elements (weight %): ', alloy_weight_sum)
 
   # impurities
@@ -530,7 +533,7 @@ def ss304_b4(density):
 
   ss304b4.add_element('Fe', 100 - weight_sum, 'wo')
 
-  print('\tIron (weight %):             ', 100 - weight_sum)
+  #print('\tIron (weight %):             ', 100 - weight_sum)
   ss304b4.set_density('g/cc', density)
   return ss304b4
 
@@ -586,7 +589,7 @@ def ss316Ln_ig(density):
 
   ss316Ln_ig.add_element('Fe', 100 - weight_sum, 'wo')
 
-  print('\tIron (weight %):             ', 100 - weight_sum)
+  #print('\tIron (weight %):             ', 100 - weight_sum)
 
   ss316Ln_ig.set_density('g/cc', density)
   return ss316Ln_ig
