@@ -787,7 +787,7 @@ if RUN_DEPLETION:
     # Place unique materials in each cell, to be activated individually
     model.differentiate_mats("match cell", depletable_only=True)
 
-    # Sync again after differentiation (to be safe - most likely not necessary).
+    # Sync again after differentiation.
     model.materials = openmc.Materials(
         list(model.geometry.get_all_materials().values())
     )

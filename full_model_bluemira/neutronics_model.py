@@ -12,7 +12,7 @@ Exports (for post-processing scripts)
 --------------------------------------
 model, all_cells
 neutron_source_rate, s_in_y, ev_to_joule
-flux_tally, heating_tally, blanket_current_tally, t_current_tally, p_current_tallies, dpa_gas_tallies
+flux_tally, heating_tally, t_current_tally, p_current_tallies, dpa_gas_tallies
 structural_nuclides, cell_nuclide_atoms, cell_struct_nuclide_atoms
 cell_total_atoms_struct, cell_struct_origin_frac, cell_volumes
 """
@@ -159,29 +159,6 @@ for volume in geo.pydagmc_model.volumes:
 
 
 all_cells: Dict[int, openmc.Cell] = model.geometry.get_all_cells()
-
-# ──────────────────────────────────────────────────────────────────────────────
-# ============================ DEBUGGING =======================================
-# Export cell/material/volume mapping for depletion (may not be necessary anymore)
-# ──────────────────────────────────────────────────────────────────────────────
-_cell_map = []
-for cid, cell in all_cells.items():
-    mat = cell.fill
-    if not isinstance(mat, openmc.Material):
-        continue
-    _cell_map.append({
-        "cell_id":       int(cid),
-        "mat_id":        int(mat.id),
-        "mat_name":      str(mat.name or ""),
-        "volume_cm3":    float(cell.volume or 0.0),
-    })
-
-_cell_map_path = cfg.NEUTRONICS_RESULTS_DIR / "cell_material_volume_map.json"
-_cell_map_path.parent.mkdir(parents=True, exist_ok=True)
-with open(_cell_map_path, "w", encoding="utf-8") as _f:
-    json.dump(_cell_map, _f, indent=2)
-print(f"[neutronics_model] Cell/material/volume map written to: {_cell_map_path}")
-# ============================ DEBUGGING =======================================
 
 # ──────────────────────────────────────────────────────────────────────────────
 # STRUCTURAL MAPS  →  exported to JSON for neutronics_post.py

@@ -85,16 +85,6 @@ if cfg.REFERENCE_LABEL:
         print(f"[reference] WARNING: reference '{cfg.REFERENCE_LABEL}' not found — skipping overlay")
 
 # ──────────────────────────────────────────────────────────────────────────────
-# model.xml presence check  (DROP THIS)
-# ──────────────────────────────────────────────────────────────────────────────
-_model_xml = cfg.NEUTRONICS_RUN_DIR / "model.xml"
-if not _model_xml.is_file():
-    raise FileNotFoundError(
-        f"model.xml not found: {_model_xml}\n"
-        f"Run neutronics_model.py first to generate it."
-    )
-
-# ──────────────────────────────────────────────────────────────────────────────
 # Structural maps — loaded from JSON written by neutronics_model.py
 # ──────────────────────────────────────────────────────────────────────────────
 def _load_structural_maps_json(json_path: Path) -> dict:
