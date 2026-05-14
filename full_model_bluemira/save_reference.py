@@ -25,12 +25,6 @@ The reference copy mirrors this layout exactly under:
 
     reference_runs/<label>/<SIM_TYPE>/<BREEDER_TYPE>/
 
-Usage
------
-    python save_reference.py
-
-Re-run (after changing inputs.py) for each sim_type/breeder_type combination
-you want to include under the same label.
 """
 
 import json
@@ -38,9 +32,9 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 
-# =============================================================================
-# CONFIGURE HERE — only LABEL normally needs editing
-# =============================================================================
+# ───────────────────────────────────────────────────
+# Inputs
+# ───────────────────────────────────────────────────
 LABEL        = "W_armor_eurofer_structural"
 ARMOR        = "W"
 STRUCTURAL   = "eurofer97"
@@ -48,8 +42,10 @@ STRUCTURAL   = "eurofer97"
 # Leave as None to use whatever inputs.py currently says.
 SIM_TYPE_OVERRIDE     = None   # e.g. "tokamak" | "slab" | "fast_slab"
 BREEDER_TYPE_OVERRIDE = None   # e.g. "WCLL"    | "HCLL" | "HCPB"
-# =============================================================================
 
+# ───────────────────────────────────────────────────
+# Directory allocation
+# ───────────────────────────────────────────────────
 BASE_DIR = Path(__file__).parent
 
 import sys
@@ -62,7 +58,7 @@ BREEDER_TYPE = BREEDER_TYPE_OVERRIDE or cfg.BREEDER_TYPE
 
 print(f"[save_reference] SIM_TYPE={SIM_TYPE}  BREEDER_TYPE={BREEDER_TYPE}")
 
-# ── source and destination paths ─────────────────────────────────────────────
+# Source and destination paths
 SIM_DIR        = BASE_DIR / SIM_TYPE / BREEDER_TYPE
 src_neutronics = SIM_DIR / "neutronics_results"
 src_depletion  = SIM_DIR / "depletion_results"
@@ -70,7 +66,7 @@ src_depletion  = SIM_DIR / "depletion_results"
 dst_root = BASE_DIR / "reference_runs" / LABEL
 dst_sim  = dst_root / SIM_TYPE / BREEDER_TYPE
 
-# ── guard ─────────────────────────────────────────────────────────────────────
+# Guard 
 if dst_sim.exists():
     ans = input(
         f"[warn] '{dst_sim.relative_to(BASE_DIR)}' already exists. "
@@ -83,7 +79,9 @@ if dst_sim.exists():
 
 dst_sim.mkdir(parents=True)
 
-# ── copy result trees ─────────────────────────────────────────────────────────
+# ───────────────────────────────────────────────────
+# Copy result trees 
+# ───────────────────────────────────────────────────
 for src, name in [
     (src_neutronics, "neutronics_results"),
     (src_depletion,  "depletion_results"),
@@ -97,7 +95,10 @@ for src, name in [
     else:
         print(f"[skip] {src.relative_to(BASE_DIR)} not found — skipping")
 
-# ── validate neutronics: profile CSVs under profiles/ ────────────────────────
+# ───────────────────────────────────────────────────
+# Validate data
+# ───────────────────────────────────────────────────
+# Neutronics: profile CSVs under profiles/ 
 dst_neutronics = dst_sim / "neutronics_results"
 if dst_neutronics.exists():
     n_profiles = len(list(dst_neutronics.rglob("profiles/profile_*.csv")))
@@ -107,7 +108,7 @@ if dst_neutronics.exists():
         print("[warn] neutronics: no profiles/profile_*.csv found "
               "— did neutronics_post.py complete?")
 
-# ── validate depletion: CSVs under activity/ and decay_heat/ ─────────────────
+# Depletion: CSVs under activity/ and decay_heat/
 dst_depletion = dst_sim / "depletion_results"
 if dst_depletion.exists():
     n_act = len(list(dst_depletion.rglob("activity/activity_all_cells.csv")))
@@ -123,7 +124,9 @@ if dst_depletion.exists():
         print("[warn] depletion: no decay_heat/decayheat_all_cells.csv found "
               "— did depletion_post.py complete?")
 
-# ── write per-slot metadata ───────────────────────────────────────────────────
+# ───────────────────────────────────────────────────
+# Write per-slot metadata 
+# ───────────────────────────────────────────────────
 meta = {
     "label":        LABEL,
     "saved_at":     datetime.now().isoformat(),

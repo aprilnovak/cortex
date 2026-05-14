@@ -561,7 +561,7 @@ def set_ylim_and_ticks(
 # ──────────────────────────────────────────────────────────────────────────────
 
 def _overlay_ref(ax: plt.Axes, chunk_key: str, quantity: str,
-                 label: str = "Reference",
+                 label: str = "W Armor + Eurofer Structural",
                  color: str = "black",
                  ls: str = "--") -> None:
     if _ref_data is None or _ref_data.get("neutronics_dir") is None:
@@ -581,8 +581,6 @@ def _overlay_ref(ax: plt.Axes, chunk_key: str, quantity: str,
     lo = df["lower_1sigma"].to_numpy(float)
     hi = df["upper_1sigma"].to_numpy(float)
 
-    # use x_right_cm of the last cell as the closing edge if available,
-    # otherwise fall back to extrapolation from last bin width
     if "x_right_cm" in df.columns:
         x_final = float(df["x_right_cm"].iloc[-1])
     else:
@@ -596,17 +594,9 @@ def _overlay_ref(ax: plt.Axes, chunk_key: str, quantity: str,
                     step="post", color=color, alpha=0.08, zorder=0)
 
 def _overlay_ref_poloidal(ax: plt.Axes, layer_tag: str, quantity: str,
-                           label: str = "Reference") -> None:
-    """
-    Overlay a dashed reference line + shaded band for a poloidal-layer sweep.
-
-    Profile CSVs for poloidal sweeps live at:
-        neutronics_dir / layer_<layer_tag>_region1_only / profiles /
-            profile_<quantity>_<layer_tag>.csv
-
-    The x-axis is poloidal_index (integer), padded with one extra point on
-    each side to match the _pad() / ax.step(where="mid") convention.
-    """
+                           label: str = "W Armor + Eurofer Structural",
+                           color: str = "black",
+                           ls: str = "--") -> None:
     if _ref_data is None or _ref_data.get("neutronics_dir") is None:
         return
     csv = (
@@ -625,16 +615,14 @@ def _overlay_ref_poloidal(ax: plt.Axes, layer_tag: str, quantity: str,
         y  = df["mean"].to_numpy(float)
         lo = df["lower_1sigma"].to_numpy(float)
         hi = df["upper_1sigma"].to_numpy(float)
-        # mirror the _pad() applied to current-run data
         yp  = _pad(y)
         lop = _pad(lo)
         hip = _pad(hi)
-        # x matches the padded index array used by _empty_poloidal_plot
         xp = _pad(np.arange(len(y), dtype=float))
-        ax.step(xp, yp, where="mid", color="black", ls="--", lw=1.2,
+        ax.step(xp, yp, where="mid", color=color, ls=ls, lw=1.2,
                 alpha=0.65, label=label, zorder=0)
         ax.fill_between(xp, lop, hip, step="mid",
-                        color="black", alpha=0.08, zorder=0)
+                        color=color, alpha=0.08, zorder=0)
     except Exception as e:
         print(f"[reference] poloidal overlay failed for {quantity}/{layer_tag}: {e}")
 
@@ -1695,9 +1683,9 @@ def process_chunk(
 
     if _ref_data:
         _overlay_ref(ax, chunk_key, "flux_total_neutron",
-                     label="Ref. neutron", color="tab:blue", ls=(0, (5, 2)))
+                     label="neutron (W Armor + Eurofer Structural)", color="tab:blue", ls=(0, (5, 2)))
         _overlay_ref(ax, chunk_key, "flux_total_photon",
-                     label="Ref. photon",  color="tab:orange", ls=(0, (5, 2)))
+                     label="photon (W Armor + Eurofer Structural)",  color="tab:orange", ls=(0, (5, 2)))
         handles, _ = ax.get_legend_handles_labels()
         if handles:
             ax.legend()
@@ -1745,7 +1733,7 @@ def process_chunk(
 
     if _ref_data:
         _overlay_ref(ax, chunk_key, "heating",
-                     label="Reference", color="tab:blue", ls=(0, (5, 2)))
+                     color="black", ls=(0, (5, 2)))
         handles, _ = ax.get_legend_handles_labels()
         if handles:
             ax.legend()
@@ -1825,7 +1813,7 @@ def process_chunk(
 
     if _ref_data:
         _overlay_ref(ax, chunk_key, "H_appm_fpy_struct_origin",
-                    label="Reference", color="tab:blue", ls=(0, (5, 2)))
+                    color="black", ls=(0, (5, 2)))
         handles, _ = ax.get_legend_handles_labels()
         if handles:
             ax.legend()
@@ -1855,7 +1843,7 @@ def process_chunk(
 
     if _ref_data:
         _overlay_ref(ax, chunk_key, "He_appm_fpy_struct_origin",
-                        label="Reference", color="tab:blue", ls=(0, (5, 2)))
+                        color="black", ls=(0, (5, 2)))
         handles, _ = ax.get_legend_handles_labels()
         if handles:
             ax.legend()
@@ -1885,7 +1873,7 @@ def process_chunk(
 
     if _ref_data:
         _overlay_ref(ax, chunk_key, "dpa_fpy_struct_origin",
-                            label="Reference", color="tab:blue", ls=(0, (5, 2)))
+                            color="black", ls=(0, (5, 2)))
         handles, _ = ax.get_legend_handles_labels()
         if handles:
             ax.legend()
@@ -2135,7 +2123,10 @@ def process_layer_region1_only(
                 dpi=300, bbox_inches="tight")
                 
     if _ref_data:
-        _overlay_ref_poloidal(ax, layer_tag, "flux_total_neutron")
+        _overlay_ref_poloidal(ax, layer_tag, "flux_total_neutron",
+                            label="neutron (W Armor + Eurofer Structural)", color="tab:blue", ls=(0, (3, 1)))
+        _overlay_ref_poloidal(ax, layer_tag, "flux_total_photon",
+                            label="photon (W Armor + Eurofer Structural)", color="tab:orange", ls=(0, (3, 1)))
         handles, _ = ax.get_legend_handles_labels()
         if handles:
             ax.legend(fontsize=8)

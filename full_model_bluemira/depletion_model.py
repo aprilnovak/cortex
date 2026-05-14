@@ -39,20 +39,11 @@ import geometry as geo
 # ──────────────────────────────────────────────────────────────────────────────
 # Feature toggles
 # ──────────────────────────────────────────────────────────────────────────────
-RUN_D1S       = False
+RUN_D1S       = True
 RUN_DEPLETION = True
 
-#openmc.config['cross_sections']  # check which library is loaded
-
-# Verify each nuclide is available
-#lib = openmc.data.DataLibrary.from_xml()
-#for nuc in ['H1', 'H2', 'O16', 'O17', 'O18', 'Na23', 'Al27', 'Si28', 'Si29', 'Si30']:
-#    entry = lib.get_by_material(nuc)
-#    print(nuc, "→", "FOUND" if entry else "MISSING")
-
 # ──────────────────────────────────────────────────────────────────────────────
-# Import neutronics_model — gives us the fully synced model + all_cells
-# This step will be removed once running neutronics+depletion together
+# Import neutronics_model — fully synced model + all_cells
 # ──────────────────────────────────────────────────────────────────────────────
 import neutronics_model as nm
 

@@ -246,7 +246,7 @@ def _overlay_ref_total(ax: plt.Axes, chunk_key: str,
             return
         ax.loglog(t[mask], y[mask],
                   color="black", ls="--", lw=1.5, alpha=0.7,
-                  label="Ref. Total", zorder=0)
+                  label="Total (W Armor + Eurofer Structural)", zorder=0)
     except Exception as e:
         print(f"[reference] overlay failed for cell {cid} in {csv_name}: {e}")
 

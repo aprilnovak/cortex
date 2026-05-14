@@ -3,33 +3,6 @@
 reference_manager.py
 ====================
 Load, list, and inspect named gold runs produced by save_reference.py.
-
-Expected layout inside each slot:
-
-    reference_runs/<label>/<sim_type>/<breeder_type>/
-        neutronics_results/
-            <chunk_key>/
-                profiles/          ← profile_*.csv  (read by _overlay_ref)
-                plots/
-                spectra/
-                ...
-        depletion_results/
-            <chunk_key>/
-                activity/          ← activity_all_cells.csv
-                decay_heat/        ← decayheat_all_cells.csv
-        meta_<sim_type>_<breeder_type>.json
-
-load_reference() returns:
-    {
-        "meta"           : dict
-        "neutronics_dir" : Path → .../neutronics_results/   (or None)
-        "depletion_dir"  : Path → .../depletion_results/    (or None)
-    }
-
-Consumers must resolve sub-paths themselves:
-    neutronics : neutronics_dir / chunk_key / "profiles" / f"profile_{q}_{chunk_key}.csv"
-    activity   : depletion_dir  / chunk_key / "activity"   / "activity_all_cells.csv"
-    decay heat : depletion_dir  / chunk_key / "decay_heat" / "decayheat_all_cells.csv"
 """
 
 from __future__ import annotations
@@ -42,11 +15,9 @@ import inputs as cfg
 
 REFERENCE_ROOT: Path = cfg.BASE_DIR / "reference_runs"
 
-
 # ──────────────────────────────────────────────────────────────────────────────
 # Public API
 # ──────────────────────────────────────────────────────────────────────────────
-
 def load_reference(
     label: str,
     *,
@@ -71,6 +42,7 @@ def load_reference(
 
     slot = REFERENCE_ROOT / label / sim_type / breeder_type
 
+    # Will always flag before reference run is stored
     if not slot.exists():
         print(
             f"[reference] WARNING: slot '{label}/{sim_type}/{breeder_type}' not found "
@@ -93,7 +65,6 @@ def load_reference(
         "neutronics_dir": neutronics_dir if neutronics_dir.exists() else None,
         "depletion_dir":  depletion_dir  if depletion_dir.exists()  else None,
     }
-
 
 def _count_slot_files(slot: Path) -> dict:
     """
@@ -124,7 +95,6 @@ def _count_slot_files(slot: Path) -> dict:
         )
 
     return counts
-
 
 def list_references() -> list[dict]:
     """Return a list of dicts describing every saved slot across all labels."""
@@ -162,7 +132,6 @@ def list_references() -> list[dict]:
                 })
     return rows
 
-
 def print_references() -> None:
     """Pretty-print all saved reference slots to stdout."""
     rows = list_references()
@@ -189,7 +158,6 @@ def print_references() -> None:
     print("─" * (sum(col_w) + 2 * (len(col_w) - 1)))
     for r in rows:
         print(fmt.format(*[str(r[k]) for k in keys]))
-
 
 # ──────────────────────────────────────────────────────────────────────────────
 # CLI  (python reference_manager.py)
