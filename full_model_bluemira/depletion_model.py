@@ -239,8 +239,6 @@ def write_neutron_only_surface_source(src_path: Path, dst_path: Path) -> tuple[P
     OpenMC particle IDs in source_bank:
       0 = neutron
       1 = photon
-      2 = electron
-      3 = positron
 
     Returns
     -------
@@ -284,8 +282,6 @@ def write_neutron_only_surface_source(src_path: Path, dst_path: Path) -> tuple[P
                 dst.attrs[key] = val
 
             # Copy every dataset/group except source_bank.
-            # Most surface source files only need source_bank + attributes,
-            # but this keeps the copy safer if extra metadata exists.
             for key in src.keys():
                 if key == "source_bank":
                     continue

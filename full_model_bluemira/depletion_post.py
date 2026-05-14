@@ -222,7 +222,7 @@ def _overlay_ref_total(ax: plt.Axes, chunk_key: str,
     Overlay the reference Total line for a single cell from a gold run CSV.
 
     csv_name  : "activity_all_cells.csv" or "decayheat_all_cells.csv"
-    chunk_key : e.g. "OB_1_b6"  (NOT the subdir name "activity"/"decay_heat")
+    chunk_key : e.g. "OB_1_b6"  
 
     CSVs live at:
         depletion_dir / chunk_key / "activity"   / "activity_all_cells.csv"
@@ -413,7 +413,7 @@ def update_summary_results_with_activity(
     target_cooling_year: float = 100.0,
 ) -> "pd.DataFrame":
     """
-    Read activity and decay heat at target_cooling_year from the already-written
+    Read activity and decay heat at target_cooling_year (100y) from the already-written
     timeseries CSVs, then append to the summary neutronics CSV.
     """
     neutronics_csv = Path(neutronics_csv)
@@ -424,7 +424,7 @@ def update_summary_results_with_activity(
     chunk_key  = str(df_summary["chunk_key"].iloc[0])
     chunk_dir  = cfg.DEPLETION_RESULTS_DIR / chunk_key
 
-    # CSVs now live in activity/ and decay_heat/ subdirectories
+    # CSVs in activity/ and decay_heat/ subdirectories
     act_csv = chunk_dir / "activity"   / "activity_all_cells.csv"
     dh_csv  = chunk_dir / "decay_heat" / "decayheat_all_cells.csv"
 
@@ -444,9 +444,6 @@ def update_summary_results_with_activity(
 
     actual_act_year = float(t_act[idx_act])
     actual_dh_year  = float(t_dh[idx_dh])
-
-    #print(f"[activity]   using t = {actual_act_year:.2f} y  (target {target_cooling_year} y)")
-    #print(f"[decayheat]  using t = {actual_dh_year:.2f} y  (target {target_cooling_year} y)")
 
     act_unit_tag = activity_units.replace("/", "_per_")
     dh_unit_tag  = decayheat_units.replace("/", "_per_")
@@ -470,7 +467,6 @@ def update_summary_results_with_activity(
         else:
             val = float(df_act[act_col].iloc[idx_act])
             act_vals.append(val); act_years.append(actual_act_year)
-            #print(f"  {layer:<14}  cell={cid}  activity @ {actual_act_year:.1f} y = {val:.4e} {activity_units}")
 
         if dh_col is None:
             print(f"[warn] cell {cid} ({layer}) not found in decay heat CSV — NaN.")
@@ -478,7 +474,6 @@ def update_summary_results_with_activity(
         else:
             val = float(df_dh[dh_col].iloc[idx_dh])
             dh_vals.append(val); dh_years.append(actual_dh_year)
-            #print(f"  {layer:<14}  cell={cid}  decayheat @ {actual_dh_year:.1f} y = {val:.4e} {decayheat_units}")
 
     df_summary[col_act]      = act_vals
     df_summary[col_act_year] = act_years
