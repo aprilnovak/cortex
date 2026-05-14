@@ -1282,14 +1282,6 @@ def save_summary_neutronics_results(
             He_appm_fpy_std = he_std,
         ))
 
-        # inline print
-        #print(
-        #    f"  [{chunk_key}] {layer_label:<14}  cell={cell_id}  "
-        #    f"DPA={dpa_mean:.3f}±{dpa_std:.4f}  "
-        #    f"H={h_mean:.3f}±{h_std:.4f} appm/fpy  "
-        #    f"He={he_mean:.3f}±{he_std:.4f} appm/fpy"
-        #)
-
     if not rows:
         raise RuntimeError(
             f"No rows found for any target layer {TARGET_LAYERS} "
@@ -1342,18 +1334,6 @@ def _save_nuclide_breakdown(
     factor     = float(df["factor"].iloc[0])         if "factor"         in df.columns else float("nan")
     total_val  = float(df[col_total].sum())
     units      = "appm/fpy" if "appm" in col_total else "DPA/fpy"
-
-    #inline print
-    #print(f"\n{'='*70}")
-    #print(f"  {gas_or_dpa} diagnostic  |  cell {cid}")
-    #print(f"{'='*70}")
-    #print(f"  N_total_struct         = {N_total:.6e} atoms")
-    #print(f"  factor / source_scale  = {factor:.6e}")
-    #print(f"  Total {gas_or_dpa:<6}           = {total_val:.6f} {units}")
-    #print(f"\n  {'Element':<8} {gas_or_dpa:>14}  {'%':>7}")
-    #print(f"  {'-'*8}  {'-'*14}  {'-'*7}")
-    #for _, r in elem_summary.iterrows():
-    #    print(f"  {r['element']:<8} {r['val_total']:>14.4f}  {r['val_pct']:>6.2f}%")
 
     nuclide_path = outdir / f"{gas_or_dpa.lower()}_nuclide.csv"
     df.to_csv(nuclide_path, index=False)
