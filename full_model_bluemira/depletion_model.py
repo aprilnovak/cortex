@@ -686,6 +686,8 @@ if RUN_DEPLETION:
     # -------------------------------------------------------------------------
     model.settings.use_decay_photons = False
     model.settings.photon_transport  = False
+    # Ensure no surface source is written during depletion transport
+    model.settings.surf_source_write = {}
 
     # Restore original neutronics tallies before microXS generation.
     model.tallies = orig_tallies
@@ -707,7 +709,7 @@ if RUN_DEPLETION:
         )
 
         model.settings.surf_source_read  = {"path": str(neutron_only_surface_source)}
-        model.settings.surf_source_write = {}
+        #model.settings.surf_source_write = {}
 
     # source_rates and timesteps are defined at module level — no recomputation needed
     print("\n[depletion] Source-rate normalization")

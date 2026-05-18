@@ -160,7 +160,7 @@ def print_references() -> None:
         print(fmt.format(*[str(r[k]) for k in keys]))
 
 # ──────────────────────────────────────────────────────────────────────────────
-# CLI  (python reference_manager.py)
+# python reference_manager.py
 # ──────────────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     print_references()

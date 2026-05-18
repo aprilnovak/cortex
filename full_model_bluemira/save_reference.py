@@ -2,7 +2,7 @@
 """
 save_reference.py
 =================
-One-shot script to snapshot current post-processing results as a named gold run.
+Snapshot current post-processing results as a named gold run.
 
 By default reads SIM_TYPE and BREEDER_TYPE directly from inputs.py, so it always
 snapshots whichever simulation is currently configured — no manual editing needed.
@@ -12,14 +12,14 @@ Expected source layout (written by neutronics_post.py + depletion_post.py):
     <SIM_TYPE>/<BREEDER_TYPE>/
         neutronics_results/
             <chunk_key>/
-                profiles/          ← profile_*.csv  (read by _overlay_ref)
+                profiles/          
                 plots/
                 spectra/
                 ...
         depletion_results/
             <chunk_key>/
-                activity/          ← activity_all_cells.csv
-                decay_heat/        ← decayheat_all_cells.csv
+                activity/          
+                decay_heat/       
 
 The reference copy mirrors this layout exactly under:
 
