@@ -19,12 +19,12 @@ import shutil
 # =============================================================================
 # SIMULATION TYPE
 # =============================================================================
-SIM_TYPE     = "tokamak"      # "tokamak"  |  "slab" | "fast_slab"
+SIM_TYPE     = "slab"      # "tokamak"  |  "slab" | "fast_slab"
 
 # =============================================================================
 # BREEDER TYPE
 # =============================================================================
-BREEDER_TYPE = "HCPB"         # "WCLL"  |  "HCLL"  |  "HCPB"
+BREEDER_TYPE = "WCLL"         # "WCLL"  |  "HCLL"  |  "HCPB"
 
 # =============================================================================
 # ENVIRONMENT FLAG
@@ -240,15 +240,16 @@ CHUNK_START_CM = 0.0
 if SIM_TYPE == "tokamak":
     TALLY_CONVERGENCE_THRESHOLD = 0.1 # 10%
     BATCHES                     = 15
-    PARTICLES_PER_BATCH    = 1_000_000   
+    TRIGGER_BATCH_INTERVAL      = 5
+    PARTICLES_PER_BATCH         = 1_000_000   
 else:
-    TALLY_CONVERGENCE_THRESHOLD = 0.01 # 1%
-    BATCHES                     = 10
-    PARTICLES_PER_BATCH    = 100_000 
+    TALLY_CONVERGENCE_THRESHOLD = 0.1 # 1%
+    BATCHES                     = 3
+    TRIGGER_BATCH_INTERVAL      = 1
+    PARTICLES_PER_BATCH         = 1_000_000 
 
 
 USE_TRIGGER            = True   # False = fixed batches, no convergence check
-TRIGGER_BATCH_INTERVAL = 5
 TRIGGER_MAX_BATCHES    = 2000
 
 # if USE_TRIGGER = False

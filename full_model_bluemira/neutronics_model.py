@@ -451,11 +451,22 @@ for cid in _tally_cells:
 NEUTRONICS_MODEL_XML = cfg.NEUTRONICS_RUN_DIR / "model.xml"
 model.export_to_model_xml(path=NEUTRONICS_MODEL_XML)
 
-# Write neutron_ratio_source for neutronics_post.py
+_existing_batches_completed = None
+_existing_run_meta_path = cfg.NEUTRONICS_RESULTS_DIR / "run_meta.json"
+if _existing_run_meta_path.is_file():
+    try:
+        with open(_existing_run_meta_path, encoding="utf-8") as _f:
+            _existing = json.load(_f)
+        _existing_batches_completed = _existing.get("batches_completed")
+    except Exception:
+        pass
+
 _run_meta = {
     "neutron_ratio_source":  neutron_ratio_source,
     "sim_type":              cfg.SIM_TYPE,
     "breeder_type":          cfg.BREEDER_TYPE,
+    "particles_per_batch":   cfg.PARTICLES_PER_BATCH,
+    "batches_completed":     _existing_batches_completed,  # preserve if already set
     "tally_ids": {
         "flux_spectrum":     flux_tally.id,
         "heating":           heating_tally.id,
@@ -464,6 +475,7 @@ _run_meta = {
         "dpa_gas":           {str(cid): t.id for cid, t in dpa_gas_tallies.items()},
     },
 }
+
 with open(cfg.NEUTRONICS_RESULTS_DIR / "run_meta.json", "w", encoding="utf-8") as _f:
     json.dump(_run_meta, _f, indent=2)
 print(f"[neutronics_model] run_meta.json written to: {cfg.NEUTRONICS_RESULTS_DIR}")

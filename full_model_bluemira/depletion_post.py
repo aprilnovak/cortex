@@ -218,16 +218,6 @@ def display_half_life(nuclide):
 
 def _overlay_ref_total(ax: plt.Axes, chunk_key: str,
                        csv_name: str, cid: int) -> None:
-    """
-    Overlay the reference Total line for a single cell from a gold run CSV.
-
-    csv_name  : "activity_all_cells.csv" or "decayheat_all_cells.csv"
-    chunk_key : e.g. "OB_1_b6"  
-
-    CSVs live at:
-        depletion_dir / chunk_key / "activity"   / "activity_all_cells.csv"
-        depletion_dir / chunk_key / "decay_heat" / "decayheat_all_cells.csv"
-    """
     if _ref_data is None or _ref_data.get("depletion_dir") is None:
         return
     subdir = "activity" if "activity" in csv_name else "decay_heat"
@@ -245,8 +235,12 @@ def _overlay_ref_total(ax: plt.Axes, chunk_key: str,
         if mask.sum() < 2:
             return
         ax.loglog(t[mask], y[mask],
-                  color="black", ls="--", lw=1.5, alpha=0.7,
-                  label="Total (W Armor + Eurofer Structural)", zorder=0)
+                  color="0.35", ls=(0, (6, 2)), lw=1.8,
+                  alpha=0.85, zorder=2,
+                  label="Total (W Armor + Eurofer Structural)")
+        ax.plot(t[mask], y[mask],
+                marker="o", ms=4, ls="none",
+                color="0.35", alpha=0.75, zorder=3)
     except Exception as e:
         print(f"[reference] overlay failed for cell {cid} in {csv_name}: {e}")
 

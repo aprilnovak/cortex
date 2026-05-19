@@ -2277,6 +2277,7 @@ def process_layer_region1_only(
 # MAIN RUN
 # ──────────────────────────────────────────────────────────────────────────────
 with openmc.StatePoint(str(STATEPOINT_FILE)) as sp:
+    _run_meta["batches_completed"] = int(sp.n_batches)
     dpa_gas_map = build_dpa_gas_map(sp)
 
     if cfg.SIM_TYPE in ("slab", "fast_slab"):
@@ -2322,3 +2323,8 @@ with openmc.StatePoint(str(STATEPOINT_FILE)) as sp:
                 sp, layer_index, layer_tag, layer_outdir,
                 dpa_gas_map=dpa_gas_map,
             )
+
+# Write batches_completed back to run_meta.json ← ADD THESE TWO LINES
+with open(_run_meta_path, "w", encoding="utf-8") as _f:
+    json.dump(_run_meta, _f, indent=2)
+print(f"[run_meta] batches_completed={_run_meta['batches_completed']} saved → {_run_meta_path}")

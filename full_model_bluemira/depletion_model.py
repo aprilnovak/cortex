@@ -53,6 +53,14 @@ all_cells = nm.all_cells
 # Save the current tallies to restore later
 orig_tallies = list(model.tallies)
 
+_run_meta_path = cfg.NEUTRONICS_RESULTS_DIR / "run_meta.json"
+with open(_run_meta_path) as _f:
+    _run_meta = json.load(_f)
+
+_neutronics_batches = int(_run_meta.get("batches_completed") or cfg.FIXED_BATCHES)
+_neutronics_ppb     = int(_run_meta.get("particles_per_batch") or cfg.PARTICLES_PER_BATCH)
+print(f"[depletion] Matching neutronics: {_neutronics_batches} batches × {_neutronics_ppb} particles")
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Aliases from geometry
 # ──────────────────────────────────────────────────────────────────────────────
@@ -417,6 +425,10 @@ if RUN_D1S:
     model.settings.photon_transport          = True
     model.settings.use_decay_photons         = True
 
+    # Set same number of batches to neutronics_model.py
+    model.settings.trigger_active = False
+    model.settings.batches        = _neutronics_batches
+
     nuclides = d1s.prepare_tallies(model)
     factors  = d1s.time_correction_factors(nuclides, timesteps, source_rates)
 
@@ -429,7 +441,7 @@ if RUN_D1S:
 
     statepoint = model.run(
         cwd=str(D1S_DIR),
-        output=False,
+        output=True,
         threads=TRANSPORT_THREADS,
     )
 
@@ -564,7 +576,7 @@ if RUN_D1S:
 
         # ------------------------------------------------------------------
         # Plot 1B: VV port-fill time series (OPTIONAL)
-        # ------------------------------------------------------------------ 
+        # ------------------------------------------------------------------
         # TODO: SDR currently shows zero here. Checks are scheduled for the following weeks
         show_VV = False
         if show_VV:
@@ -584,41 +596,8 @@ if RUN_D1S:
             plt.close(fig)
 
         # ------------------------------------------------------------------
-        # Plot 2: OB chunk spatial profiles
+        # Per-timestep CSV: one row per cell (tokamak only — slab below)
         # ------------------------------------------------------------------
-        if not profiles:
-            raise RuntimeError(
-                f"profiles is empty: {OB_KEY} rows were never captured."
-            )
-
-        ncurves = min(10, len(profiles))
-        idxs    = np.linspace(0, len(profiles) - 1, ncurves, dtype=int)
-
-        fig, ax = plt.subplots()
-        for i in idxs:
-            t_s_i = profiles[i]["t_s"]
-            dfp   = profiles[i]["df"]
-            ax.plot(
-                dfp["centers"].to_numpy(float),
-                dfp["μSv/h"].to_numpy(float),
-                label=f"{t_s_i:.1e} s",
-            )
-        ax.set_yscale("log")
-        ax.set_ylim(1e-6, 1e12)
-        ax.set_ylabel("Shutdown Dose [μSv/h]")
-        ax.set_xlabel("Radial Position [cm]")
-        ax.set_title(f"D1S spatial profile: {OB_KEY}")
-        ax.grid(True, which="both")
-        ax.legend()
-        fig.savefig(SDR_DIR / f"sdr_profile_{OB_KEY}.png",
-                    dpi=300, bbox_inches="tight")
-        plt.close(fig)
-
-        # ------------------------------------------------------------------
-        # Save SDR (D1S) results to CSV
-        # ------------------------------------------------------------------
-        
-        # Per-timestep CSV: one row per cell
         for prof in profiles:
             t_s    = prof["t_s"]
             t_y    = t_s / y_to_s
@@ -643,6 +622,159 @@ if RUN_D1S:
                 list(dose_time_by_cell[int(vvportfill_vol_id)]),
         }).to_csv(SDR_DIR / "sdr_timeseries_plasma_vvpf.csv", index=False)
 
+    # ------------------------------------------------------------------
+    # Plot 2A: OB chunk spatial profiles (all sim types)
+    # ------------------------------------------------------------------
+    if not profiles:
+        raise RuntimeError(
+            f"profiles is empty: {OB_KEY} rows were never captured."
+        )
+
+    ncurves = min(10, len(profiles))
+    idxs    = np.linspace(0, len(profiles) - 1, ncurves, dtype=int)
+
+    fig, ax = plt.subplots()
+    for i in idxs:
+        t_s_i = profiles[i]["t_s"]
+        dfp   = profiles[i]["df"]
+        ax.plot(
+            dfp["centers"].to_numpy(float),
+            dfp["μSv/h"].to_numpy(float),
+            label=f"{t_s_i:.1e} s",
+        )
+    ax.set_yscale("log")
+    ax.set_ylim(1e-6, 1e12)
+    ax.set_ylabel("Shutdown Dose [μSv/h]")
+    ax.set_xlabel("Radial Position [cm]")
+    ax.set_title(f"D1S spatial profile: {OB_KEY}")
+    ax.grid(True, which="both")
+    ax.legend()
+    fig.savefig(SDR_DIR / f"sdr_profile_{OB_KEY}.png",
+                dpi=300, bbox_inches="tight")
+    plt.close(fig)
+
+    # ------------------------------------------------------------------
+    # Plot 2B: Per-layer SDR time series for OB chunk (all sim types)
+    # ------------------------------------------------------------------
+    _n_breeder_layers = OB_CHUNK_SIZE - 3  # Armor + FW + VV = 3 fixed
+    _layer_tags = (
+        ["Armor", "First Wall"]
+        + [f"Breeder layer {i}" for i in range(1, _n_breeder_layers + 1)]
+        + ["VV"]
+    )
+
+    # Accumulate dose timeseries per cell, in cell order
+    _dose_by_layer: dict[int, list[float]] = {int(cid): [] for cid in ob_1_b6_cells}
+    for prof in profiles:
+        dfp = prof["df"].set_index(cell_col)
+        for cid in ob_1_b6_cells:
+            cid_i = int(cid)
+            val   = dfp.at[cid_i, "μSv/h"] if cid_i in dfp.index else float("nan")
+            _dose_by_layer[cid_i].append(float(val))
+
+    t_rel_plot_layers = [p["t_s"] / SECONDS_PER_YEAR for p in profiles]
+
+    _cmap = plt.get_cmap("tab20", OB_CHUNK_SIZE)
+
+    # 2B-i: Combined overview — all layers on one axes
+    fig, ax = plt.subplots(figsize=(9, 5))
+    _format_log_axes(ax)
+    _add_time_reference_lines(ax)
+
+    for idx, (cid, tag) in enumerate(zip(ob_1_b6_cells, _layer_tags)):
+        doses = _dose_by_layer[int(cid)]
+        if any(v > 0 and not np.isnan(v) for v in doses):
+            ax.plot(
+                t_rel_plot_layers,
+                doses,
+                label=tag,
+                color=_cmap(idx),
+                linewidth=1.4,
+            )
+
+    ax.axhline(0.1,   linestyle="--", color="k", linewidth=0.9, alpha=0.7)
+    ax.axhline(10,    linestyle="--", color="k", linewidth=0.9, alpha=0.7)
+    ax.axhline(10000, linestyle="--", color="k", linewidth=0.9, alpha=0.7)
+    ax.text(t_rel_plot_layers[-1], 0.1   * 1.5, "Natural background", ha="right", fontsize=8)
+    ax.text(t_rel_plot_layers[-1], 10    * 1.5, "Hands-on limit",      ha="right", fontsize=8)
+    ax.text(t_rel_plot_layers[-1], 10000 * 1.5, "Remote recycling",    ha="right", fontsize=8)
+    ax.set_ylim(bottom=0.01)
+    ax.set_ylabel("Shutdown Dose [μSv/h]")
+    ax.set_xlabel("Cooling Time [y]")
+    ax.set_title(f"D1S SDR per OB layer — {OB_KEY}")
+    ax.legend(fontsize=7, ncol=2, loc="upper right")
+    fig.tight_layout()
+    fig.savefig(SDR_DIR / f"sdr_time_layers_{OB_KEY}.png", dpi=300, bbox_inches="tight")
+    plt.close(fig)
+
+    print(f"[info] Wrote combined per-layer SDR → {SDR_DIR / f'sdr_time_layers_{OB_KEY}.png'}")
+
+    # 2B-ii: Individual plot per layer
+    SDR_LAYERS_DIR = SDR_DIR / "layers"
+    SDR_LAYERS_DIR.mkdir(parents=True, exist_ok=True)
+
+    for idx, (cid, tag) in enumerate(zip(ob_1_b6_cells, _layer_tags)):
+        doses = _dose_by_layer[int(cid)]
+        has_positive = any(v > 0 and not np.isnan(v) for v in doses)
+
+        fig, ax = plt.subplots(figsize=(8, 4.5))
+        _format_log_axes(ax)
+        _add_time_reference_lines(ax)
+
+        if has_positive:
+            ax.plot(
+                t_rel_plot_layers,
+                doses,
+                color=_cmap(idx),
+                linewidth=1.6,
+            )
+        else:
+            ax.text(
+                0.5, 0.5, "No positive SDR values",
+                transform=ax.transAxes, ha="center", va="center",
+                fontsize=11, color="gray",
+            )
+
+        ax.axhline(0.1,   linestyle="--", color="k", linewidth=0.9, alpha=0.7)
+        ax.axhline(10,    linestyle="--", color="k", linewidth=0.9, alpha=0.7)
+        ax.axhline(10000, linestyle="--", color="k", linewidth=0.9, alpha=0.7)
+        ax.text(t_rel_plot_layers[-1], 0.1   * 1.5, "Natural background", ha="right", fontsize=8)
+        ax.text(t_rel_plot_layers[-1], 10    * 1.5, "Hands-on limit",      ha="right", fontsize=8)
+        ax.text(t_rel_plot_layers[-1], 10000 * 1.5, "Remote recycling",    ha="right", fontsize=8)
+        ax.set_ylim(bottom=0.01)
+        ax.set_ylabel("Shutdown Dose [μSv/h]")
+        ax.set_xlabel("Cooling Time [y]")
+        ax.set_title(f"D1S SDR — {tag} ({OB_KEY})")
+        fig.tight_layout()
+
+        # filename: zero-padded layer index so files sort correctly
+        _safe_tag = tag.replace(" ", "_").replace("/", "_")
+        _fname    = f"sdr_layer_{idx:02d}_{_safe_tag}_{OB_KEY}.png"
+        fig.savefig(SDR_LAYERS_DIR / _fname, dpi=300, bbox_inches="tight")
+        plt.close(fig)
+
+    print(
+        f"[info] Wrote {OB_CHUNK_SIZE} individual layer SDR plots → {SDR_LAYERS_DIR}"
+    )
+
+    # ------------------------------------------------------------------
+    # Per-timestep CSV for slab
+    # ------------------------------------------------------------------
+    if cfg.SIM_TYPE in ("slab", "fast_slab"):
+        for prof in profiles:
+            t_s    = prof["t_s"]
+            t_y    = t_s / y_to_s
+            df_out = prof["df"][[cell_col, "centers", "μSv/h", "mSv/h"]].copy()
+            df_out = df_out.rename(columns={
+                cell_col:  "cell_id",
+                "centers": "radial_center_cm",
+            })
+            df_out["t_s"] = t_s
+            df_out["t_y"] = t_y
+            df_out.to_csv(
+                SDR_CSV_DIR / f"sdr_profile_t{t_s:.4e}s.csv", index=False
+            )
+
     # Summary CSV: one row per cooling time, columns = OB_1_b6 cells
     summary_rows = []
     for prof in profiles:
@@ -660,8 +792,9 @@ if RUN_D1S:
     )
 
     print(f"[info] Wrote {len(profiles)} per-timestep SDR CSVs to {SDR_CSV_DIR}")
-    print(f"[info] Wrote plasma/vvpf time series → "
-          f"{SDR_DIR / 'sdr_timeseries_plasma_vvpf.csv'}")
+    if cfg.SIM_TYPE == "tokamak":
+        print(f"[info] Wrote plasma/vvpf time series → "
+              f"{SDR_DIR / 'sdr_timeseries_plasma_vvpf.csv'}")
     print(f"[info] Wrote OB summary → {SDR_DIR / f'sdr_summary_{OB_KEY}.csv'}")
 
     timer.stop("D1S run")
@@ -691,6 +824,10 @@ if RUN_DEPLETION:
 
     # Restore original neutronics tallies before microXS generation.
     model.tallies = orig_tallies
+
+    # Apply neutronics batch count to model settings before microXS transport
+    model.settings.trigger_active = False
+    model.settings.batches        = _neutronics_batches
 
     # -------------------------------------------------------------------------
     # Slab/fast_slab: swap to neutron-only surface source for get_microxs_and_flux
@@ -783,7 +920,7 @@ if RUN_DEPLETION:
     model.geometry.determine_paths()
 
     # -------------------------------------------------------------------------
-    # Step 3: collect unique cell/material pairs after differentiation
+    # Collect unique cell/material pairs after differentiation
     # -------------------------------------------------------------------------
     dagmc_cell_ids: list[int] = []
     deplete_cells:  list[openmc.Cell] = []
