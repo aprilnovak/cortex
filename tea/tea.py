@@ -80,8 +80,11 @@ class ManufacturingMaterial:
                     print(f"\tWarning: Component, {symbol}, not found in material cost database.")
             print(f"\tMaterial cost (Cmt): ${cost:.2f}/kg")
             cost_m = cost                                                                                  # USD/kg                                    
-            cost_v = cost*self.density / 1000 / 1000                                                       # USD/mm³---[USD / kg] [g / cm³] * [kg / 1000 g] [1 cm³ / 1000 mm³]
-            print(f"\tMaterial cost (Cmt): ${cost:.6f}/mm³")
+            # convert USD/kg to USD/mm³ using density [g/cm³]
+            # 1 mm³ = 1e-3 cm³ and 1 kg = 1000 g, so
+            # cost_v = cost_m * density [g/cm³] * (1 kg / 1000 g) * (1 cm³ / 1000 mm³)
+            cost_v = cost * self.density / 1000 / 1000                                                     # USD/mm³
+            print(f"\tMaterial cost (Cmt): ${cost_v:.6f}/mm³")
             return cost_v, cost_m
 
 
