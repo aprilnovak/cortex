@@ -265,7 +265,11 @@ def build_processes():
         "CCEM": (3.00, 24983.0664),
         "CEP":  (2.60, 99503.685),
         "CM5":  (1927.33, 2451.4918),
-        "CM2.5":(957.46, 2567.9385)
+        "CM2.5":(957.46, 2567.9385),
+        "Hot Rolling": (0.58, 3000),
+        "Cold Rolling": (0.58, 3000),
+        "HIP": (34.97, 1000),
+        "Spray Deposition": (40, 500)
     }
 
     return {name: ManufacturingProcess(name=name, alphaT=a, beta=b)
@@ -375,10 +379,72 @@ def build_materials():
             "PM": 1.1,
             "SM": 1.5,
             "SC": 1.5,
-            "SMW": 1.5    
+            "SMW": 1.5,
+            "Hot Rolling": 2,
+            "Cold Rolling": 2,
+            "HIP": 1.1,
+            "Spray Deposition": 1.1   
         }
     )
-    return {eurofer97_MM.name: eurofer97_MM}
+    print('Adding ODS material...')
+    ods = materials.ods(8.0)   # density in g/cc
+    ods.name = "ODS"
+    ods_MM = ManufacturingMaterial(
+        material = ods, 
+        price_override = None,
+        cmp_map={                          # based on generic stainless steel
+            "AM": 4,
+            "CCEM": 2,
+            "CDF": 2,
+            "CF": 2,
+            "CH": 2,     
+            "CM2.5": 1,   
+            "CM5": 1,
+            "CMC": 1.5,
+            "CNC": 4,
+            "HCEM": 2,
+            "IC": 1,
+            "MM": 4,
+            "PM": 1.1,
+            "SM": 1.5,
+            "SC": 1.5,
+            "SMW": 1.5,
+            "Hot Rolling": 2,
+            "Cold Rolling": 2,
+            "HIP": 1.1,
+            "Spray Deposition": 1.1     
+        }
+    )
+    print('Adding Tungsten material...')
+    tungsten = materials.tungsten(19.3)   # density in g/cc
+    tungsten.name = "Tungsten"
+    tungsten_MM = ManufacturingMaterial(
+        material = tungsten, 
+        price_override = None,
+        cmp_map={                          # based on generic stainless steel
+            "AM": 4,
+            "CCEM": 2,
+            "CDF": 2,
+            "CF": 2,
+            "CH": 2,     
+            "CM2.5": 1,   
+            "CM5": 1,
+            "CMC": 1.5,
+            "CNC": 4,
+            "HCEM": 2,
+            "IC": 1,
+            "MM": 4,
+            "PM": 1.1,
+            "SM": 1.5,
+            "SC": 1.5,
+            "SMW": 1.5,
+            "Hot Rolling": 2,
+            "Cold Rolling": 2,
+            "HIP": 1.1,
+            "Spray Deposition": 1.1     
+        }
+    )
+    return {eurofer97_MM.name: eurofer97_MM, ods_MM.name: ods_MM, tungsten_MM.name: tungsten_MM}
 
 ManufacturingMaterials_Database = build_materials()
 ManufacturingProcesses_Database = build_processes()
