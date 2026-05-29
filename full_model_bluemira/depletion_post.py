@@ -329,11 +329,13 @@ def load_depletion_mapping(
     map_df = pd.read_csv(str(map_csv))
     map_df["mat_id"] = map_df["mat_id"].astype(str)
 
+    vol_by_mat = results[0].volume   # keys are mat IDs as strings
+
     return DepletionMapping(
         cell_to_mat   = dict(zip(map_df["cell_id"], map_df["mat_id"])),
         cells_by_mat  = map_df.groupby("mat_id")["cell_id"].apply(list).to_dict(),
         mat_id_to_name= map_df.groupby("mat_id")["material_name"].first().to_dict(),
-        vol_by_mat    = results[0].volume,
+        vol_by_mat    = vol_by_mat,
     )
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -477,7 +479,7 @@ def update_summary_results_with_activity(
     out_csv = Path(out_csv)
     out_csv.parent.mkdir(parents=True, exist_ok=True)
     df_summary.to_csv(out_csv, index=False)
-    print(f"[saved] peak results (with activity + decay heat) → {out_csv}")
+    print(f"[completed] summary results (with activity + decay heat) → {out_csv}")
     return df_summary
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1010,6 +1012,7 @@ def run_chunk_postprocess(
             idx_shutdown=idx_shutdown, activity_units=activity_units,
             chunk_key=chunk_key,
         )
+        
         plot_activity_all_cells(ta_all, cell_id_to_name, act_dir,
                                 activity_units=activity_units,
                                 global_min_topn_edge=act_min)
@@ -1038,7 +1041,7 @@ def run_chunk_postprocess(
                               decayheat_units=decayheat_units,
                               global_min_topn_edge=dh_min, max_heat=max_h)
 
-        print(f"[DONE] {chunk_key} → {out_dir}")
+        print(f"[completed] {chunk_key} → {out_dir}")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1081,13 +1084,9 @@ if __name__ == "__main__":
 
     # For slab: restrict to cells present in the depletion results
     if cfg.SIM_TYPE in ("slab", "fast_slab"):
-        _present = set(
-            int(k) for k in load_depletion_mapping(results).cell_to_mat.keys()
-        )
-        CHUNKS = {
-            k: [c for c in v if c in _present]
-            for k, v in CHUNKS.items()
-        }
+        _map_df  = pd.read_csv(str(CELL_MATERIAL_MAP_CSV))
+        _present = set(int(x) for x in _map_df["cell_id"])
+        CHUNKS   = {k: list(_present) for k in CHUNKS}
 
     # Layer tags and centroids
     layer_tags_by_chunk:  Dict[str, Sequence[str]]   = {}
@@ -1122,6 +1121,18 @@ if __name__ == "__main__":
         decayheat_units     = "W/cm3",
         idx_to_plot         = cfg.DEPLETION_IDX_TO_PLOT,
     )
+
+
+    # Verify CSVs were actually written before proceeding — catches silent
+    # failures in run_chunk_postprocess (e.g. mat ID mismatch, empty ta_all)
+    for _key in CHUNKS:
+        _act_csv = cfg.DEPLETION_RESULTS_DIR / _key / "activity"   / "activity_all_cells.csv"
+        _dh_csv  = cfg.DEPLETION_RESULTS_DIR / _key / "decay_heat" / "decayheat_all_cells.csv"
+        if not _act_csv.is_file():
+            raise RuntimeError(f"[ERROR] activity CSV not written for {_key}: {_act_csv}")
+        if not _dh_csv.is_file():
+            raise RuntimeError(f"[ERROR] decay heat CSV not written for {_key}: {_dh_csv}")
+        print(f"[completed] {_key}: activity and decay heat CSVs verified")
 
     update_summary_results_with_activity(
         results,

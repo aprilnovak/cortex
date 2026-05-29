@@ -2327,4 +2327,4 @@ with openmc.StatePoint(str(STATEPOINT_FILE)) as sp:
 # Write batches_completed back to run_meta.json ← ADD THESE TWO LINES
 with open(_run_meta_path, "w", encoding="utf-8") as _f:
     json.dump(_run_meta, _f, indent=2)
-print(f"[run_meta] batches_completed={_run_meta['batches_completed']} saved → {_run_meta_path}")
+print(f"[updated] batches_completed={_run_meta['batches_completed']} saved → {_run_meta_path}")

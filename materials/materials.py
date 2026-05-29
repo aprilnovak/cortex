@@ -458,20 +458,6 @@ def be12ti(density):
 
   return be12ti
 
-#def kalos_cb(density):
-#  """ Return an OpenMC material for kalos_cb (Li4SiO4 + 35% mol Li2TiO3 (60% Li-6)).
-#  """
-#  # KALOS CB needs to be updated with impurites
-#  kalos_cb = openmc.Material()
-#  kalos_cb.add_nuclide('Li6', 0.2491, 'ao')
-#  kalos_cb.add_nuclide('Li7', 0.1660, 'ao')
-#  kalos_cb.add_element('Si',  0.0818, 'ao')
-#  kalos_cb.add_element('Ti',  0.0440, 'ao')
-#  kalos_cb.add_element('O',   0.4591, 'ao')
-#  kalos_cb.set_density('g/cc', density)
-#
-#  return kalos_cb
-
 def kalos_cb(density): # 
     """
     KALOS CB: Li4SiO4 + 35% mol Li2TiO3, 60% Li-6 enrichment by atom fraction.
