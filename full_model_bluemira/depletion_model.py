@@ -39,7 +39,7 @@ import geometry as geo
 # ──────────────────────────────────────────────────────────────────────────────
 # Feature toggles
 # ──────────────────────────────────────────────────────────────────────────────
-RUN_D1S       = False
+RUN_D1S       = True
 RUN_DEPLETION = True
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -66,10 +66,10 @@ print(f"[Loading] Matching neutronics: {_neutronics_batches} batches × {_neutro
 # Transport overrides for D1S and depletion microXS runs
 # ──────────────────────────────────────────────────────────────────────────────
 # Set to None to inherit from the neutronics run metadata above.
-D1S_BATCHES          = 5          # None → _neutronics_batches
-D1S_PARTICLES        = 100_000    # None → _neutronics_ppb
-DEPLETION_BATCHES    = 5          # None → _neutronics_batches
-DEPLETION_PARTICLES  = 100_000    # None → _neutronics_ppb
+D1S_BATCHES          = None          # None → _neutronics_batches
+D1S_PARTICLES        = None    # None → _neutronics_ppb
+DEPLETION_BATCHES    = None          # None → _neutronics_batches
+DEPLETION_PARTICLES  = None    # None → _neutronics_ppb
 
 _d1s_batches    = D1S_BATCHES       if D1S_BATCHES       is not None else _neutronics_batches
 _d1s_particles  = D1S_PARTICLES     if D1S_PARTICLES     is not None else _neutronics_ppb
