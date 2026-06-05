@@ -86,16 +86,16 @@ def ods(density):
       (10.1088/1741-4326/ac2523). This paper gives actual composition from a demonstration. Composition is given in weight %.
   """
   ods = openmc.Material()
-  ods.add_element('Cr', 13.5/100, 'wo')
-  ods.add_element('C', 0.0164/100, 'wo')
-  ods.add_element('Mn', 0.0917/100, 'wo')
-  ods.add_element('W', 0.99/100, 'wo')
-  ods.add_element('N', 0.0078/100, 'wo')
-  ods.add_element('O', 0.117/100, 'wo')
-  ods.add_element('Y', 0.146/100, 'wo')
-  ods.add_element('Ti', 0.16/100, 'wo')
-  ods.add_element('Ni', 0.0599/100, 'wo')
-  ods.add_element('H', 0.0057/100, 'wo')
+  ods.add_element('Cr', 13.5, 'wo')
+  ods.add_element('C', 0.0164, 'wo')
+  ods.add_element('Mn', 0.0917, 'wo')
+  ods.add_element('W', 0.99, 'wo')
+  ods.add_element('N', 0.0078, 'wo')
+  ods.add_element('O', 0.117, 'wo')
+  ods.add_element('Y', 0.146, 'wo')
+  ods.add_element('Ti', 0.16, 'wo')
+  ods.add_element('Ni', 0.0599, 'wo')
+  ods.add_element('H', 0.0057, 'wo')
 
   weight_sum = 0
   for nuclide in ods.nuclides:
@@ -196,7 +196,7 @@ def W(density):
   """
 
   tungsten = openmc.Material()
-  tungsten.add_element('W', 1.0)
+  tungsten.add_element('W', 100, 'wo')
   tungsten.set_density('g/cc', density)
   return tungsten
 
