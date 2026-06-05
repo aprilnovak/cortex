@@ -439,6 +439,9 @@ if RUN_D1S:
     )
     photon_filter = openmc.ParticleFilter("photon")
 
+    model.tallies = openmc.Tallies([])
+    print(f"[D1S] tallies after clearing: {len(model.tallies)}")
+
     dose_tally         = openmc.Tally(name="dose tally")
     dose_tally.filters = [dose_filter, photon_filter, cell_filter2]
     dose_tally.scores  = ["flux"]
@@ -446,6 +449,8 @@ if RUN_D1S:
     model.tallies                            = openmc.Tallies([dose_tally])
     model.settings.photon_transport          = True
     model.settings.use_decay_photons         = True
+
+    print(f"[D1S] tallies for D1S: {len(model.tallies)}")
 
     # Set same number of batches to neutronics_model.py
     model.settings.trigger_active = False

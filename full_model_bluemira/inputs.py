@@ -19,7 +19,7 @@ import shutil
 # =============================================================================
 # SIMULATION TYPE
 # =============================================================================
-SIM_TYPE     = "fast_slab"      # "tokamak"  |  "slab" | "fast_slab"
+SIM_TYPE     = "tokamak"      # "tokamak"  |  "slab" | "fast_slab"
 
 # =============================================================================
 # BREEDER TYPE
@@ -239,9 +239,9 @@ CHUNK_START_CM = 0.0
 # =============================================================================
 if SIM_TYPE == "tokamak":
     TALLY_CONVERGENCE_THRESHOLD = 0.1 # 10%
-    BATCHES                     = 15
+    BATCHES                     = 10
     TRIGGER_BATCH_INTERVAL      = 5
-    PARTICLES_PER_BATCH         = 1_000_000   
+    PARTICLES_PER_BATCH         = 100  
 else:
     TALLY_CONVERGENCE_THRESHOLD = 0.1 # 10%
     BATCHES                     = 5
@@ -249,7 +249,7 @@ else:
     PARTICLES_PER_BATCH         = 1_000_000 
 
 
-USE_TRIGGER            = True   # False = fixed batches, no convergence check
+USE_TRIGGER            = False   # False = fixed batches, no convergence check
 TRIGGER_MAX_BATCHES    = 2000
 
 # if USE_TRIGGER = False
@@ -281,7 +281,7 @@ else:
 # Depletion
 IRRADIATION_YEARS    = 5.0
 CONSTANT_POWER_RATIO = 0.3
-REDUCED_CHAIN_LEVEL = 3
+REDUCED_CHAIN_LEVEL = 5
 
 # =============================================================================
 # POST-PROCESSING CHUNK SELECTION
