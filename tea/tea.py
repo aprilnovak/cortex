@@ -218,24 +218,42 @@ class ManufacturingComponent:
         print(f"\tTotal manufacturing cost (Mi): ${total_cost:.2f} per component")
         print(f"\tTotal manufacturing cost (Mi): ${total_unit_cost:.2f} per kg")
         return total_unit_cost
+    
 
     def summary(self):
-        summary_data = {
-            "Component": self.name,
-            "Material": self.material.name,
-            "Material cost (Mc)": self.material_cost(),
-            "Processes": [],
-            "Total manufacturing cost (Mi)": self.manufacturing_cost()
-        }
+        Mc = self.material_cost()
+
+        process_costs = []
+        breakdown = {"Material": Mc}
+
+        total_process_cost = 0
+
         for p in self.processes:
             Pc = p.basic_processing_cost(self.N)
             Rc = self.relative_cost_coefficient(p)
-            summary_data["Processes"].append({
+            cost = Rc * Pc
+
+            process_costs.append({
                 "Process": p.name,
                 "Pc": Pc,
                 "Rc": Rc,
-                "Rc*Pc": Rc * Pc
+                "Rc*Pc": cost
             })
+
+            breakdown[p.name] = cost
+            total_process_cost += cost
+
+        total_cost = Mc + total_process_cost
+
+        summary_data = {
+            "Component": self.name,
+            "Material": self.material.name,
+            "Material cost (Mc)": Mc,
+            "Processes": process_costs,
+            "Cost Breakdown": breakdown,   
+            "Total manufacturing cost (Mi)": total_cost
+        }
+
         return summary_data
 
 
@@ -269,7 +287,8 @@ def build_processes():
         "Hot Rolling": (0.58, 3000),
         "Cold Rolling": (0.58, 3000),
         "HIP": (34.97, 1000),
-        "Spray Deposition": (40, 500)
+        "Spray Deposition": (40, 500),
+        "Electron Beam": (3.5, 3000)
     }
 
     return {name: ManufacturingProcess(name=name, alphaT=a, beta=b)
@@ -383,7 +402,8 @@ def build_materials():
             "Hot Rolling": 2,
             "Cold Rolling": 2,
             "HIP": 1.1,
-            "Spray Deposition": 1.1   
+            "Spray Deposition": 1.1,
+            "Electron Beam": 1   
         }
     )
     print('Adding ODS material...')
@@ -416,7 +436,7 @@ def build_materials():
         }
     )
     print('Adding Tungsten material...')
-    tungsten = materials.tungsten(19.3)   # density in g/cc
+    tungsten = materials.W(19.3)   # density in g/cc
     tungsten.name = "Tungsten"
     tungsten_MM = ManufacturingMaterial(
         material = tungsten, 
@@ -438,8 +458,8 @@ def build_materials():
             "SM": 1.5,
             "SC": 1.5,
             "SMW": 1.5,
-            "Hot Rolling": 2,
-            "Cold Rolling": 2,
+            "Hot Rolling": 4,
+            "Cold Rolling": 4,
             "HIP": 1.1,
             "Spray Deposition": 1.1     
         }
