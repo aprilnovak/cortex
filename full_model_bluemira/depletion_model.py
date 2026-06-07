@@ -1012,11 +1012,6 @@ if RUN_DEPLETION:
     _orig_mat_id_to_cell: dict[int, int]     = {}
 
     if cfg.SIM_TYPE == "tokamak":
-        # differentiate_mats appends "_<cell_id>" to material names.
-        # Map new mat IDs back to original cell IDs.
-        _name_to_new_id = {
-            mat.name: int(mat.id) for mat in deplete_mats if mat.name
-        }
         for _cid in target_ids:
             _cell = _source_cells.get(int(_cid))
             if _cell is None:
@@ -1024,15 +1019,7 @@ if RUN_DEPLETION:
             _mat = _cell.fill
             if not isinstance(_mat, openmc.Material) or not _mat.depletable:
                 continue
-            _expected = f"{_mat.name}_{_cid}"
-            _new_id   = _name_to_new_id.get(_expected) or next(
-                (int(m.id) for m in deplete_mats
-                 if m.name and m.name.endswith(f"_{_cid}")), None
-            )
-            if _new_id is None:
-                print(f"[warn] no differentiated mat for cell {_cid} ({_mat.name})")
-                continue
-            _orig_mat_id_to_cell[_new_id] = int(_cid)
+            _orig_mat_id_to_cell[int(_mat.id)] = int(_cid)
             dagmc_cell_ids.append(int(_cid))
             deplete_cells.append(_cell)
     else:
@@ -1124,6 +1111,14 @@ if RUN_DEPLETION:
         suffix = f"_{cid}"
         return name[:-len(suffix)] if name and name.endswith(suffix) else name
 
+    _cell_to_chunk: dict[int, str] = {}
+    for _key, _cids in ob_by_key.items():
+        for _cid in _cids:
+            _cell_to_chunk[int(_cid)] = _key
+    for _key, _cids in ib_by_key.items():
+        for _cid in _cids:
+            _cell_to_chunk[int(_cid)] = _key
+
     pd.DataFrame([
         {
             "cell_id":       _orig_mat_id_to_cell.get(int(mat.id), -1),
@@ -1132,10 +1127,13 @@ if RUN_DEPLETION:
                 mat.name or f"material_{mat.id}",
                 _orig_mat_id_to_cell.get(int(mat.id), -1),
             ),
-            "volume_cm3": float(mat.volume) if mat.volume is not None else np.nan,
+            "chunk_key":     _cell_to_chunk.get(
+                _orig_mat_id_to_cell.get(int(mat.id), -1), ""
+            ),
+            "volume_cm3":    float(mat.volume) if mat.volume is not None else np.nan,
         }
         for mat in deplete_mats
-    ]).to_csv(R2S_ACTIVATION_DIR / "cell_material_map.csv", index=False)
+    ]).sort_values("cell_id").to_csv(R2S_ACTIVATION_DIR / "cell_material_map.csv", index=False)
 
     print(f"[depletion] Written cell_material_map.csv to {R2S_ACTIVATION_DIR}")
 
