@@ -20,8 +20,8 @@ class MaterialCost:
         return f"{self.name} ({self.element}): ${self.cost}/kg"
 
 material_cost_database = {
-    "B" : MaterialCost(name="Boron", element="B", cost=550),
-    "Cr" : MaterialCost(name="Chromium", element="Cr", cost=12.0),
+    'B' : MaterialCost(name='Boron', element='B', cost=550),
+    'Cr' : MaterialCost(name="Chromium", element="Cr", cost=12.0),
     "Fe" : MaterialCost(name="Iron", element="Fe", cost=1.2),
     "Mn" : MaterialCost(name="Manganese", element="Mn", cost=2.2),
     "Ni" : MaterialCost(name="Nickel", element="Ni", cost=22.0),
@@ -30,4 +30,14 @@ material_cost_database = {
     "V" : MaterialCost(name="Vanadium", element="V", cost=20.0),
     "W" : MaterialCost(name="Tungsten", element="W", cost=40.0),
     "Y" : MaterialCost(name="Yttrium", element="Y", cost=33.0)    
+}
+
+# The map below was based on generic stainless steel
+Cmp_map_1 ={                    
+    'CNC': 4,
+    'Hot Rolling': 2,
+    'Cold Rolling': 2,
+    'HIP': 1.1,
+    'Spray Deposition': 1.1,
+    'Electron Beam': 1
 }
