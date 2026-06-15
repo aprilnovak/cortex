@@ -14,32 +14,39 @@ import math
 import re
 import json
 from pathlib import Path
+import os
+import sys
 
 import openmc
 import numpy as np
-from openmc_plasma_source import tokamak_source
 import pydagmc
 
-import os
-import sys
-module_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "materials"))
-sys.path.append(module_path)
-import materials
+# -----------------------------------------------------------------------------
+# Inputs / paths
+# -----------------------------------------------------------------------------
+BASE_DIR = Path.cwd()
 
-# -----------------------------------------------------------------------------
-# Inputs
-# -----------------------------------------------------------------------------
-_DAGMC_MODEL_FILE = "eudemo_f_1_27a.h5m"
-INPUT_JSON = Path("Tokamak_inputs.json")
+_DAGMC_MODEL_FILE = (BASE_DIR / "eudemo_f_1_27a.h5m")
+INPUT_JSON = (BASE_DIR / "Tokamak_inputs.json")
+
+RUN_DIR = (BASE_DIR / "neutronics_run")
+RUN_DIR.mkdir(parents=True, exist_ok=True)
+
+NEUTRONICS_MODEL_XML = RUN_DIR / "model.xml"
+SURFACE_SOURCE_FILE = RUN_DIR / "surface_source.h5"
 
 model = openmc.Model()
+
+# Load materials compositions
+module_path = (BASE_DIR.parent / "materials")
+sys.path.append(str(module_path))
+import materials
 
 # -----------------------------------------------------------------------------
 # GEOMETRY
 # -----------------------------------------------------------------------------
-dagmc_universe = openmc.DAGMCUniverse(filename=_DAGMC_MODEL_FILE)
-
-pydagmc_model = pydagmc.Model(str(dagmc_universe.filename))
+dagmc_universe = openmc.DAGMCUniverse(filename=str(_DAGMC_MODEL_FILE))
+pydagmc_model = pydagmc.Model(str(_DAGMC_MODEL_FILE))
 
 # reserve IDs
 openmc.reserve_ids([v.id for v in pydagmc_model.volumes], cls=openmc.Cell)
@@ -85,10 +92,6 @@ model.geometry = openmc.Geometry(root=[sector_cell])
 # TODO: need to review materials.py for correctness for all materials
 ss316   = materials.ss316Ln_ig(7.93)
 ccz     = materials.CuCrZr(8.9)
-
-# tungsten, density based on PNNL material compendium value
-w       = materials.W(19.3)
-
 h       = materials.Helium(0.0001785)
 nb3sn   = materials.Nb3Sn(5.7)
 epoxy   = materials.Epoxy(1.207)
@@ -96,6 +99,9 @@ bronze  = materials.Bronze(8.8775)
 nbti    = materials.NbTi(6.538)
 c       = materials.Cu(8.96)
 ss304_b4 = materials.ss304_b4(7.8)
+
+# tungsten, density based on PNNL material compendium value
+w       = materials.W(19.3)
 
 # Plasma Region
 plasma = openmc.Material()
@@ -245,52 +251,69 @@ mixed = build_and_set_model_materials_from_obj_recipes_vo(
 # -----------------------------------------------------------------------------
 # SOURCE (openmc-plasma-source)
 # -----------------------------------------------------------------------------
-my_source = tokamak_source(
-    angles=(0.0, math.pi/8),
-    elongation=1.739,
-    ion_density_centre=6.8e19,
-    ion_density_pedestal=5.78e19,
-    ion_density_peaking_factor=1,
-    ion_density_separatrix=1.02e19,
-    ion_temperature_centre=23.7e3,
-    ion_temperature_pedestal=5.5e3,
-    ion_temperature_separatrix=0.1e3,
-    ion_temperature_peaking_factor=8.06,
-    ion_temperature_beta=6,
-    major_radius=840.67,
-    minor_radius=300.2,
-    pedestal_radius=0.94 * 300.2,
-    mode="H",
-    shafranov_factor=0.44789,
-    triangularity=0.333,
-    fuel={"D": 0.5, "T": 0.5},
+from tokamak_neutron_source import (
+FluxMap,
+FractionalFuelComposition,
+TokamakNeutronSource,
+TransportInformation,
+)
+from tokamak_neutron_source.profile import ParabolicPedestalProfile
+from tokamak_neutron_source.reactions import Reactions
+
+# I took all these hard-coded numbers from your OUT.DAT
+# I haven't written this as a script, because this is an old PROCESS version, and
+# it's a huge pain with their variable name changes...
+temperature_profile = ParabolicPedestalProfile(2.37754249767383570e+01, 5.5, 0.1, 2.0, 1.45, 0.94) # [keV]
+density_profile = ParabolicPedestalProfile(9.83393828196113777e+19, 5.86476334188244419e+19, 3.44986078934261350e+19, 1.0, 2.0, 0.94)
+density_profile.set_scale(6.30197378312059699e+19/7.47634856031986811e+19)
+rho_profile = np.linspace(0, 1, 30)
+
+my_source = TokamakNeutronSource(
+transport=TransportInformation.from_parameterisations(
+ion_temperature_profile=temperature_profile,
+fuel_density_profile=density_profile,
+rho_profile=rho_profile,
+fuel_composition=FractionalFuelComposition(D=0.5, T=0.5),
+),
+source_type=[Reactions.D_T, Reactions.D_D],
+flux_map=FluxMap.from_eqdsk("../equilibrium_eqdsk.json"),
+cell_side_length=0.05,
 )
 
 # -----------------------------------------------------------------------------
 # SETTINGS
 # -----------------------------------------------------------------------------
 
-
 model.settings = openmc.Settings()
-model.settings.dagmc = True
 model.settings.photon_transport = True
-model.settings.batches = 10
-model.settings.particles = 100_000
 model.settings.run_mode = "fixed source"
-model.settings.source = my_source
+model.settings.source = my_source.to_openmc_source()
+
+# Set TALLY_CONVERGENCE_THRESHOLD to 0.01 (1%) or 0.001 (0.1%)
+TALLY_CONVERGENCE_THRESHOLD = 0.01
+
+# Choose initial batches * particles per batch > 15-20 * max_particles
+#model.settings.batches = 15           
+model.settings.trigger_active = True
+model.settings.trigger_batch_interval = 10   # check triggers every N batches
+model.settings.particles = 1_000_000
+model.settings.trigger_max_batches = 2000     # hard ceiling
 
 # output particle track, selected at random
-import random
-model.settings.track = [(1, 1, random.randint(1, model.settings.particles))]
+#import random
+#model.settings.track = [(1, 1, random.randint(1, model.settings.particles))]
 
-# TODO: change 245 and 56 to not be hard-coded
-# (TOMAS REPLY):planning to perform most of the geometry pre/post-processing in an initial .py file.
-# With that we could figure it out the cell and surface_id for this source without adding repetitive functions.
-model.settings.surf_source_write = {
-    'surface_ids': [245],
-    'max_particles': 50_000,
-    'cellto': 56
+_WRITE_SOURCE = False
+if _WRITE_SOURCE:
+    model.settings.batches = 15    
+    model.settings.surf_source_write = {
+        "surface_ids": [287],
+        "max_particles": 1_000_000,
+        "cellto": 66,
     }
+     ##Armor is 66 and VV cell is 78
+else:
+    model.settings.batches = 10   
 # -----------------------------------------------------------------------------
 # DAGMC volume sync so cells have volumes
 # -----------------------------------------------------------------------------
@@ -379,7 +402,7 @@ for volume in pydagmc_model.volumes:
     dagmc_universe_cells[volume.id].volume = volume.volume
     dagmc_universe_cells[volume.id].bounding_box = dagmc_bounding_box(pydagmc_model, volume.id)
 
-all_cells = model.geometry.get_all_cells()  
+all_cells = model.geometry.get_all_cells()
 # -----------------------------------------------------------------------------
 # IMPORT JSON GEOMETRY INFO (cell IDs)
 # Also provide functions to create centroids and bin wedges
@@ -538,14 +561,14 @@ def make_radial_bins_for_key(
 def build_breeder_chunks(
     INPUT_JSON: Path,
     *,
-    default_equatorial_ob_key: str = "OB_1_b6",
+    default_chunk_key: str = "OB_1_b6",
     gap_cm: float = 2.0,
     start_cm: float = 0.0,
-    ) -> dict:
+) -> dict:
     with INPUT_JSON.open("r", encoding="utf-8") as f:
         data = json.load(f)
 
-    inv  = data["inventory"]
+    inv = data["inventory"]
     geom = data["geometry"]
 
     BLANKET_N   = int(inv["BLANKET_FINAL"])
@@ -586,7 +609,31 @@ def build_breeder_chunks(
 
     ALL_KEYS = list(ob_by_key.keys()) + list(ib_by_key.keys())
 
-    equatorial_ob_cell_ids = ob_by_key.get(default_equatorial_ob_key, [])
+    if default_chunk_key in ob_by_key:
+        selected_chunk_cell_ids = ob_by_key[default_chunk_key]
+    elif default_chunk_key in ib_by_key:
+        selected_chunk_cell_ids = ib_by_key[default_chunk_key]
+    else:
+        raise KeyError(
+            f"default_chunk_key={default_chunk_key!r} not found. "
+            f"Valid keys include: {ALL_KEYS[:10]}{' ...' if len(ALL_KEYS) > 10 else ''}"
+        )
+
+    # -------------------------
+    # Armor cell ids (ALL)
+    # -------------------------
+    ob_armor_idx = ob_n_layers
+    ib_armor_idx = ib_n_layers
+
+    armor_cell_ids = []
+
+    for chunk in ob_by_key.values():
+        if len(chunk) > ob_armor_idx:
+            armor_cell_ids.append(int(chunk[ob_armor_idx]))
+
+    for chunk in ib_by_key.values():
+        if len(chunk) > ib_armor_idx:
+            armor_cell_ids.append(int(chunk[ib_armor_idx]))
 
     # convenience callables
     def cell_ids_for_key(key: str) -> List[int]:
@@ -602,22 +649,24 @@ def build_breeder_chunks(
         "cell_ids_all": cell_ids_all,
         "ob_by_key": ob_by_key,
         "ib_by_key": ib_by_key,
+        "armor_cell_ids": armor_cell_ids,
         "ALL_KEYS": ALL_KEYS,
         "OB_CHUNK_SIZE": OB_CHUNK_SIZE,
         "IB_CHUNK_SIZE": IB_CHUNK_SIZE,
-        "equatorial_ob_key": default_equatorial_ob_key,
-        "equatorial_ob_cell_ids": equatorial_ob_cell_ids,
+        "selected_chunk_key": default_chunk_key,
+        "selected_chunk_cell_ids": selected_chunk_cell_ids,
         "cell_ids_for_key": cell_ids_for_key,
         "radial_bins_for_key": radial_bins_for_key,
     }
 
-chunk_cells = build_breeder_chunks(INPUT_JSON, default_equatorial_ob_key="OB_1_b6")
+chunk_cells = build_breeder_chunks(INPUT_JSON, default_chunk_key="OB_1_b6")
 
 cell_ids = chunk_cells["cell_ids_all"]
-cell_ids_equatorial_ob = chunk_cells["equatorial_ob_cell_ids"]
+cell_ids_selected_chunk = chunk_cells["selected_chunk_cell_ids"]
+armor_cell_ids = chunk_cells["armor_cell_ids"]
 
 info, all_surface_ids, external_surface_ids, internal_surface_ids = dagmc_volume_surface_info(
-    pydagmc_model, cell_ids_equatorial_ob
+    pydagmc_model, cell_ids_selected_chunk
 )
 
 # -----------------------------------------------------------------------------
@@ -636,6 +685,7 @@ s_in_y = (365 * 24 * 60 * 60)
 
 # Filters
 cell_filter = openmc.CellFilter(cell_ids)
+chunk_cell_filter = openmc.CellFilter(cell_ids_selected_chunk) # If only using OB_1_b6 to check trigger
 particle_filter = openmc.ParticleFilter(bins=["neutron", "photon"])
 t_surf_filter = openmc.SurfaceFilter(external_surface_ids)
 n_particle_filter = openmc.ParticleFilter(bins=["neutron"])
@@ -650,23 +700,25 @@ flux_tally.filters = [cell_filter, particle_filter, energy_filter]
 flux_tally.scores = ["flux"]
 model.tallies.append(flux_tally)
 
-# TODO: this does not need to be its own tally, you have all the information in flux_tally already
-# (REPLY): You are correct! (I will remove this soon)
+# Adding total flux_total_tally (in OB_1_b6) for trigger only
 flux_tally_total = openmc.Tally()
-flux_tally_total.filters = [cell_filter, particle_filter]
+flux_tally_total.filters = [chunk_cell_filter, n_particle_filter]
 flux_tally_total.scores = ["flux"]
+flux_tally_total.triggers = [
+    openmc.Trigger(trigger_type="rel_err", threshold=TALLY_CONVERGENCE_THRESHOLD)
+]
 model.tallies.append(flux_tally_total)
 
 # TODO: why is this only looking at the neutrons? I guess we are only computing the albedos for the neutrons?
 # (REPLY) I have been checked neutrons only. But I agree this should have been more in depth explored with photons.
 # I will introduce Photons analysis after 2/26/2026.
 t_current_tally = openmc.Tally()
-t_current_tally.filters = [t_surf_filter, n_particle_filter]
+t_current_tally.filters = [t_surf_filter, particle_filter]
 t_current_tally.scores = ["current"]
 model.tallies.append(t_current_tally)
 
 p_current_tallies: dict[int, openmc.Tally] = {}
-for cid in cell_ids_equatorial_ob:
+for cid in cell_ids_selected_chunk:
     ocell = dagmc_universe_cells[cid]
     surf_ids_for_cell = [int(s["surface_id"]) for s in info.get(cid, {}).get("all_surfaces", [])]
     if not surf_ids_for_cell:
@@ -676,7 +728,7 @@ for cid in cell_ids_equatorial_ob:
     surf_filter = openmc.SurfaceFilter(surf_ids_for_cell)
 
     p_current_tally = openmc.Tally()
-    p_current_tally.filters = [cell_from_filter, surf_filter, n_particle_filter]
+    p_current_tally.filters = [cell_from_filter, surf_filter, particle_filter]
     p_current_tally.scores = ["current"]
 
     model.tallies.append(p_current_tally)
@@ -814,7 +866,6 @@ def build_structural_maps_vo(
         cell_struct_origin_frac,
     )
 
-
 structural_nuclides, cell_nuclide_atoms, cell_struct_nuclide_atoms, cell_total_atoms_struct, cell_struct_origin_frac = (
     build_structural_maps_vo(
         model,
@@ -857,9 +908,26 @@ for cid in cell_ids:
     dpa_gas_tallies[cid] = tg
 
 # -----------------------------------------------------------------------------
+# VV port fill - total neutron + photon flux 
+# -----------------------------------------------------------------------------
+test_VV_port_fill = False
+if test_VV_port_fill:
+    vvportfill_cell_id = max(dagmc_universe_cells.keys())-1
+    print("vv_port_fill_cell_id = ",vvportfill_cell_id)
+    vvportfill_cell = dagmc_universe_cells[vvportfill_cell_id]
+
+    # Guard against silent mis-assignment if volume ordering ever changes
+    vv_port_fill_cell_filter = openmc.CellFilter(vvportfill_cell_id)
+
+    flux_tally_VV_port_fill = openmc.Tally(name="flux_tally_VV_port_fill")
+    flux_tally_VV_port_fill.filters = [vv_port_fill_cell_filter, particle_filter]
+    flux_tally_VV_port_fill.scores = ["flux"]
+    model.tallies.append(flux_tally_VV_port_fill)
+
+# -----------------------------------------------------------------------------
 # Export
 # -----------------------------------------------------------------------------
-model.export_to_model_xml(path="neutronics_model.xml")
+model.export_to_model_xml(path=NEUTRONICS_MODEL_XML)
 
 # TODO: is this necessary? How would these come to exist? Suggest to remove if not needed
 # remove redundant defaults
@@ -872,22 +940,24 @@ for f in redundant_files:
 # Check if any of the source sites overlap with the material regions; this can be commented
 # out to make the model run faster but is helpful to make sure the plasma source is
 # behaving as we expect
-openmc.lib.init(output=False, args=["neutronics_model.xml"])
-n_samples = 100000
-particles = openmc.lib.sample_external_source(n_samples=n_samples)
+_CHECK_SOURCE = True
+if _CHECK_SOURCE:
+    openmc.lib.init(output=False, args=[str(NEUTRONICS_MODEL_XML)])
+    n_samples = 100000
+    particles = openmc.lib.sample_external_source(n_samples=n_samples)
 
-in_cells = {}
-for p in particles:
-  c = openmc.lib.find_cell([p.r[0], p.r[1], p.r[2]])
-  i = c[0].id
-  if (i not in in_cells):
-    in_cells[i] = 1
-  else:
-    in_cells[i] += 1
+    in_cells = {}
+    for p in particles:
+        c = openmc.lib.find_cell([p.r[0], p.r[1], p.r[2]])
+        i = c[0].id
+        if (i not in in_cells):
+            in_cells[i] = 1
+        else:
+            in_cells[i] += 1
 
-print('\nPercent of source sites in each cell: ')
-for k, v in in_cells.items():
-  print("Cell : ", k, " % Sites: ", v/n_samples * 100)
-openmc.lib.finalize()
+    print('\nPercent of source sites in each cell: ')
+    for k, v in in_cells.items():
+        print("Cell : ", k, " % Sites: ", v/n_samples * 100)
+    openmc.lib.finalize()
 
-# end check on source site overlaps
+    # end check on source site overlaps

@@ -14,9 +14,27 @@ from collections import OrderedDict
 
 import sys
 import os
-module_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "materials"))
-sys.path.append(module_path)
-import materials 
+
+BASE_DIR = Path.cwd()
+
+NEUTRONICS_RUN_DIR = (BASE_DIR / "neutronics_run")
+DEPLETION_RUN_DIR = (BASE_DIR / "depletion_run")
+DEPLETION_RUN_DIR.mkdir(parents=True, exist_ok=True)
+
+D1S_DIR = DEPLETION_RUN_DIR / "d1s"
+D1S_DIR.mkdir(parents=True, exist_ok=True)
+
+R2S_DIR = DEPLETION_RUN_DIR / "r2s"
+R2S_ACTIVATION_DIR = R2S_DIR / "activation"
+R2S_ACTIVATION_DIR.mkdir(parents=True, exist_ok=True)
+
+module_path = BASE_DIR.parent / "materials"
+sys.path.append(str(module_path))
+import materials
+
+# Number of worker processes for transport and depletion.
+TRANSPORT_THREADS  = None #16   # OpenMP threads for each transport (neutronics) run
+DEPLETION_PROCESSES = None  #16   # Python multiprocessing workers for Bateman solver
 
 # --------------------
 # TIME CLASS
@@ -72,16 +90,14 @@ from neutronics_model import (
 # -----------------------------------------------------------------------------
 # USER INPUTS
 # -----------------------------------------------------------------------------
-# Create SDR directory
-sdr_dir = Path("sdr")
+# Create SDR directory inside depletion_run
+sdr_dir = D1S_DIR / "sdr"
 sdr_dir.mkdir(parents=True, exist_ok=True)
 
-# load geometry json input
-path_file = Path(__file__).resolve().parent
-INPUT_JSON = (path_file / "Tokamak_inputs.json").resolve()  
+# load geometry json input from parent folder
+INPUT_JSON = (BASE_DIR / "Tokamak_inputs.json")
 OB_KEY = "OB_1_b6"
-
-chunk_cells = build_breeder_chunks(INPUT_JSON, default_equatorial_ob_key=OB_KEY)
+chunk_cells = build_breeder_chunks(INPUT_JSON, default_chunk_key=OB_KEY)
 
 ob_by_key = chunk_cells["ob_by_key"]
 ib_by_key = chunk_cells["ib_by_key"]
@@ -89,32 +105,16 @@ OB_CHUNK_SIZE = chunk_cells["OB_CHUNK_SIZE"]
 IB_CHUNK_SIZE = chunk_cells["IB_CHUNK_SIZE"]
 
 cell_ids = chunk_cells["cell_ids_all"]
-cell_ids_equatorial_ob = chunk_cells["equatorial_ob_cell_ids"]
+cell_ids_selected_chunk = chunk_cells["selected_chunk_cell_ids"]
 
 # TODO: why not have the D1S part be in the neutronics_model.py? I think it could be?
 # Let's check with Patrick
 timer.stop("Build neutronics model")
 
-
-# ------------------------------------------------------------------
-# Resolve chain file (ENDF/B-VIII.0)
-# ------------------------------------------------------------------
-timer.start("Build D1S model")
-
-chain_path = (Path(__file__).resolve().parent.parent / "depletion_chain" / "chain_endfb80_sfr.xml").resolve()
-if not chain_path.exists():
-    raise FileNotFoundError(f"Chain file not found: {chain_path}")
-
-# Parse once (sanity check)
-chain = openmc.deplete.Chain.from_xml(str(chain_path))
-
-# Register for both Python-side and the OpenMC executable
-openmc.config["chain_file"] = str(chain_path)
-model.settings.depletion = {"chain_file": str(chain_path)}
-
 # ------------------------------------------------------------------
 # Time grids / source rates
 # ------------------------------------------------------------------
+timer.start("Build D1S model")
 s_to_h = 3600
 y_to_s = 24 * 365 * s_to_h
 to_μSv = 1e-6
@@ -141,9 +141,7 @@ source_rates = [constant_power_ratio * neutron_source_rate] * len(irradiation_ti
 # ------------------------------------------------------------------
 vol_by_cell = {cid: cell.volume for cid, cell in all_cells.items()}
 
-# TO BE UPDATED:
-xcentroids_ob = (0.1, 1.1, 6.0, 15.0, 25.0, 35.0, 45.0, 55.0, 65.0, 84.4, 156.0)
-xcentroids_ib = (0.1, 1.1, 6.0, 15.0, 25.0, 35.0, 45.0, 55.0, 65.0, 73.8, 108.0)
+
 # ------------------------------------------------------------------
 # Identify plasma and vv port-fill cells (last two cells)
 # ------------------------------------------------------------------
@@ -163,18 +161,20 @@ if OB_KEY not in ob_by_key:
     raise KeyError(f"{OB_KEY} not found in ob_by_key. Available (sample): {list(ob_by_key)[:10]}")
 
 ob_1_b6_cells = ob_by_key[OB_KEY]
+# TO BE UPDATED:
+#xcentroids_ob = (0.1, 1.1, 6.0, 15.0, 25.0, 35.0, 45.0, 55.0, 65.0, 84.4, 156.0)
+#xcentroids_ib = (0.1, 1.1, 6.0, 15.0, 25.0, 35.0, 45.0, 55.0, 65.0, 73.8, 108.0)
+
+radial_bins_for_key = chunk_cells["radial_bins_for_key"]
+xcentroids_ob, _, _ = radial_bins_for_key(OB_KEY)
+
+# xcentroids_ib available if needed:
+# xcentroids_ib, _, _ = radial_bins_for_key("IB_1_b4")
 
 # xcentroids_ob is per-layer for one OB chunk: [Armor, FW, OB1..OBn, VV]
-if len(xcentroids_ob) != OB_CHUNK_SIZE:
-    raise ValueError(
-        f"len(xcentroids_ob)={len(xcentroids_ob)} but OB_CHUNK_SIZE={OB_CHUNK_SIZE}. "
-        "xcentroids_ob must have one entry per item in the OB chunk "
-        "(Armor, FW, OB layers..., VV)."
-    )
 if len(ob_1_b6_cells) != OB_CHUNK_SIZE:
     raise ValueError(
-        f"len(ob_1_b6_cells)={len(ob_1_b6_cells)} but OB_CHUNK_SIZE={OB_CHUNK_SIZE}. "
-        "OB_1_b6 chunk size mismatch."
+        f"len(ob_1_b6_cells)={len(ob_1_b6_cells)} but OB_CHUNK_SIZE={OB_CHUNK_SIZE}."
     )
 
 # Map OB_1_b6 cell_id -> radial center [cm]
@@ -227,7 +227,7 @@ print("Performing D1S run")
 print("---------------------------")
 timer.start("D1S run")
 
-statepoint = model.run(output=False)
+statepoint = model.run(cwd=str(D1S_DIR), output=False, threads=TRANSPORT_THREADS)
 
 with openmc.StatePoint(statepoint) as sp:
     tally = sp.get_tally(name="dose tally")
@@ -430,6 +430,10 @@ print("Performing depletion")
 print("--------------------------------")
 timer.start("Set up depletion model")
 
+# Control depletion multiprocessing
+openmc.deplete.pool.NUM_PROCESSES = DEPLETION_PROCESSES
+
+
 # Make sure the model's materials list matches the geometry
 model.materials = openmc.Materials(list(model.geometry.get_all_materials().values()))
 model.geometry.determine_paths()
@@ -475,9 +479,14 @@ mat_id_to_name = {str(mat.id): (mat.name or f"material_{mat.id}") for mat in dep
 
 # ---- Build + use reduced chain everywhere below ----
 initial_nuclides = model.geometry.get_all_nuclides()
-reduced_chain = chain.reduce(initial_nuclides, level=5)
 
-bluemira_chain = Path("bluemira_chain.xml").resolve()
+chain = openmc.deplete.Chain.from_xml(openmc.config["chain_file"])
+print(f"[chain] Loaded {len(chain.nuclides)} nuclides from: {openmc.config['chain_file']}")
+
+reduced_chain = chain.reduce(initial_nuclides, level=5)
+print(f"[chain] Reduced to {len(reduced_chain.nuclides)} nuclides")
+
+bluemira_chain = (DEPLETION_RUN_DIR / "bluemira_chain.xml")
 reduced_chain.export_to_xml(str(bluemira_chain))
 print(f"[info] Wrote reduced chain: {bluemira_chain}")
 
@@ -488,7 +497,7 @@ fluxes, micros = openmc.deplete.get_microxs_and_flux(
     model,
     deplete_mats,
     chain_file=str(bluemira_chain),
-    run_kwargs={"output": False},
+    run_kwargs={"cwd": str(DEPLETION_RUN_DIR), "output": False, "threads": TRANSPORT_THREADS},
 )
 
 operator = openmc.deplete.IndependentOperator(
@@ -498,7 +507,7 @@ operator = openmc.deplete.IndependentOperator(
     chain_file=str(bluemira_chain),
     normalization_mode="source-rate",
 )
-operator.output_dir = "r2s/activation"
+operator.output_dir = str(R2S_ACTIVATION_DIR)
 
 integrator = openmc.deplete.PredictorIntegrator(
     operator,
@@ -508,11 +517,12 @@ integrator = openmc.deplete.PredictorIntegrator(
 timer.stop("Set up depletion model")
 
 timer.start("Depletion run")
+
 integrator.integrate()
 
 # Post-processing: Results
 # ------------------------------------------------------------------
-results = openmc.deplete.Results("r2s/activation/depletion_results.h5")
+results = openmc.deplete.Results(str(R2S_ACTIVATION_DIR / "depletion_results.h5"))
 
 # -----------------------------------------------------------------
 # EXPORT CELL-MAT MAPPING FOR POST PROCESSING
@@ -523,8 +533,9 @@ for cid, mat in zip(dagmc_cell_ids, deplete_mats):
     rows.append({"cell_id": cid, "mat_id": int(mat.id), "material_name": mat.name})
 
 df_map = pd.DataFrame(rows)
-df_map.to_csv("r2s/activation/cell_material_map.csv", index=False)
-print("Written r2s/activation/cell_material_map.csv")
+cell_map_csv = R2S_ACTIVATION_DIR / "cell_material_map.csv"
+df_map.to_csv(cell_map_csv, index=False)
+print(f"Written {cell_map_csv}")
 timer.stop("Depletion run")
 timer.summary()
 # -----------------------------------------------------------------

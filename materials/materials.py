@@ -152,6 +152,7 @@ def inconel718(density):
     weight_sum += nuclide.percent
 
   inconel718.add_element('Fe', 1 - weight_sum, 'wo')
+  print('Adding Inconel material...')
   print('\tIron (weight %):    ', (1 - weight_sum) * 100)
   inconel718.set_density('g/cc', density)
   return inconel718
@@ -196,6 +197,7 @@ def V4Cr4Ti(density):
     weight_sum += nuclide.percent
 
   V4Cr4Ti.add_element('V', 1 - weight_sum, 'wo')
+  print('Adding Vanadium material...')
   print('\tVanadium (weight %):    ', (1 - weight_sum) * 100)
 
   V4Cr4Ti.set_density('g/cc', density)
@@ -304,6 +306,7 @@ def eurofer97(density):
   for nuclide in eurofer97.nuclides:
     alloy_weight_sum += nuclide.percent
 
+  print('Adding Eurofer97 material...')
   print('\tAlloying elements (weight %): ', alloy_weight_sum)
 
   # impurities
@@ -577,20 +580,41 @@ def be12ti(density):
 
   return be12ti
 
-def kalos_cb(density):
-  """ Return an OpenMC material for kalos_cb (Li4SiO4 + 35% mol Li2TiO3 (60% Li-6)).
-  """
-  # KALOS CB needs to be updated with impurites
-  kalos_cb = openmc.Material()
-  kalos_cb.add_nuclide('Li6', 0.2491, 'ao')
-  kalos_cb.add_nuclide('Li7', 0.1660, 'ao')
-  kalos_cb.add_element('Si',  0.0818, 'ao')
-  kalos_cb.add_element('Ti',  0.0440, 'ao')
-  kalos_cb.add_element('O',   0.4591, 'ao')
-  kalos_cb.set_density('g/cc', density)
+def kalos_cb(density): # 
+    """
+    KALOS CB: Li4SiO4 + 35% mol Li2TiO3, 60% Li-6 enrichment by atom fraction.
+    Composition from Table 1 (Li4SiO4 + Li2TiO3 column, wt%).
+    Normalised to sum to 1.0.
+    https://doi.org/10.1016/j.fusengdes.2021.112338
+    """
+    # Li-6 enrichment: 60 ao% -> weight fractions within Li
+    _li6_m  = 6.01512
+    _li7_m  = 7.01601
+    _li6_wo = (0.60 * _li6_m) / (0.60 * _li6_m + 0.40 * _li7_m)
+    _li7_wo = 1.0 - _li6_wo
 
-  return kalos_cb
-  
+    # Raw wt% from Table 1 - Not sure why but it seems that it doesnt match 100% exactly (so normalize)
+    raw = {
+        'Li': 18.2438, 'Si': 15.4935, 'O': 50.7504, 'Ti': 15.4201,
+        'Al': 0.00101, 'Au': 0.00117, 'Ba': 0.0026,  'C':  0.07482,
+        'Ca': 0.00522, 'Co': 8e-6,    'Cr': 0.00031, 'Cu': 0.0004,
+        'Fe': 0.00364, 'K':  0.00044, 'Na': 0.00247, 'Ni': 0.00016,
+        'Mg': 0.00057, 'Mn': 0.00028, 'Pt': 0.00208, 'Rh': 0.0013,
+        'Sr': 0.001,   'Zn': 0.00012, 'Zr': 0.00012,
+    }
+
+    norm = {el: v / sum(raw.values()) for el, v in raw.items()}
+
+    mat = openmc.Material(name='kalos_cb')
+    li_wf = norm.pop('Li')
+    mat.add_nuclide('Li6', li_wf * _li6_wo, 'wo')
+    mat.add_nuclide('Li7', li_wf * _li7_wo, 'wo')
+    for el, wf in norm.items():
+        mat.add_element(el, wf, 'wo')
+    mat.set_density('g/cc', density)
+
+    return mat
+
 # April addition to ss316
 
 def ss304_b4(density):
@@ -617,7 +641,7 @@ def ss304_b4(density):
 
   ss304b4.add_element('Fe', 100 - weight_sum, 'wo')
 
-  print('\tIron (weight %):             ', 100 - weight_sum)
+  #print('\tIron (weight %):             ', 100 - weight_sum)
   ss304b4.set_density('g/cc', density)
   return ss304b4
 
@@ -673,7 +697,7 @@ def ss316Ln_ig(density):
 
   ss316Ln_ig.add_element('Fe', 100 - weight_sum, 'wo')
 
-  print('\tIron (weight %):             ', 100 - weight_sum)
+  #print('\tIron (weight %):             ', 100 - weight_sum)
 
   ss316Ln_ig.set_density('g/cc', density)
   return ss316Ln_ig

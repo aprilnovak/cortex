@@ -120,3 +120,22 @@ Compile Cardinal following the without-conda instructions (here)[https://cardina
 cd cardinal/build/moab
 pip install .
 ```
+
+## TOKAMAK - SLAB INSTRUCTIONS
+
+(Detailed instructions are also available on ```./full_model_bluemira/README.md```)
+
+In order to run the slab model, you must first run the Tokamak model to generate two important files: ```surface_source.h5``` and ```armor_current_neutron.json```. 
+
+To generate these files, run the Tokamak model (```SIM_TYPE = tokamak```): 
+1. Run ```python neutronics_model.py``` in the respective directory ```./full_model_bluemira```.
+2. Execute ```openmc``` command inside ```./{SIM_TYPE}/{BREEDER_TYPE}/neutronics_run/``` folder.
+3. Move back to ```./full_model_bluemira``` with ```cd ../../../```.
+4. Run the ```python neutronics_post.py```.
+5. Run ```python depletion_model.py```.
+6. Run ```python depletion_post.py```.
+
+Slab simulations can follow using the same method and switching ```SIM_TYPE = slab```.
+
+The current version allows ```ENIVORNMENT = TESTING / CORTEX```. For ```TESTING```, ```surface_source.h5``` and the ```armor_current_neutron.json``` are pulled directly from the last tokamak run (```./tokamak/{BREEDER_TYPE}/neutronics_run/```). For ```CORTEX```, it uses pre-saved ```surface_source.h5``` and ```armor_current_neutron.json``` stored in the ```./slab/{BREEDER_TYPE}/``` directory.
+

@@ -24,41 +24,50 @@ import openmc.deplete
 # https://doi.org/10.1016/j.fusengdes.2021.112338
 # https://iopscience.iop.org/article/10.1088/1741-4326/aca61f
 
-# Json input
-SCRIPT_DIR = Path(__file__).resolve().parent        # cortex/slab
+# -----------------------------------------------------------------------------
+# PATH SETUP
+# -----------------------------------------------------------------------------
+SCRIPT_DIR = Path.cwd()        # cortex/slab
 PROJECT_ROOT = SCRIPT_DIR.parent                    # cortex
 BLUEMIRA_DIR = PROJECT_ROOT / "detailed_bluemira"  # cortex/detailed_bluemira
-INPUT_JSON = BLUEMIRA_DIR / "Tokamak_inputs.json"
+
+INPUT_JSON = (BLUEMIRA_DIR / "Tokamak_inputs.json")
+
+DEPLETION_RUN_DIR = (SCRIPT_DIR / "depletion_run")
+R2S_ACTIVATION_DIR = (DEPLETION_RUN_DIR / "r2s" / "activation")
+
+DEPLETION_RESULTS_FILE = (R2S_ACTIVATION_DIR / "depletion_results.h5")
+CELL_MATERIAL_MAP_CSV = (R2S_ACTIVATION_DIR / "cell_material_map.csv")
+
+RESULTS_OUT_DIR = (SCRIPT_DIR / "depletion_results")
+RESULTS_OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # parameters
 SECONDS_PER_YEAR = 365.25 * 24 * 3600.0
 
 def generate_colors(n):
     """Generates a smooth rainbow gradient of n RGB colors."""
-    cmap = plt.get_cmap('turbo') # plasma also looks nice
+    cmap = plt.get_cmap('turbo')  # plasma also looks nice
     color_range = cmap(np.linspace(1, 0, n))
     return color_range
 
 def display_half_life(nuclide):
   half_life = openmc.data.half_life(nuclide)
 
-  # display in best units for s, h, d, y; this guarantees that each of these will be at minimum
-  # 0.01 in their base units
-  if (half_life < 60): # less than 1 min, display in s
+  if (half_life < 60):
     return ' ({0:.2f} s)'.format(half_life)
-  elif (half_life < 60*60): # less than 1 hour, display in m
+  elif (half_life < 60*60):
     return ' ({0:.2f} m)'.format(half_life/(60))
-  elif (half_life < 60*60*24): # less than 1 day, display in h
+  elif (half_life < 60*60*24):
     return ' ({0:.2f} h)'.format(half_life / (60*60))
-  elif (half_life < 60*60*24*365/12.): # less than 1 month, display in d
+  elif (half_life < 60*60*24*365/12.):
     return ' ({0:.2f} d)'.format(half_life / (60*60*24))
-  elif (half_life < 60*60*24*365/12*100000): # less than 100000 year, display in y
+  elif (half_life < 60*60*24*365/12*100000):
     return ' ({0:.2f} y)'.format(half_life / (60*60*24*365/12.))
-  elif (half_life < 60*60*24*365/12*1e6*100): # less than 100 My year, display in My
+  elif (half_life < 60*60*24*365/12*1e6*100):
     return ' ({0:.2f} My)'.format(half_life / (60*60*24*365/12.*1e6))
   else:
     return ' ( > 100 My)'
-    #return ' ({0:.2f} Gy)'.format(half_life / (60*60*24*365/12.*1e9))
 
 # -----------------------------
 # Layer tags
@@ -82,7 +91,7 @@ def make_default_layer_tags(
     if include_armor:
         tags.append("Armor")
     if include_fw:
-        tags.append("First Wall")
+        tags.append("First_Wall")
 
     tags.extend([f"{breeder_prefix}_{i}" for i in range(1, n_breeder_layers + 1)])
 
@@ -110,18 +119,22 @@ def build_cell_id_to_name(
 # -----------------------------
 @dataclass(frozen=True)
 class DepletionMapping:
-    cell_to_mat: Dict[int, str]            # cell_id -> mat_id (string)
-    cells_by_mat: Dict[str, List[int]]     # mat_id -> [cell_id, ...]
-    mat_id_to_name: Dict[str, str]         # mat_id -> name
-    vol_by_mat: Dict[str, float]           # mat_id -> volume (from results[0].volume)
+    cell_to_mat: Dict[int, str]
+    cells_by_mat: Dict[str, List[int]]
+    mat_id_to_name: Dict[str, str]
+    vol_by_mat: Dict[str, float]
 
 def load_depletion_mapping(
     results: openmc.deplete.Results,
-    map_csv: str | Path = "r2s/activation/cell_material_map.csv",
+    map_csv: str | Path = CELL_MATERIAL_MAP_CSV,
     ) -> DepletionMapping:
     """
-    Loads r2s/activation/cell_material_map.csv and volumes from step0.
+    Loads slab/depletion_run/r2s/activation/cell_material_map.csv and volumes from step0.
     """
+    map_csv = Path(map_csv)
+    if not map_csv.is_file():
+        raise FileNotFoundError(f"Cell-material map CSV not found: {map_csv}")
+
     map_df = pd.read_csv(str(map_csv))
     map_df["mat_id"] = map_df["mat_id"].astype(str)
 
@@ -130,7 +143,7 @@ def load_depletion_mapping(
     mat_id_to_name = map_df.groupby("mat_id")["material_name"].first().to_dict()
 
     step0 = results[0]
-    vol_by_mat = step0.volume  # dict-like: mat_id(str) -> volume
+    vol_by_mat = step0.volume
 
     return DepletionMapping(
         cell_to_mat=cell_to_mat,
@@ -143,6 +156,48 @@ def ensure_chunk_outdir(base_out_dir: str | Path, chunk_key: str) -> Path:
     out = Path(base_out_dir) / chunk_key
     out.mkdir(parents=True, exist_ok=True)
     return out
+
+# -----------------------------
+# CSV export helpers
+# -----------------------------
+def _safe_csv_label(text: str) -> str:
+    return str(text).strip().replace(" ", "_").replace("/", "_")
+
+def save_total_timeseries_csv(
+    total_by_cell: Dict[int, Tuple[np.ndarray, np.ndarray]],
+    cell_id_to_name: Dict[int, str],
+    out_csv: str | Path,
+    value_label: str,
+    ) -> None:
+    """
+    Save total quantity over cooling time for all cells into one CSV.
+
+    Output columns:
+      Cooling_time_years,
+      <RegionName>__cell_<cid>, ...
+    """
+    if not total_by_cell:
+        return
+
+    dfs = []
+    for cid, (t_rel_y, values) in total_by_cell.items():
+        region = cell_id_to_name.get(cid, str(cid))
+        col_name = f"{_safe_csv_label(region)}__cell_{cid}"
+
+        df_i = pd.DataFrame({
+            "Cooling_time_years": np.asarray(t_rel_y, dtype=float),
+            col_name: np.asarray(values, dtype=float),
+        })
+        dfs.append(df_i)
+
+    df_out = dfs[0]
+    for df_i in dfs[1:]:
+        df_out = df_out.merge(df_i, on="Cooling_time_years", how="outer")
+
+    df_out = df_out.sort_values("Cooling_time_years").reset_index(drop=True)
+    Path(out_csv).parent.mkdir(parents=True, exist_ok=True)
+    df_out.to_csv(out_csv, index=False)
+    print(f"[CSV] Wrote {value_label} totals to {out_csv}")
 
 # -----------------------------
 # Time utilities
@@ -163,7 +218,6 @@ def shutdown_index_from_source_rates(source_rates: np.ndarray, n_steps: int) -> 
 # Formatting helpers
 # ============================================================
 _MARKERS = ["o", "s", "^", "D", "v", "P", "X", "<", ">", "h"]
-#_LINESTYLES = ["-", "--", ":", "-."]
 _LINESTYLES = ["-"]
 
 def _style_cycle(reset: bool = True):
@@ -223,14 +277,6 @@ def _ymin_from_topn_edge(global_min_topn_edge: float) -> Optional[float]:
 def _select_topn(
     sorted_items: list[tuple[str, float]]
     ) -> list[tuple[str, float]]:
-    """
-    For a given step, we add nuclides to plot until the next incremental percent of
-    total activity to show is below 5% of the total. This limits the number of nuclides
-    plotted and is more robust than simply plotting the top 95% of nuclides because in
-    short cooling times, there's dozens of nuclides which contribute to the total activity,
-    which would result in way too many nuclides to plot.
-    """
-
     total = 0.0
     for i in range(len(sorted_items)):
       total += float(sorted_items[i][1])
@@ -242,12 +288,10 @@ def _select_topn(
       prev_running_total = running_total
       running_total += float(sorted_items[i][1])
 
-      # could have just a single very strong nuclide
       if (i == 0 and running_total / total >= 0.99):
         index = i
         break
 
-      # otherwise, compare the gain
       if ((running_total - prev_running_total) / total <= 0.05):
         index = i
         break
@@ -255,9 +299,6 @@ def _select_topn(
     return sorted_items[:i]
 
 def _select(dict_list, n_steps):
-    # selections per step; first, loop through all the time steps to find the top nuclides
-    # on each given step. Then, we take the union of these and then obtain the data to
-    # plot on each step by writing that nuclide for all time steps
     topn_list_by_step: list[list[tuple[str, float]]] = [[] for _ in range(n_steps)]
     top_nucs_union: set[str] = set()
 
@@ -334,14 +375,10 @@ def plot_activity_nuclides_per_cell(
     *,
     idx_shutdown: int,
     top_n: int = 5,
-    activity_units: str = "Bq/kg",      # "Bq/kg" or "Bq"
-    similarity_threshold: float = 0.10, # 10%
+    activity_units: str = "Bq/kg",
+    similarity_threshold: float = 0.10,
     print_similarity: bool = True,
     ) -> Tuple[Dict[int, Tuple[np.ndarray, np.ndarray]], float]:
-    """
-    Returns:
-      total_activity_all[cid] = (t_rel_years, total_activity_in_units)
-    """
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -360,10 +397,7 @@ def plot_activity_nuclides_per_cell(
 
         vol = mapping.vol_by_mat[mat_id]
 
-        # Total activity
         _, total_act = results.get_activity(mat=mat_id, by_nuclide=False, units=activity_units, volume=vol)
-
-        # Per-nuclide activity
         time_nuc, act_dict_list = results.get_activity(mat=mat_id, by_nuclide=True, units=activity_units, volume=vol)
 
         time_grid = np.asarray(time_nuc, dtype=float)
@@ -411,11 +445,9 @@ def plot_activity_nuclides_per_cell(
 
         others_plot = _mask(others_series)
 
-        # Plot per-cell breakdown
         fig, ax = plt.subplots(figsize=(11, 6))
         mcycle, lscycle = _style_cycle()
 
-        # Nuclides (markers + varied linestyles)
         halflife_list = [openmc.data.half_life(i) for i in top_nucs]
         nuclide_list = top_nucs
         sorted_halflife_list, sorted_nuclide_list = zip(*sorted(zip(halflife_list, nuclide_list)))
@@ -437,11 +469,9 @@ def plot_activity_nuclides_per_cell(
                 linewidth=1.3,
             )
 
-        # Others
         if _has_positive_finite(others_plot):
             ax.loglog(t_rel_plot, others_plot, label="Others", linewidth=2.0, color='black', linestyle='--')
 
-        # Total
         if _has_positive_finite(total_act_plot):
             ax.loglog(t_rel_plot, total_act_plot, color="black", linewidth=2.0, label="Total", zorder=10)
 
@@ -453,11 +483,8 @@ def plot_activity_nuclides_per_cell(
         _add_time_reference_lines(ax)
         _format_log_axes(ax)
 
-        # y-min cutoff; cut off at 1 order of magnitude below the other activity and 1 order of magnitude
-        # above the total activity (rounded to powers of 10)
         ax.set_ylim([10 ** math.floor(math.log10(np.min(others_plot))), 10 ** math.ceil(math.log10(np.max(total_act_plot)))])
 
-        # Legend 
         n_entries = len(ax.get_legend_handles_labels()[1])
         ncol = 2 if n_entries <= 24 else 3
         _finalize_legend(ax, ncol=ncol, title="Components", fontsize=8)
@@ -619,11 +646,6 @@ def plot_decayheat_nuclides_per_cell(
     similarity_threshold: float = 0.10,
     print_similarity: bool = True,
     ) -> Tuple[Dict[int, Tuple[np.ndarray, np.ndarray]], float, float]:
-    """
-    Returns:
-      total_heat_all[cid] = (t_rel_years, total_heat_in_units)
-      max_decay_comb = global max for y-max scaling
-    """
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -694,11 +716,9 @@ def plot_decayheat_nuclides_per_cell(
 
         others_plot = _mask(others_series)
 
-        # Plot per-cell breakdown (formatting 1,2,3)
         fig, ax = plt.subplots(figsize=(11, 6))
         mcycle, lscycle = _style_cycle()
 
-        # form a color scale based on the half lives
         halflife_list = [openmc.data.half_life(i) for i in top_nucs]
         nuclide_list = top_nucs
         sorted_halflife_list, sorted_nuclide_list = zip(*sorted(zip(halflife_list, nuclide_list)))
@@ -731,8 +751,6 @@ def plot_decayheat_nuclides_per_cell(
         ax.set_ylabel(f"Decay heat [{decayheat_units}]")
         ax.set_title(f"Decay heat — {region} (mat {mat_id})")
 
-        # y-min cutoff; cut off at 1 order of magnitude below the other decay heat and 1 order of magnitude
-        # above the total decay heat (rounded to powers of 10)
         ax.set_ylim([10 ** math.floor(math.log10(np.min(others_plot))), 10 ** math.ceil(math.log10(np.max(total_h_plot)))])
 
         _add_time_reference_lines(ax)
@@ -891,10 +909,10 @@ def run_chunk_postprocess(
     results: openmc.deplete.Results,
     chunks: Dict[str, Sequence[int]],
     *,
-    base_out_dir: str | Path = "./depletion_results",
+    base_out_dir: str | Path = RESULTS_OUT_DIR,
     xcentroids_by_chunk: Optional[Dict[str, Sequence[float]]] = None,
     layer_tags_by_chunk: Optional[Dict[str, Sequence[str]]] = None,
-    source_rates: Optional[np.ndarray] = None,  
+    source_rates: Optional[np.ndarray] = None,
     idx_shutdown: Optional[int] = None,
     activity_units: str = "Bq/kg",
     decayheat_units: str = "W/cm3",
@@ -908,7 +926,6 @@ def run_chunk_postprocess(
     if layer_tags_by_chunk is None:
         layer_tags_by_chunk = {}
 
-    # Shutdown index once 
     if idx_shutdown is None:
         if source_rates is None:
             source_rates = results.get_source_rates()
@@ -935,7 +952,6 @@ def run_chunk_postprocess(
         else:
             x = np.arange(len(cell_ids), dtype=float)
 
-        #  Activity 
         total_activity_all, act_min_topn_edge = plot_activity_nuclides_per_cell(
             results, mapping, cell_ids, cell_id_to_name,
             out_dir=out_dir,
@@ -944,12 +960,21 @@ def run_chunk_postprocess(
             activity_units=activity_units,
             similarity_threshold=similarity_threshold,
         )
+
         plot_activity_all_cells(
             total_activity_all, cell_id_to_name,
             out_dir=out_dir,
             activity_units=activity_units,
             global_min_topn_edge=act_min_topn_edge,
         )
+
+        save_total_timeseries_csv(
+            total_activity_all,
+            cell_id_to_name,
+            out_dir / "activity_all_cells.csv",
+            value_label="activity",
+        )
+
         plot_activity_radial_profiles(
             total_activity_all, cell_ids, x,
             out_dir=out_dir,
@@ -958,7 +983,6 @@ def run_chunk_postprocess(
             global_min_topn_edge=act_min_topn_edge,
         )
 
-        # Decay heat 
         total_heat_all, max_decay_comb, dh_min_topn_edge = plot_decayheat_nuclides_per_cell(
             results, mapping, cell_ids, cell_id_to_name,
             out_dir=out_dir,
@@ -967,6 +991,7 @@ def run_chunk_postprocess(
             decayheat_units=decayheat_units,
             similarity_threshold=similarity_threshold,
         )
+
         plot_decayheat_all_cells(
             total_heat_all, cell_id_to_name,
             max_decay_comb=max_decay_comb,
@@ -974,6 +999,14 @@ def run_chunk_postprocess(
             decayheat_units=decayheat_units,
             global_min_topn_edge=dh_min_topn_edge,
         )
+
+        save_total_timeseries_csv(
+            total_heat_all,
+            cell_id_to_name,
+            out_dir / "decayheat_all_cells.csv",
+            value_label="decayheat",
+        )
+
         plot_decayheat_radial_profiles(
             total_heat_all, cell_ids, x,
             out_dir=out_dir,
@@ -990,16 +1023,15 @@ def run_chunk_postprocess(
 # Run
 # ============================================================
 if __name__ == "__main__":
-    CHAIN_FILE = (Path(__file__).resolve().parent.parent / "depletion_chain" / "chain_endfb80_sfr.xml").resolve()
-    if not CHAIN_FILE.exists():
-        raise FileNotFoundError(f"Chain file not found: {CHAIN_FILE}")
-    openmc.config["chain_file"] = str(CHAIN_FILE)
+    print(f"[chain] openmc.config['chain_file'] = {openmc.config.get('chain_file', 'NOT SET')}")
+    
+    if not DEPLETION_RESULTS_FILE.is_file():
+        raise FileNotFoundError(f"Depletion results file not found: {DEPLETION_RESULTS_FILE}")
 
-    results = openmc.deplete.Results("r2s/activation/depletion_results.h5")
+    if not CELL_MATERIAL_MAP_CSV.is_file():
+        raise FileNotFoundError(f"Cell-material map CSV not found: {CELL_MATERIAL_MAP_CSV}")
 
-    # To be updated:
-    xcentroids_ob = (0.1, 1.1, 6.0, 15.0, 25.0, 35.0, 45.0, 55.0, 65.0, 84.4, 156.0)
-    xcentroids_ib = (0.1, 1.1, 6.0, 15.0, 25.0, 35.0, 45.0, 55.0, 65.0, 73.8, 108.0)
+    results = openmc.deplete.Results(str(DEPLETION_RESULTS_FILE))
 
     from neutronics_model import build_breeder_chunks
 
@@ -1016,8 +1048,8 @@ if __name__ == "__main__":
     IB_CHUNK_SIZE = _cells_chunk["IB_CHUNK_SIZE"]
     n_breeder  = int(geom["n_breeder"])
 
-    cell_ids_for_key   = _cells_chunk["cell_ids_for_key"](OB_KEY)    
-    radial_bins_for_key = _cells_chunk["radial_bins_for_key"](OB_KEY) 
+    cell_ids_for_key    = _cells_chunk["cell_ids_for_key"]      
+    radial_bins_for_key = _cells_chunk["radial_bins_for_key"]  
 
     CHUNKS = {
         OB_KEY: ob_by_key.get(OB_KEY, []),
@@ -1029,9 +1061,8 @@ if __name__ == "__main__":
     if CHUNKS[OB_KEY]:
         n_ob_layers = len(CHUNKS[OB_KEY]) - 3
         layer_tags_by_chunk[OB_KEY] = make_default_layer_tags(n_ob_layers, breeder_prefix="OB")
-        if len(xcentroids_ob) == len(CHUNKS[OB_KEY]):
-            xcentroids_by_chunk[OB_KEY] = xcentroids_ob
-
+        xcentroids_ob, _, _ = radial_bins_for_key(OB_KEY) 
+        xcentroids_by_chunk[OB_KEY] = xcentroids_ob        
 
     source_rates = results.get_source_rates()
     times = results.get_times()
@@ -1040,11 +1071,11 @@ if __name__ == "__main__":
     run_chunk_postprocess(
         results,
         CHUNKS,
-        base_out_dir="./depletion_results",
+        base_out_dir=RESULTS_OUT_DIR,
         xcentroids_by_chunk=xcentroids_by_chunk,
         layer_tags_by_chunk=layer_tags_by_chunk,
         idx_shutdown=int(idx_shutdown),
-        activity_units="Bq/kg",       # "Bq" or "Bq/kg"
+        activity_units="Bq/kg",
         decayheat_units="W/cm3",
         activity_top_n=10,
         decayheat_top_n=5,

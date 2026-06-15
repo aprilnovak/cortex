@@ -26,7 +26,18 @@ import openmc.deplete
 
 # parameters
 SECONDS_PER_YEAR = 365.25 * 24 * 3600.0
-INPUT_JSON = Path("Tokamak_inputs.json")
+
+BASE_DIR = Path.cwd()
+INPUT_JSON = (BASE_DIR / "Tokamak_inputs.json")
+
+DEPLETION_RUN_DIR = (BASE_DIR / "depletion_run")
+R2S_ACTIVATION_DIR = (DEPLETION_RUN_DIR / "r2s" / "activation")
+
+DEPLETION_RESULTS_FILE = R2S_ACTIVATION_DIR / "depletion_results.h5"
+CELL_MATERIAL_MAP_CSV = R2S_ACTIVATION_DIR / "cell_material_map.csv"
+
+RESULTS_OUT_DIR = (BASE_DIR / "depletion_results")
+RESULTS_OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 def generate_colors(n):
     """Generates a smooth rainbow gradient of n RGB colors."""
@@ -77,9 +88,9 @@ def make_default_layer_tags(
     if include_armor:
         tags.append("Armor")
     if include_fw:
-        tags.append("First Wall")
+        tags.append("First wall")
 
-    tags.extend([f"{breeder_prefix}_{i}" for i in range(1, n_breeder_layers + 1)])
+    tags.extend([f"Breeder layer {i}" for i in range(1, n_breeder_layers + 1)])
 
     if include_vv:
         tags.append("VV")
@@ -112,11 +123,15 @@ class DepletionMapping:
 
 def load_depletion_mapping(
     results: openmc.deplete.Results,
-    map_csv: str | Path = "r2s/activation/cell_material_map.csv",
+    map_csv: str | Path = CELL_MATERIAL_MAP_CSV,
     ) -> DepletionMapping:
     """
-    Loads r2s/activation/cell_material_map.csv and volumes from step0.
+    Loads depletion_run/r2s/activation/cell_material_map.csv and volumes from step0.
     """
+    map_csv = Path(map_csv)
+    if not map_csv.is_file():
+        raise FileNotFoundError(f"Cell-material map CSV not found: {map_csv}")
+
     map_df = pd.read_csv(str(map_csv))
     map_df["mat_id"] = map_df["mat_id"].astype(str)
 
@@ -138,6 +153,49 @@ def ensure_chunk_outdir(base_out_dir: str | Path, chunk_key: str) -> Path:
     out = Path(base_out_dir) / chunk_key
     out.mkdir(parents=True, exist_ok=True)
     return out
+
+# -----------------------------
+# CSV export helpers
+# -----------------------------
+def _safe_csv_label(text: str) -> str:
+    return str(text).strip().replace(" ", "_").replace("/", "_")
+
+def save_total_timeseries_csv(
+    total_by_cell: Dict[int, Tuple[np.ndarray, np.ndarray]],
+    cell_id_to_name: Dict[int, str],
+    out_csv: str | Path,
+    value_label: str,
+    ) -> None:
+    """
+    Save total quantity over cooling time for all cells into one CSV.
+
+    Output columns:
+      Cooling_time_years,
+      <RegionName>__cell_<cid>, ...
+    """
+    if not total_by_cell:
+        return
+
+    # Build one dataframe per cell, then outer-merge on time
+    dfs = []
+    for cid, (t_rel_y, values) in total_by_cell.items():
+        region = cell_id_to_name.get(cid, str(cid))
+        col_name = f"{_safe_csv_label(region)}__cell_{cid}"
+
+        df_i = pd.DataFrame({
+            "Cooling_time_years": np.asarray(t_rel_y, dtype=float),
+            col_name: np.asarray(values, dtype=float),
+        })
+        dfs.append(df_i)
+
+    df_out = dfs[0]
+    for df_i in dfs[1:]:
+        df_out = df_out.merge(df_i, on="Cooling_time_years", how="outer")
+
+    df_out = df_out.sort_values("Cooling_time_years").reset_index(drop=True)
+    Path(out_csv).parent.mkdir(parents=True, exist_ok=True)
+    df_out.to_csv(out_csv, index=False)
+    #print(f"[CSV] Wrote {value_label} totals to {out_csv}")
 
 # -----------------------------
 # Time utilities
@@ -317,6 +375,8 @@ def _add_time_reference_lines(ax):
             alpha=0.8,
         )
 
+
+
 # ============================================================
 # Activity
 # ============================================================
@@ -328,10 +388,10 @@ def plot_activity_nuclides_per_cell(
     out_dir: Path,
     *,
     idx_shutdown: int,
-    top_n: int = 5,
+    #top_n: int = 5,
     activity_units: str = "Bq/kg",      # "Bq/kg" or "Bq"
-    similarity_threshold: float = 0.10, # 10%
-    print_similarity: bool = True,
+    #similarity_threshold: float = 0.10, # 10%
+    #print_similarity: bool = True,
     ) -> Tuple[Dict[int, Tuple[np.ndarray, np.ndarray]], float]:
     """
     Returns:
@@ -452,7 +512,7 @@ def plot_activity_nuclides_per_cell(
         # above the total activity (rounded to powers of 10)
         ax.set_ylim([10 ** math.floor(math.log10(np.min(others_plot))), 10 ** math.ceil(math.log10(np.max(total_act_plot)))])
 
-        # Legend 
+        # Legend
         n_entries = len(ax.get_legend_handles_labels()[1])
         ncol = 2 if n_entries <= 24 else 3
         _finalize_legend(ax, ncol=ncol, title="Components", fontsize=8)
@@ -609,10 +669,10 @@ def plot_decayheat_nuclides_per_cell(
     out_dir: Path,
     *,
     idx_shutdown: int,
-    top_n: int = 10,
+    #top_n: int = 10,
     decayheat_units: str = "W/cm3",
-    similarity_threshold: float = 0.10,
-    print_similarity: bool = True,
+    #similarity_threshold: float = 0.10,
+    #print_similarity: bool = True,
     ) -> Tuple[Dict[int, Tuple[np.ndarray, np.ndarray]], float, float]:
     """
     Returns:
@@ -886,16 +946,16 @@ def run_chunk_postprocess(
     results: openmc.deplete.Results,
     chunks: Dict[str, Sequence[int]],
     *,
-    base_out_dir: str | Path = "./depletion_results",
+    base_out_dir: str | Path = RESULTS_OUT_DIR,
     xcentroids_by_chunk: Optional[Dict[str, Sequence[float]]] = None,
     layer_tags_by_chunk: Optional[Dict[str, Sequence[str]]] = None,
-    source_rates: Optional[np.ndarray] = None,  
+    source_rates: Optional[np.ndarray] = None,
     idx_shutdown: Optional[int] = None,
     activity_units: str = "Bq/kg",
     decayheat_units: str = "W/cm3",
-    activity_top_n: int = 5,
-    decayheat_top_n: int = 5,
-    similarity_threshold: float = 0.10,
+    #activity_top_n: int = 5,
+    #decayheat_top_n: int = 5,
+    #similarity_threshold: float = 0.10,
     idx_to_plot: Sequence[int] = (0, 4, 8, 12, 16, 20),
     ):
     if xcentroids_by_chunk is None:
@@ -903,7 +963,7 @@ def run_chunk_postprocess(
     if layer_tags_by_chunk is None:
         layer_tags_by_chunk = {}
 
-    # Shutdown index once 
+    # Shutdown index once
     if idx_shutdown is None:
         if source_rates is None:
             source_rates = results.get_source_rates()
@@ -930,21 +990,30 @@ def run_chunk_postprocess(
         else:
             x = np.arange(len(cell_ids), dtype=float)
 
-        #  Activity 
+        # Activity
         total_activity_all, act_min_topn_edge = plot_activity_nuclides_per_cell(
             results, mapping, cell_ids, cell_id_to_name,
             out_dir=out_dir,
             idx_shutdown=int(idx_shutdown),
-            top_n=activity_top_n,
+            #top_n=activity_top_n,
             activity_units=activity_units,
-            similarity_threshold=similarity_threshold,
+            #similarity_threshold=similarity_threshold,
         )
+
         plot_activity_all_cells(
             total_activity_all, cell_id_to_name,
             out_dir=out_dir,
             activity_units=activity_units,
             global_min_topn_edge=act_min_topn_edge,
         )
+
+        save_total_timeseries_csv(
+            total_activity_all,
+            cell_id_to_name,
+            out_dir / "activity_all_cells.csv",
+            value_label="activity",
+        )
+
         plot_activity_radial_profiles(
             total_activity_all, cell_ids, x,
             out_dir=out_dir,
@@ -953,15 +1022,16 @@ def run_chunk_postprocess(
             global_min_topn_edge=act_min_topn_edge,
         )
 
-        # Decay heat 
+        # Decay heat
         total_heat_all, max_decay_comb, dh_min_topn_edge = plot_decayheat_nuclides_per_cell(
             results, mapping, cell_ids, cell_id_to_name,
             out_dir=out_dir,
             idx_shutdown=int(idx_shutdown),
-            top_n=decayheat_top_n,
+            #top_n=decayheat_top_n,
             decayheat_units=decayheat_units,
-            similarity_threshold=similarity_threshold,
+            #similarity_threshold=similarity_threshold,
         )
+
         plot_decayheat_all_cells(
             total_heat_all, cell_id_to_name,
             max_decay_comb=max_decay_comb,
@@ -969,6 +1039,14 @@ def run_chunk_postprocess(
             decayheat_units=decayheat_units,
             global_min_topn_edge=dh_min_topn_edge,
         )
+
+        save_total_timeseries_csv(
+            total_heat_all,
+            cell_id_to_name,
+            out_dir / "decayheat_all_cells.csv",
+            value_label="decayheat",
+        )
+
         plot_decayheat_radial_profiles(
             total_heat_all, cell_ids, x,
             out_dir=out_dir,
@@ -985,24 +1063,24 @@ def run_chunk_postprocess(
 # Run
 # ============================================================
 if __name__ == "__main__":
-    CHAIN_FILE = (Path(__file__).resolve().parent.parent / "depletion_chain" / "chain_endfb80_sfr.xml").resolve()
-    if not CHAIN_FILE.exists():
-        raise FileNotFoundError(f"Chain file not found: {CHAIN_FILE}")
-    openmc.config["chain_file"] = str(CHAIN_FILE)
+    print(f"[chain] openmc.config['chain_file'] = {openmc.config.get('chain_file', 'NOT SET')}")
 
-    results = openmc.deplete.Results("r2s/activation/depletion_results.h5")
+    if not DEPLETION_RESULTS_FILE.is_file():
+        raise FileNotFoundError(f"Depletion results file not found: {DEPLETION_RESULTS_FILE}")
 
-    # To be updated:
-    xcentroids_ob = (0.1, 1.1, 6.0, 15.0, 25.0, 35.0, 45.0, 55.0, 65.0, 84.4, 156.0)
-    xcentroids_ib = (0.1, 1.1, 6.0, 15.0, 25.0, 35.0, 45.0, 55.0, 65.0, 73.8, 108.0)
+    if not CELL_MATERIAL_MAP_CSV.is_file():
+        raise FileNotFoundError(f"Cell-material map CSV not found: {CELL_MATERIAL_MAP_CSV}")
+
+    results = openmc.deplete.Results(str(DEPLETION_RESULTS_FILE))
+
 
     from neutronics_model import build_breeder_chunks
 
     _cells_chunk = build_breeder_chunks(
-    INPUT_JSON,
-    default_equatorial_ob_key="OB_1_b6", 
-    gap_cm=2.0,
-    start_cm=0.0,
+        INPUT_JSON,
+        default_chunk_key="OB_1_b6",
+        gap_cm=2.0,
+        start_cm=0.0,
     )
 
     data      = _cells_chunk["data"]
@@ -1014,11 +1092,14 @@ if __name__ == "__main__":
     IB_CHUNK_SIZE = _cells_chunk["IB_CHUNK_SIZE"]
     n_breeder  = int(geom["n_breeder"])
 
-    cell_ids_for_key   = _cells_chunk["cell_ids_for_key"]      
-    radial_bins_for_key = _cells_chunk["radial_bins_for_key"]  
+    cell_ids_for_key    = _cells_chunk["cell_ids_for_key"]
+    radial_bins_for_key = _cells_chunk["radial_bins_for_key"]
 
     OB_KEY = "OB_1_b6"
     IB_KEY = "IB_1_b4"
+
+    xcentroids_ob, _, _ = radial_bins_for_key(OB_KEY)
+    xcentroids_ib, _, _ = radial_bins_for_key(IB_KEY)
 
     CHUNKS = {
         OB_KEY: ob_by_key.get(OB_KEY, []),
@@ -1031,14 +1112,12 @@ if __name__ == "__main__":
     if CHUNKS[OB_KEY]:
         n_ob_layers = len(CHUNKS[OB_KEY]) - 3
         layer_tags_by_chunk[OB_KEY] = make_default_layer_tags(n_ob_layers, breeder_prefix="OB")
-        if len(xcentroids_ob) == len(CHUNKS[OB_KEY]):
-            xcentroids_by_chunk[OB_KEY] = xcentroids_ob
+        xcentroids_by_chunk[OB_KEY], _, _ = radial_bins_for_key(OB_KEY)
 
     if CHUNKS[IB_KEY]:
         n_ib_layers = len(CHUNKS[IB_KEY]) - 3
         layer_tags_by_chunk[IB_KEY] = make_default_layer_tags(n_ib_layers, breeder_prefix="IB")
-        if len(xcentroids_ib) == len(CHUNKS[IB_KEY]):
-            xcentroids_by_chunk[IB_KEY] = xcentroids_ib
+        xcentroids_by_chunk[IB_KEY], _, _ = radial_bins_for_key(IB_KEY)
 
     source_rates = results.get_source_rates()
     times = results.get_times()
@@ -1047,14 +1126,14 @@ if __name__ == "__main__":
     run_chunk_postprocess(
         results,
         CHUNKS,
-        base_out_dir="./depletion_results",
+        base_out_dir=RESULTS_OUT_DIR,
         xcentroids_by_chunk=xcentroids_by_chunk,
         layer_tags_by_chunk=layer_tags_by_chunk,
         idx_shutdown=int(idx_shutdown),
         activity_units="Bq/kg",       # "Bq" or "Bq/kg"
         decayheat_units="W/cm3",
-        activity_top_n=10,
-        decayheat_top_n=5,
-        similarity_threshold=0.10,
+        #activity_top_n=10,
+        #decayheat_top_n=5,
+        #similarity_threshold=0.10,
         idx_to_plot=(0, 4, 8, 12, 16, 20),
     )

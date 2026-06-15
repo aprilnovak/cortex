@@ -6,35 +6,35 @@ import matplotlib
 import matplotlib.pyplot as plt
 import math
 
-matplotlib.rcParams.update({'font.size': 12})
-
-# Plots the NEUTRON plasma source in tandem with the surface source for comparison
-
-# Number of samples to use when sampling the source
-n_samples = 10000000
-
-from openmc_plasma_source import tokamak_source
-
-my_source = tokamak_source(
-    angles=(0.0, math.pi/8),
-    elongation=1.739,
-    ion_density_centre=6.8e19,
-    ion_density_pedestal=5.78e19,
-    ion_density_peaking_factor=1,
-    ion_density_separatrix=1.02e19,
-    ion_temperature_centre=23.7e3,
-    ion_temperature_pedestal=5.5e3,
-    ion_temperature_separatrix=0.1e3,
-    ion_temperature_peaking_factor=8.06,
-    ion_temperature_beta=6,
-    major_radius=840.67,
-    minor_radius=300.2,
-    pedestal_radius=0.94 * 300.2,
-    mode="H",
-    shafranov_factor=0.44789,
-    triangularity=0.333,
-    fuel={"D": 0.5, "T": 0.5},
+from tokamak_neutron_source import (
+FluxMap,
+FractionalFuelComposition,
+TokamakNeutronSource,
+TransportInformation,
 )
+from tokamak_neutron_source.profile import ParabolicPedestalProfile
+from tokamak_neutron_source.reactions import Reactions
+
+# I took all these hard-coded numbers from your OUT.DAT
+# I haven't written this as a script, because this is an old PROCESS version, and
+# it's a huge pain with their variable name changes...
+temperature_profile = ParabolicPedestalProfile(2.37754249767383570e+01, 5.5, 0.1, 2.0, 1.45, 0.94) # [keV]
+density_profile = ParabolicPedestalProfile(9.83393828196113777e+19, 5.86476334188244419e+19, 3.44986078934261350e+19, 1.0, 2.0, 0.94)
+density_profile.set_scale(6.30197378312059699e+19/7.47634856031986811e+19)
+rho_profile = np.linspace(0, 1, 30)
+
+my_source = TokamakNeutronSource(
+transport=TransportInformation.from_parameterisations(
+ion_temperature_profile=temperature_profile,
+fuel_density_profile=density_profile,
+rho_profile=rho_profile,
+fuel_composition=FractionalFuelComposition(D=0.5, T=0.5),
+),
+source_type=[Reactions.D_T, Reactions.D_D],
+flux_map=FluxMap.from_eqdsk("../../equilibrium_eqdsk.json"),
+cell_side_length=0.05,
+)
+my_source = my_source.to_openmc_source()
 
 def sample_initial_particles(this, prn_seed: int = None):
     """smaples particles from the source.
