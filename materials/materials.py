@@ -4,6 +4,127 @@ import re
 
 # This file defines default materials to populate into existing models
 
+def ods_eurofer(density):
+  """ Return an OpenMC material for ODS-EUROFER steel based on 10.3389/fnuen.2025.1683702.
+      Use a density of 7.87 g/cc.
+  """
+
+  ods_eurofer = openmc.Material()
+  ods_eurofer.add_element('C', 0.0710*1e-2, 'wo')
+  ods_eurofer.add_element('Si', 0.1110*1e-2, 'wo')
+  ods_eurofer.add_element('Cr', 8.92*1e-2, 'wo')
+  ods_eurofer.add_element('Mn', 0.4080*1e-2, 'wo')
+  ods_eurofer.add_element('V', 0.1930*1e-2, 'wo')
+  ods_eurofer.add_element('N', 0.0278*1e-2, 'wo')
+  ods_eurofer.add_element('O', 0.1440*1e-2, 'wo')
+  ods_eurofer.add_element('W', 1.11*1e-2, 'wo')
+  ods_eurofer.add_element('Ta', 0.081*1e-2, 'wo')
+  ods_eurofer.add_element('Y', 0.192*1e-2, 'wo')
+
+  # add balance
+  weight_sum = 0
+  for nuclide in ods_eurofer.nuclides:
+    weight_sum += nuclide.percent
+
+  ods_eurofer.add_element('Fe', 1 - weight_sum, 'wo')
+  print('\tIron (weight %):    ', (1 - weight_sum) * 100)
+  ods_eurofer.set_density('g/cc', density)
+  return ods_eurofer
+
+def clam(density):
+  """ Return an OpenMC material for CLAM steel based on 10.1016/j.jnucmat.2014.08.055 (the first
+      heat listed in the composition table. For a density, April arbitrarily assumed 7.80 g/cc
+      because could not find a good reference.
+  """
+  clam = openmc.Material()
+  clam.add_element('Cr', 8.86*1e-2, 'wo')
+  clam.add_element('W', 1.48*1e-2, 'wo')
+  clam.add_element('Ta', 0.12*1e-2, 'wo')
+  clam.add_element('V', 0.21*1e-2, 'wo')
+  clam.add_element('C', 0.094*1e-2, 'wo')
+  clam.add_element('Si', 0.05*1e-2, 'wo')
+  clam.add_element('Mn', 0.48*1e-2, 'wo')
+  clam.add_element('P', 0.005*1e-2, 'wo')
+  clam.add_element('S', 0.002*1e-2, 'wo')
+  clam.add_element('O', 0.004*1e-2, 'wo')
+  clam.add_element('N', 0.009*1e-2, 'wo')
+
+  # add balance
+  weight_sum = 0
+  for nuclide in clam.nuclides:
+    weight_sum += nuclide.percent
+
+  clam.add_element('Fe', 1 - weight_sum, 'wo')
+  print('\tIron (weight %):    ', (1 - weight_sum) * 100)
+  clam.set_density('g/cc', density)
+  return clam
+
+def f82h(density):
+  """ Return an OpenMC material for F82H from 10.1088/1741-4326/ac269f (first column in Table 1).
+      For density, use 7.74 (this is based on rho(T) correlation from the reference above, evaluated
+      at 500 C).
+  """
+  f82h = openmc.Material()
+  f82h.add_element('C', 0.5*(0.08+0.12)*1e-2, 'wo')
+  f82h.add_element('Cr', 0.5*(7.5+8.5)*1e-2, 'wo')
+  f82h.add_element('W', 0.5*(1.6+2.2)*1e-2, 'wo')
+  f82h.add_element('Mn', 0.5*(0.05+0.5)*1e-2, 'wo')
+  f82h.add_element('V', 0.5*(0.15+0.25)*1e-2, 'wo')
+  f82h.add_element('Ta', 0.5*(0.02+0.10)*1e-2, 'wo')
+  f82h.add_element('Si', 0.2*1e-2, 'wo')
+  f82h.add_element('B', 0.006*1e-2, 'wo')
+  f82h.add_element('N', 0.025*1e-2, 'wo')
+  f82h.add_element('Ti', 0.01*1e-2, 'wo')
+  f82h.add_element('Al', 0.04*1e-2, 'wo')
+  f82h.add_element('P', 0.02*1e-2, 'wo')
+  f82h.add_element('S', 0.01*1e-2, 'wo')
+  f82h.add_element('O', 0.005*1e-2, 'wo')
+
+  # add balance
+  weight_sum = 0
+  for nuclide in f82h.nuclides:
+    weight_sum += nuclide.percent
+
+  f82h.add_element('Fe', 1 - weight_sum, 'wo')
+  print('\tIron (weight %):    ', (1 - weight_sum) * 100)
+  f82h.set_density('g/cc', density)
+  return f82h
+
+def ht9(density):
+  """ Return an OpenMC material for HT9 from https://iopscience.iop.org/article/10.1088/2515-7655/ae4ff2/pdf, table 2.
+      Use a density of 7.86 g/cc based on https://www.sciencedirect.com/science/article/pii/S0022311521000891.
+  """
+  ht9 = openmc.Material()
+  ht9.add_element('Cr', 0.5 * (11.0+12.5)*1e-2, 'wo')
+  ht9.add_element('Ni', 0.5*(0.3+0.8)*1e-2, 'wo')
+  ht9.add_element('C', 0.5*(0.17+0.23)*1e-2, 'wo')
+  ht9.add_element('Al', 0.05*1e-2, 'wo')
+  ht9.add_element('N', 0.106*1e-2, 'wo')
+  ht9.add_element('S', 0.01*1e-2, 'wo')
+  ht9.add_element('P', 0.04*1e-2, 'wo')
+  ht9.add_element('Mo', 0.5*(0.8+1.2)*1e-2, 'wo')
+  ht9.add_element('Mn', 0.5*(0.4+1.0)*1e-2, 'wo')
+  ht9.add_element('Si', 0.5*(0.04+0.23)*1e-2, 'wo')
+  ht9.add_element('Ti', 0.1*1e-2, 'wo')
+  ht9.add_element('V', 0.5*(0.25+0.35)*1e-2, 'wo')
+  ht9.add_element('Ta', 0.01*1e-2, 'wo')
+  ht9.add_element('W', 0.61*1e-2, 'wo')
+  ht9.add_element('Nb', 0.05*1e-2, 'wo')
+  ht9.add_element('As', 0.01*1e-2, 'wo')
+  ht9.add_element('O', 0.013*1e-2, 'wo')
+  ht9.add_element('Cu', 0.063*1e-2, 'wo')
+  ht9.add_element('Co', 0.09*1e-2, 'wo')
+
+  # add balance
+  weight_sum = 0
+  for nuclide in ht9.nuclides:
+    weight_sum += nuclide.percent
+
+  ht9.add_element('Fe', 1 - weight_sum, 'wo')
+  print('\tIron (weight %):    ', (1 - weight_sum) * 100)
+  ht9.set_density('g/cc', density)
+  return ht9
+
 def inconel718(density):
   """ Return an OpenMC material for Inconel 718 from PNNL materials compendium.
       Recommended density is 8.19 g/cc.
@@ -81,6 +202,7 @@ def V4Cr4Ti(density):
 
   V4Cr4Ti.set_density('g/cc', density)
   return V4Cr4Ti
+
 
 def PbLi(li6_enrichment, density):
   """ Return an OpenMC material for PbLi. We first add the impurity concentrations

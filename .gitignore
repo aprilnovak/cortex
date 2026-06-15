@@ -27,3 +27,8 @@ tallies.out
 *.out
 *.png
 *.h5dagmc_files/equilibrium_eqdsk.json
+*.o*
+*.e*
+*.vtp
+*.zip
+*.DS*
