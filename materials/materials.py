@@ -73,43 +73,6 @@ def PbLi(li6_enrichment, density):
   PbLi.depletable = False
   return PbLi
 
-def tungsten(density):
-  """ Return an OpenMC material for Tungsten. TODO: add impurities
-  """
-  tungsten = openmc.Material()
-  tungsten.add_element('W', 1.0, 'wo')
-  tungsten.set_density('g/cc', density)
-  return tungsten
-
-def ods(density):
-  """ Return an OpenMC material for oxide dispersion strengthened steel
-      (10.1088/1741-4326/ac2523). This paper gives actual composition from a demonstration. Composition is given in weight %.
-  """
-  ods = openmc.Material()
-  ods.add_element('Cr', 13.5, 'wo')
-  ods.add_element('C', 0.0164, 'wo')
-  ods.add_element('Mn', 0.0917, 'wo')
-  ods.add_element('W', 0.99, 'wo')
-  ods.add_element('N', 0.0078, 'wo')
-  ods.add_element('O', 0.117, 'wo')
-  ods.add_element('Y', 0.146, 'wo')
-  ods.add_element('Ti', 0.16, 'wo')
-  ods.add_element('Ni', 0.0599, 'wo')
-  ods.add_element('H', 0.0057, 'wo')
-
-  weight_sum = 0
-  for nuclide in ods.nuclides:
-    weight_sum += nuclide.percent
-
-  print('\tAlloying elements (weight %): ', weight_sum)
-
-  ods.add_element('Fe', 100 - weight_sum, 'wo')
-
-  print('\tIron (weight %):             ', 100 - weight_sum)
-
-  ods.set_density('g/cc', density)
-  return ods
-
 def eurofer97(density):
   """ Return an OpenMC material for Eurofer97 RAFM steel
       (10.1016/j.fusengdes.2018.06.027). This paper gives min, max, and target values
