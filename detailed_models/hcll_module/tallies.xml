@@ -1,0 +1,14 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<tallies>
+  <mesh id="1" type="unstructured" library="libmesh">
+    <filename>/home/ajnovak2/cortex/detailed_models/hcll_module/HCLL-cm.e</filename>
+  </mesh>
+  <filter id="1" type="mesh">
+    <bins>1</bins>
+  </filter>
+  <tally id="1">
+    <filters>1</filters>
+    <scores>heating-local flux</scores>
+    <estimator>collision</estimator>
+  </tally>
+</tallies>

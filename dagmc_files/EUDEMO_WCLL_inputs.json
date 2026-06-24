@@ -1,0 +1,87 @@
+{
+  "meta": {
+    "created": "2026-03-23 13:05:43",
+    "units": "cm",
+    "blanket_model": "WCLL",
+    "description": "WCLL: 3.2 Armor | 3.0 FW | Breeder_1..6 {9,9,8,10,10,10} | Manifold_1 {8} | Support_1 {4} | Manifold_2 {4} | Structure_Shield_1 (variable) | VV_Structural_1 (separate VV column, outside layer count)"
+  },
+  "geometry": {
+    "step_file": "C:\\Users\\tpaga\\OneDrive\\Desktop\\UIUC\\step_files\\UIUC\\EUDEMO_WCLL.step",
+    "armor_cm": 3.2,
+    "fw_cm": 3.0,
+    "ob_offsets_cm": [
+      -9.0,
+      -18.0,
+      -26.0,
+      -36.0,
+      -46.0,
+      -56.0,
+      -64.0,
+      -68.0,
+      -72.0
+    ],
+    "ib_offsets_cm": [
+      -9.0,
+      -18.0,
+      -26.0,
+      -36.0,
+      -46.0,
+      -56.0,
+      -64.0,
+      -68.0,
+      -72.0
+    ],
+    "fractions": [
+      0.1,
+      0.2,
+      0.30000000000000004,
+      0.4,
+      0.5,
+      0.6000000000000001,
+      0.7000000000000001,
+      0.8,
+      0.9
+    ],
+    "ob_n_layers": 10,
+    "ib_n_layers": 10,
+    "n_breeder": 10,
+    "ob_regions": 3,
+    "ib_regions": 2,
+    "ob_layer_names": {
+      "1": "OB_Breeder_1",
+      "2": "OB_Breeder_2",
+      "3": "OB_Breeder_3",
+      "4": "OB_Breeder_4",
+      "5": "OB_Breeder_5",
+      "6": "OB_Breeder_6",
+      "7": "OB_Manifold_1",
+      "8": "OB_Support_1",
+      "9": "OB_Manifold_2",
+      "10": "OB_Structure_Shield_1"
+    },
+    "ib_layer_names": {
+      "1": "IB_Breeder_1",
+      "2": "IB_Breeder_2",
+      "3": "IB_Breeder_3",
+      "4": "IB_Breeder_4",
+      "5": "IB_Breeder_5",
+      "6": "IB_Breeder_6",
+      "7": "IB_Manifold_1",
+      "8": "IB_Support_1",
+      "9": "IB_Manifold_2",
+      "10": "IB_Structure_Shield_1"
+    }
+  },
+  "inventory": {
+    "BLANKET_FINAL": 650,
+    "Cryostat_mat_SS316_LN": 4,
+    "Divertor_mat_Homogenised_Divertor_2015": 3,
+    "Plasma_Region": 1,
+    "Poloidal_Coils_mat_Poloidal_Field_Coil": 23,
+    "PORT_FILLING": 1,
+    "RadiationShield": 3,
+    "RadiationShield_mat_SS316_LN": 1,
+    "TFCoil_mat_Toroidal_Field_Coil_2015": 1,
+    "VacuumVessel_mat_SS316_LN": 4
+  }
+}

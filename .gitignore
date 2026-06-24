@@ -1,0 +1,34 @@
+# Simulation outputs
+**/neutronics_results/
+**/neutronics_run/
+**/depletion_results/
+**/depletion_run/
+**/r2s/
+**/source_test_results/
+tallies.out
+**/tallies.out
+
+# CAD/mesh files
+*.xml
+*.cub
+*.cub5
+*.step
+
+
+# Python
+**/__pycache__/
+*.pyc
+
+# Notebooks checkpoints
+.ipynb_checkpoints/
+
+# Data files
+*.csv
+*.out
+*.png
+*.h5dagmc_files/equilibrium_eqdsk.json
+*.o*
+*.e*
+*.vtp
+*.zip
+*.DS*

@@ -1,0 +1,510 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<settings>
+  <run_mode>fixed source</run_mode>
+  <particles>10000</particles>
+  <batches>10</batches>
+  <source type="independent" strength="1.0" particle="neutron">
+    <space type="cartesian">
+      <x type="uniform" parameters="-23.1 23.1"/>
+      <y type="uniform" parameters="-83.5 83.5"/>
+      <z type="discrete">
+        <parameters>69.5 1.0</parameters>
+      </z>
+    </space>
+    <angle type="monodirectional" reference_uvw="0.0 0.0 -1.0"/>
+    <energy type="discrete">
+      <parameters>14000000.0 1.0</parameters>
+    </energy>
+  </source>
+  <photon_transport>false</photon_transport>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 68.50714285714285</lower_left>
+    <upper_right>23.1 83.5 69.5</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 67.51428571428572</lower_left>
+    <upper_right>23.1 83.5 68.50714285714285</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 66.52142857142857</lower_left>
+    <upper_right>23.1 83.5 67.51428571428572</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 65.52857142857142</lower_left>
+    <upper_right>23.1 83.5 66.52142857142857</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 64.53571428571429</lower_left>
+    <upper_right>23.1 83.5 65.52857142857142</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 63.542857142857144</lower_left>
+    <upper_right>23.1 83.5 64.53571428571429</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 62.55</lower_left>
+    <upper_right>23.1 83.5 63.542857142857144</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 61.55714285714286</lower_left>
+    <upper_right>23.1 83.5 62.55</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 60.56428571428572</lower_left>
+    <upper_right>23.1 83.5 61.55714285714286</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 59.57142857142857</lower_left>
+    <upper_right>23.1 83.5 60.56428571428572</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 58.57857142857143</lower_left>
+    <upper_right>23.1 83.5 59.57142857142857</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 57.58571428571429</lower_left>
+    <upper_right>23.1 83.5 58.57857142857143</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 56.59285714285714</lower_left>
+    <upper_right>23.1 83.5 57.58571428571429</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 55.6</lower_left>
+    <upper_right>23.1 83.5 56.59285714285714</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 54.60714285714286</lower_left>
+    <upper_right>23.1 83.5 55.6</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 53.614285714285714</lower_left>
+    <upper_right>23.1 83.5 54.60714285714286</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 52.62142857142857</lower_left>
+    <upper_right>23.1 83.5 53.614285714285714</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 51.628571428571426</lower_left>
+    <upper_right>23.1 83.5 52.62142857142857</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 50.635714285714286</lower_left>
+    <upper_right>23.1 83.5 51.628571428571426</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 49.64285714285714</lower_left>
+    <upper_right>23.1 83.5 50.635714285714286</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 48.65</lower_left>
+    <upper_right>23.1 83.5 49.64285714285714</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 47.65714285714286</lower_left>
+    <upper_right>23.1 83.5 48.65</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 46.66428571428571</lower_left>
+    <upper_right>23.1 83.5 47.65714285714286</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 45.67142857142857</lower_left>
+    <upper_right>23.1 83.5 46.66428571428571</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 44.67857142857143</lower_left>
+    <upper_right>23.1 83.5 45.67142857142857</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 43.68571428571428</lower_left>
+    <upper_right>23.1 83.5 44.67857142857143</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 42.69285714285714</lower_left>
+    <upper_right>23.1 83.5 43.68571428571428</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 41.7</lower_left>
+    <upper_right>23.1 83.5 42.69285714285714</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 40.707142857142856</lower_left>
+    <upper_right>23.1 83.5 41.7</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 39.714285714285715</lower_left>
+    <upper_right>23.1 83.5 40.707142857142856</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 38.721428571428575</lower_left>
+    <upper_right>23.1 83.5 39.714285714285715</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 37.72857142857143</lower_left>
+    <upper_right>23.1 83.5 38.721428571428575</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 36.73571428571429</lower_left>
+    <upper_right>23.1 83.5 37.72857142857143</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 35.74285714285714</lower_left>
+    <upper_right>23.1 83.5 36.73571428571429</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 34.75</lower_left>
+    <upper_right>23.1 83.5 35.74285714285714</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 33.75714285714285</lower_left>
+    <upper_right>23.1 83.5 34.75</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 32.76428571428571</lower_left>
+    <upper_right>23.1 83.5 33.75714285714285</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 31.771428571428572</lower_left>
+    <upper_right>23.1 83.5 32.76428571428571</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 30.778571428571425</lower_left>
+    <upper_right>23.1 83.5 31.771428571428572</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 29.785714285714285</lower_left>
+    <upper_right>23.1 83.5 30.778571428571425</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 28.792857142857144</lower_left>
+    <upper_right>23.1 83.5 29.785714285714285</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 27.799999999999997</lower_left>
+    <upper_right>23.1 83.5 28.792857142857144</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 26.807142857142857</lower_left>
+    <upper_right>23.1 83.5 27.799999999999997</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 25.814285714285717</lower_left>
+    <upper_right>23.1 83.5 26.807142857142857</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 24.82142857142857</lower_left>
+    <upper_right>23.1 83.5 25.814285714285717</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 23.82857142857143</lower_left>
+    <upper_right>23.1 83.5 24.82142857142857</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 22.835714285714282</lower_left>
+    <upper_right>23.1 83.5 23.82857142857143</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 21.84285714285714</lower_left>
+    <upper_right>23.1 83.5 22.835714285714282</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 20.85</lower_left>
+    <upper_right>23.1 83.5 21.84285714285714</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 19.857142857142854</lower_left>
+    <upper_right>23.1 83.5 20.85</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 18.864285714285714</lower_left>
+    <upper_right>23.1 83.5 19.857142857142854</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 17.871428571428567</lower_left>
+    <upper_right>23.1 83.5 18.864285714285714</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 16.878571428571426</lower_left>
+    <upper_right>23.1 83.5 17.871428571428567</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 15.885714285714286</lower_left>
+    <upper_right>23.1 83.5 16.878571428571426</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 14.892857142857139</lower_left>
+    <upper_right>23.1 83.5 15.885714285714286</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 13.899999999999999</lower_left>
+    <upper_right>23.1 83.5 14.892857142857139</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 12.907142857142858</lower_left>
+    <upper_right>23.1 83.5 13.899999999999999</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 11.914285714285711</lower_left>
+    <upper_right>23.1 83.5 12.907142857142858</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 10.92142857142857</lower_left>
+    <upper_right>23.1 83.5 11.914285714285711</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 9.92857142857143</lower_left>
+    <upper_right>23.1 83.5 10.92142857142857</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 8.935714285714283</lower_left>
+    <upper_right>23.1 83.5 9.92857142857143</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 7.942857142857143</lower_left>
+    <upper_right>23.1 83.5 8.935714285714283</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 6.949999999999996</lower_left>
+    <upper_right>23.1 83.5 7.942857142857143</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 5.9571428571428555</lower_left>
+    <upper_right>23.1 83.5 6.949999999999996</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 4.964285714285708</lower_left>
+    <upper_right>23.1 83.5 5.9571428571428555</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 3.971428571428575</lower_left>
+    <upper_right>23.1 83.5 4.964285714285708</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 2.9785714285714278</lower_left>
+    <upper_right>23.1 83.5 3.971428571428575</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 1.9857142857142804</lower_left>
+    <upper_right>23.1 83.5 2.9785714285714278</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 0.9928571428571473</lower_left>
+    <upper_right>23.1 83.5 1.9857142857142804</upper_right>
+  </volume_calc>
+  <volume_calc>
+    <domain_type>material</domain_type>
+    <domain_ids>1 2 3</domain_ids>
+    <samples>1000000</samples>
+    <lower_left>-23.1 -83.5 0.0</lower_left>
+    <upper_right>23.1 83.5 0.9928571428571473</upper_right>
+  </volume_calc>
+</settings>
