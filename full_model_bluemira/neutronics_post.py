@@ -2277,7 +2277,12 @@ def process_layer_region1_only(
 # MAIN RUN
 # ──────────────────────────────────────────────────────────────────────────────
 with openmc.StatePoint(str(STATEPOINT_FILE)) as sp:
-    _run_meta["batches_completed"] = int(sp.n_batches)
+    
+    # update the number of batches
+    _sp_match = re.search(r"statepoint\.(\d+)\.h5", STATEPOINT_FILE.name)
+    _run_meta["batches_completed"] = int(_sp_match.group(1)) if _sp_match else int(sp.n_batches)
+
+    # load gas map
     dpa_gas_map = build_dpa_gas_map(sp)
 
     if cfg.SIM_TYPE in ("slab", "fast_slab"):

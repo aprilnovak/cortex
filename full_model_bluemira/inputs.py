@@ -15,16 +15,17 @@ from pathlib import Path
 import os
 import sys
 import shutil
+import openmc
 
 # =============================================================================
 # SIMULATION TYPE
 # =============================================================================
-SIM_TYPE     = "tokamak"      # "tokamak"  |  "slab" | "fast_slab"
+SIM_TYPE     = "slab"      # "tokamak"  |  "slab" | "fast_slab"
 
 # =============================================================================
 # BREEDER TYPE
 # =============================================================================
-BREEDER_TYPE = "WCLL"         # "WCLL"  |  "HCLL"  |  "HCPB"
+BREEDER_TYPE = "HCPB"         # "WCLL"  |  "HCLL"  |  "HCPB"
 
 # =============================================================================
 # ENVIRONMENT FLAG
@@ -33,7 +34,7 @@ BREEDER_TYPE = "WCLL"         # "WCLL"  |  "HCLL"  |  "HCPB"
 # TESTING -> will load from previous tokamak run/folder
 # CORTEX  -> will load from file saved in the same slab folder
 #            (if not available, it will copy from tokamak run/folder)
-ENVIRONMENT  = "TESTING"      # "CORTEX"  |  "TESTING"
+ENVIRONMENT  = "CORTEX"      # "CORTEX"  |  "TESTING"
 
 # =============================================================================
 # VALIDATION
@@ -238,18 +239,18 @@ CHUNK_START_CM = 0.0
 # OPENMC RUN SETTINGS
 # =============================================================================
 if SIM_TYPE == "tokamak":
-    TALLY_CONVERGENCE_THRESHOLD = 0.1 # 10%
+    TALLY_CONVERGENCE_THRESHOLD = 0.01 # 10%
     BATCHES                     = 10
     TRIGGER_BATCH_INTERVAL      = 5
-    PARTICLES_PER_BATCH         = 100  
+    PARTICLES_PER_BATCH         = 1_000_000  
 else:
-    TALLY_CONVERGENCE_THRESHOLD = 0.1 # 10%
-    BATCHES                     = 5
-    TRIGGER_BATCH_INTERVAL      = 1
+    TALLY_CONVERGENCE_THRESHOLD = 0.01 # 10%
+    BATCHES                     = 10
+    TRIGGER_BATCH_INTERVAL      = 5
     PARTICLES_PER_BATCH         = 1_000_000 
 
 
-USE_TRIGGER            = False   # False = fixed batches, no convergence check
+USE_TRIGGER            = True   # False = fixed batches, no convergence check
 TRIGGER_MAX_BATCHES    = 2000
 
 # if USE_TRIGGER = False

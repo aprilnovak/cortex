@@ -466,7 +466,7 @@ _run_meta = {
     "sim_type":              cfg.SIM_TYPE,
     "breeder_type":          cfg.BREEDER_TYPE,
     "particles_per_batch":   cfg.PARTICLES_PER_BATCH,
-    "batches_completed":     _existing_batches_completed,  # preserve if already set
+    "batches_completed":     _existing_batches_completed,  # preserve if already set by neutronics_post.py
     "tally_ids": {
         "flux_spectrum":     flux_tally.id,
         "heating":           heating_tally.id,

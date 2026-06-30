@@ -58,7 +58,14 @@ _run_meta_path = cfg.NEUTRONICS_RESULTS_DIR / "run_meta.json"
 with open(_run_meta_path) as _f:
     _run_meta = json.load(_f)
 
-_neutronics_batches = int(_run_meta.get("batches_completed") or cfg.FIXED_BATCHES)
+_neutronics_batches = _run_meta.get("batches_completed")
+if _neutronics_batches is None:
+    raise RuntimeError(
+        "[depletion] batches_completed is null in run_meta.json. "
+        "Run neutronics_post.py before depletion_model.py."
+    )
+_neutronics_batches = int(_neutronics_batches)
+
 _neutronics_ppb     = int(_run_meta.get("particles_per_batch") or cfg.PARTICLES_PER_BATCH)
 print(f"[Loading] Matching neutronics: {_neutronics_batches} batches × {_neutronics_ppb} particles")
 
