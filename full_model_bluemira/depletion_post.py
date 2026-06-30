@@ -252,8 +252,8 @@ def _select_topn(
     label: str = "",
 ) -> list[tuple[str, float]]:
     """
-    Add nuclides until the next incremental contribution drops below 5% of
-    total.  More robust than a fixed top-95% cut at short cooling times.
+    Add nuclides until the next incremental contribution drops below 15% of
+    total. More robust than a fixed top-95% cut at short cooling times.
     """
     total = 0.0
     for i in range(len(sorted_items)):
@@ -273,7 +273,7 @@ def _select_topn(
         if (i == 0 and running_total / total >= 0.99):
             index = i
             break
-        if ((running_total - prev_running_total) / total <= 0.05):
+        if ((running_total - prev_running_total) / total <= 0.15):
             index = i
             break
 
