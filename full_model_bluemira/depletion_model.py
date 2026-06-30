@@ -32,9 +32,14 @@ from openmc.deplete import d1s
 
 import json
 import h5py
+import os
 
 import inputs as cfg
 import geometry as geo
+
+# Changes the random number seed to initiate the depletion run; used in conjunction
+# with run_statistics_depletion.py
+#model.settings.seed = int(os.getenv('OPENMC_RNG_SEED'))
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Feature toggles
@@ -235,10 +240,16 @@ _milestones_s = np.array([
     1_000 * y_to_s,     # 1000 years
 ], dtype=float)
 
-# 2 interior log-spaced points between each consecutive milestone pair
+# 3 interior log-spaced points between each consecutive milestone pair
+# except for the last three, where we add 8
 _between_s = []
+cnt = 0
 for _a, _b in zip(_milestones_s[:-1], _milestones_s[1:]):
-    _between_s.extend(np.logspace(np.log10(_a), np.log10(_b), 4)[1:-1].tolist())
+    if (cnt >= 6):
+      _between_s.extend(np.logspace(np.log10(_a), np.log10(_b), 10)[1:-1].tolist())
+    else:
+      _between_s.extend(np.logspace(np.log10(_a), np.log10(_b), 5)[1:-1].tolist())
+    cnt += 1
 
 cooling_times_abs_s = np.unique(
     np.concatenate([_milestones_s, _between_s])
@@ -489,6 +500,11 @@ if RUN_D1S:
         if cfg.SIM_TYPE == "tokamak"
         else {}
     )
+    dose_std_dev_time_by_cell = (
+        {plasma_vol_id: [], vvportfill_vol_id: []}
+        if cfg.SIM_TYPE == "tokamak"
+        else {}
+    )
     profiles          = []
     cell_col          = "cell"  # default; overwritten inside loop
 
@@ -505,6 +521,7 @@ if RUN_D1S:
 
         d1s_df[cell_col]      = pd.to_numeric(d1s_df[cell_col]).astype(int)
         d1s_df["mean"]        = pd.to_numeric(d1s_df["mean"])
+        d1s_df["std. dev."]   = pd.to_numeric(d1s_df["std. dev."])
 
         # Map volumes
         d1s_df["cell_volume"] = d1s_df[cell_col].map(vol_by_cell_all)
@@ -520,6 +537,9 @@ if RUN_D1S:
         )
         d1s_df["mSv/h"] = (
             d1s_df["mean"] * (s_to_h * to_mSv) / d1s_df["cell_volume"]
+        )
+        d1s_df["std. dev. μSv/h"] = (
+            d1s_df["std. dev."] * (s_to_h * to_μSv) / d1s_df["cell_volume"]
         )
 
         # --------------------------------------------------
@@ -538,6 +558,12 @@ if RUN_D1S:
                         f"Missing μSv/h row for cid={cid} at t={t_cool:.3e}s"
                     )
                 dose_time_by_cell[cid].append(float(sub.iloc[0]))
+                sub = df_time.loc[df_time[cell_col] == cid, "std. dev. μSv/h"]
+                if len(sub) == 0:
+                    raise RuntimeError(
+                        f"Missing std. dev. μSv/h row for cid={cid} at t={t_cool:.3e}s"
+                    )
+                dose_std_dev_time_by_cell[cid].append(float(sub.iloc[0]))
 
         # --------------------------------------------------
         # (B) Spatial profile: OB chunk
@@ -570,6 +596,8 @@ if RUN_D1S:
     if cfg.SIM_TYPE == "tokamak":
         t_rel_plot   = [t / SECONDS_PER_YEAR for t in time_s]
         plasma_doses = dose_time_by_cell[int(plasma_vol_id)]
+        hi = [plasma_doses[i] + dose_std_dev_time_by_cell[int(plasma_vol_id)][i] for i in range(len(plasma_doses))]
+        lo = [plasma_doses[i] - dose_std_dev_time_by_cell[int(plasma_vol_id)][i] for i in range(len(plasma_doses))]
 
         fig, ax = plt.subplots()
         ax.set_xscale("log")
@@ -579,13 +607,15 @@ if RUN_D1S:
         if has_positive:
             ax.set_yscale("log")
 
-        ax.plot(t_rel_plot, plasma_doses)
+        ax.plot(t_rel_plot, plasma_doses, marker='o', color='b', markersize=3)
+        ax.fill_between(t_rel_plot, hi, lo,
+                        alpha=0.25, lw=0, color='b')
         ax.axhline(0.1,   linestyle="--", color="k", linewidth=1.0)
         ax.axhline(10,    linestyle="--", color="k", linewidth=1.0)
         ax.axhline(10000, linestyle="--", color="k", linewidth=1.0)
-        ax.text(1e-9, 0.1   * 1.5, "Natural background")
-        ax.text(1e-9, 10    * 1.5, "Hands-on limit")
-        ax.text(1e-9, 10000 * 1.5, "Remote recycling limit")
+        ax.text(5e-8, 0.1   * 1.5, "Natural background")
+        ax.text(5e-8, 10    * 1.5, "Hands-on limit")
+        ax.text(5e-8, 10000 * 1.5, "Remote recycling limit")
         ax.set_ylabel("Shutdown Dose [μSv/h]")
         ax.set_xlabel("Cooling Time [y]")
 
@@ -646,6 +676,8 @@ if RUN_D1S:
             "t_y": [t / y_to_s for t in time_s],
             f"plasma_cell{int(plasma_vol_id)}_uSvh":
                 list(dose_time_by_cell[int(plasma_vol_id)]),
+            f"plasma_cell{int(plasma_vol_id)}_uSvh_std_dev":
+                list(dose_std_dev_time_by_cell[int(plasma_vol_id)]),
             f"vvpf_cell{int(vvportfill_vol_id)}_uSvh":
                 list(dose_time_by_cell[int(vvportfill_vol_id)]),
         }).to_csv(SDR_DIR / "sdr_timeseries_plasma_vvpf.csv", index=False)
