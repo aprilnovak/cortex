@@ -183,7 +183,7 @@ armor_material      = materials.W(19.3)
 structural_material = materials.eurofer97(7.87)
 vv_material = materials.ss316Ln_ig(7.93)
 
-# FS&T paper: The comments that follow here were used for the FS&T paper; please leave these
+# ----------- The comments that follow here were used for the FS&T paper; please leave these
 #             as a reference for the future
 
 # for stochastic sampling of the tungsten armor composition, to be used in tandem with
@@ -201,7 +201,6 @@ vv_material = materials.ss316Ln_ig(7.93)
 #structural_material = materials.ht9(7.86)
 #structural_material = materials.ods_eurofer(7.87)
 
-# FS&T paper
 
 # Breeder-specific materials
 if BREEDER_TYPE == "WCLL":
@@ -258,18 +257,18 @@ CHUNK_START_CM = 0.0
 # OPENMC RUN SETTINGS
 # =============================================================================
 if SIM_TYPE == "tokamak":
-    TALLY_CONVERGENCE_THRESHOLD = 0.1 # 10%
+    TALLY_CONVERGENCE_THRESHOLD = 0.01
     BATCHES                     = 10
-    TRIGGER_BATCH_INTERVAL      = 5
-    PARTICLES_PER_BATCH         = 100  
+    TRIGGER_BATCH_INTERVAL      = 10
+    PARTICLES_PER_BATCH         = 1_000_000
 else:
-    TALLY_CONVERGENCE_THRESHOLD = 0.1 # 10%
-    BATCHES                     = 5
-    TRIGGER_BATCH_INTERVAL      = 1
-    PARTICLES_PER_BATCH         = 1_000_000 
+    TALLY_CONVERGENCE_THRESHOLD = 0.01
+    BATCHES                     = 10
+    TRIGGER_BATCH_INTERVAL      = 10
+    PARTICLES_PER_BATCH         = 1_000_000
 
 
-USE_TRIGGER            = False   # False = fixed batches, no convergence check
+USE_TRIGGER            = True  # False = fixed batches, no convergence check
 TRIGGER_MAX_BATCHES    = 2000
 
 # if USE_TRIGGER = False
@@ -291,7 +290,7 @@ SURFACE_SOURCE_MAX_PARTICLES = 1_000_000
 
 if SIM_TYPE == "tokamak":
     DO_ALBEDO       = True
-    DO_CHECK_SOURCE = False
+    DO_CHECK_SOURCE = True
     #TRACKS = True
 else:
     DO_ALBEDO       = False
