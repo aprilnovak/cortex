@@ -779,7 +779,7 @@ if RUN_D1S:
         ax.set_ylim(bottom=0.01)
         ax.set_ylabel("Shutdown Dose [μSv/h]")
         ax.set_xlabel("Cooling Time [y]")
-        ax.set_title(f"D1S SDR — {tag} ({OB_KEY})")
+        ax.set_title(f"D1S SDR — {tag}")
         fig.tight_layout()
 
         # filename: zero-padded layer index so files sort correctly
