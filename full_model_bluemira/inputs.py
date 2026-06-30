@@ -178,12 +178,32 @@ print("materials file:", materials.__file__)
 print("SIM_TYPE:", SIM_TYPE)
 print("BREEDER_TYPE:", BREEDER_TYPE)
 
-# Materials common to all breeder types 
+# Materials common to all breeder types
 armor_material      = materials.W(19.3)
 structural_material = materials.eurofer97(7.87)
 vv_material = materials.ss316Ln_ig(7.93)
 
-# Breeder-specific materials 
+# FS&T paper: The comments that follow here were used for the FS&T paper; please leave these
+#             as a reference for the future
+
+# for stochastic sampling of the tungsten armor composition, to be used in tandem with
+# either run_tungsten.py or run_tungsten_depletion.py
+#armor_material      = materials.W(19.3, os.getenv('OPENMC_MATERIAL_SEED'))
+
+# for stochastic sampling of the eurofer structural composition, to be used in tandem with
+# either run_eurofer.py or run_eurofer_depletion.py
+#structural_material = materials.eurofer97(7.87, os.getenv('OPENMC_MATERIAL_SEED'))
+
+# other structural materials explored in the FS&T paper
+#structural_material = materials.V4Cr4Ti(6.05)
+#structural_material = materials.SiC(2.5)
+#structural_material = materials.inconel718(8.19)
+#structural_material = materials.ht9(7.86)
+#structural_material = materials.ods_eurofer(7.87)
+
+# FS&T paper
+
+# Breeder-specific materials
 if BREEDER_TYPE == "WCLL":
     coolant_material    = materials.Water(0.866)       # pressurised water
     breeder_material    = materials.PbLi(0.90, 9.8)    # 90% Li6 enriched
