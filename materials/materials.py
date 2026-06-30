@@ -1,6 +1,7 @@
 import openmc
 import openmc.data
 import re
+import random
 
 # This file defines default materials to populate into existing models
 
@@ -27,7 +28,6 @@ def ods_eurofer(density):
     weight_sum += nuclide.percent
 
   ods_eurofer.add_element('Fe', 1 - weight_sum, 'wo')
-  print('\tIron (weight %):    ', (1 - weight_sum) * 100)
   ods_eurofer.set_density('g/cc', density)
   return ods_eurofer
 
@@ -36,6 +36,7 @@ def clam(density):
       heat listed in the composition table. For a density, April arbitrarily assumed 7.80 g/cc
       because could not find a good reference.
   """
+
   clam = openmc.Material()
   clam.add_element('Cr', 8.86*1e-2, 'wo')
   clam.add_element('W', 1.48*1e-2, 'wo')
@@ -55,7 +56,6 @@ def clam(density):
     weight_sum += nuclide.percent
 
   clam.add_element('Fe', 1 - weight_sum, 'wo')
-  print('\tIron (weight %):    ', (1 - weight_sum) * 100)
   clam.set_density('g/cc', density)
   return clam
 
@@ -86,7 +86,6 @@ def f82h(density):
     weight_sum += nuclide.percent
 
   f82h.add_element('Fe', 1 - weight_sum, 'wo')
-  print('\tIron (weight %):    ', (1 - weight_sum) * 100)
   f82h.set_density('g/cc', density)
   return f82h
 
@@ -121,7 +120,6 @@ def ht9(density):
     weight_sum += nuclide.percent
 
   ht9.add_element('Fe', 1 - weight_sum, 'wo')
-  print('\tIron (weight %):    ', (1 - weight_sum) * 100)
   ht9.set_density('g/cc', density)
   return ht9
 
@@ -152,8 +150,6 @@ def inconel718(density):
     weight_sum += nuclide.percent
 
   inconel718.add_element('Fe', 1 - weight_sum, 'wo')
-  print('Adding Inconel material...')
-  print('\tIron (weight %):    ', (1 - weight_sum) * 100)
   inconel718.set_density('g/cc', density)
   return inconel718
 
@@ -197,12 +193,8 @@ def V4Cr4Ti(density):
     weight_sum += nuclide.percent
 
   V4Cr4Ti.add_element('V', 1 - weight_sum, 'wo')
-  print('Adding Vanadium material...')
-  print('\tVanadium (weight %):    ', (1 - weight_sum) * 100)
-
   V4Cr4Ti.set_density('g/cc', density)
   return V4Cr4Ti
-
 
 def PbLi(li6_enrichment, density):
   """ Return an OpenMC material for PbLi. We first add the impurity concentrations
@@ -220,8 +212,6 @@ def PbLi(li6_enrichment, density):
       li6_enrichment -- the Li6 enrichment in Li [atomic percent]
       density -- the overall density of the material [g/cc]
   """
-
-  print('Adding PbLi material...')
 
   PbLi = openmc.Material()
 
@@ -247,8 +237,6 @@ def PbLi(li6_enrichment, density):
   for nuclide in PbLi.nuclides:
     weight_sum += nuclide.percent
 
-  print('\tImpurities (weight %): ', weight_sum * 100)
-
   # TODO: I don't know if these papers are using weight or atomic percents.
   # Try to find which one. Here, I am assuming atomic.
   molar_mass_lithium = li6_enrichment * openmc.data.atomic_mass('Li6') + \
@@ -258,7 +246,6 @@ def PbLi(li6_enrichment, density):
   li_weight_percent = 0.62e-2 * (1 - weight_sum)
   li6_grams_in_1_g_li = li6_enrichment * openmc.data.atomic_mass('Li6') / molar_mass_lithium
   li7_grams_in_1_g_li = 1.0 - li6_grams_in_1_g_li
-  print('\tLithium (weight %):    ', li_weight_percent * 100)
 
   PbLi.add_nuclide('Li6', li6_grams_in_1_g_li * li_weight_percent, 'wo')
   weight_sum += li6_grams_in_1_g_li * li_weight_percent
@@ -267,13 +254,12 @@ def PbLi(li6_enrichment, density):
 
   # total Pb concentration taken as 99.38% by weight of whatever remains after impurities
   PbLi.add_element('Pb', 0.9938 * (1 - weight_sum), 'wo')
-  print('\tLead (weight %):    ', (1 - weight_sum) * 100)
 
   PbLi.set_density('g/cc', density)
   PbLi.depletable = False
   return PbLi
 
-def eurofer97(density):
+def eurofer97(density, seed=-1):
   """ Return an OpenMC material for Eurofer97 RAFM steel
       (10.1016/j.fusengdes.2018.06.027). This paper gives min, max, and target values
       for the main alloying elements, and maximum values for impurities (radiologically
@@ -290,48 +276,69 @@ def eurofer97(density):
         - for the As, Sn, Sb, and Zr (these are lumped together), we assume the 0.05 weight % is evenly split among these
   """
   eurofer97 = openmc.Material()
-  eurofer97.add_element('C', 0.11, 'wo')
-  eurofer97.add_element('Cr', 9.0, 'wo')
-  eurofer97.add_element('W', 1.1, 'wo')
-  eurofer97.add_element('Mn', 0.4, 'wo')
-  eurofer97.add_element('V', (0.25 + 0.15)/2, 'wo')
-  eurofer97.add_element('Ta', 0.12, 'wo')
-  eurofer97.add_element('N', 0.03, 'wo')
-  eurofer97.add_element('P', 0.005, 'wo')
-  eurofer97.add_element('S', 0.005, 'wo')
-  eurofer97.add_element('B', 0.002, 'wo')
-  eurofer97.add_element('O', 0.01, 'wo')
 
-  alloy_weight_sum = 0
-  for nuclide in eurofer97.nuclides:
-    alloy_weight_sum += nuclide.percent
+  if (seed == -1):
+    # no random sampling
+    eurofer97.add_element('C', 0.11, 'wo')
+    eurofer97.add_element('Cr', 9.0, 'wo')
+    eurofer97.add_element('W', 1.1, 'wo')
+    eurofer97.add_element('Mn', 0.4, 'wo')
+    eurofer97.add_element('V', (0.25 + 0.15)/2, 'wo')
+    eurofer97.add_element('Ta', 0.12, 'wo')
+    eurofer97.add_element('N', 0.03, 'wo')
+    eurofer97.add_element('P', 0.005, 'wo')
+    eurofer97.add_element('S', 0.005, 'wo')
+    eurofer97.add_element('B', 0.002, 'wo')
+    eurofer97.add_element('O', 0.01, 'wo')
 
-  print('Adding Eurofer97 material...')
-  print('\tAlloying elements (weight %): ', alloy_weight_sum)
+    # impurities
+    eurofer97.add_element('Nb', 0.005, 'wo')
+    eurofer97.add_element('Mo', 0.005, 'wo')
+    eurofer97.add_element('Ni', 0.01, 'wo')
+    eurofer97.add_element('Cu', 0.01, 'wo')
+    eurofer97.add_element('Al', 0.01, 'wo')
+    eurofer97.add_element('Ti', 0.02, 'wo')
+    eurofer97.add_element('Si', 0.05, 'wo')
+    eurofer97.add_element('Co', 0.01, 'wo')
+    eurofer97.add_element('As', 0.05/4, 'wo')
+    eurofer97.add_element('Sn', 0.05/4, 'wo')
+    eurofer97.add_element('Sb', 0.05/4, 'wo')
+    eurofer97.add_element('Zr', 0.05/4, 'wo')
+  else:
+    # random sampling
+    random.seed(seed)
+    eurofer97.add_element('C', 0.09 + (0.12-0.09)*random.random(), 'wo')
+    eurofer97.add_element('Cr', 8.5+(9.5-8.5)*random.random(), 'wo')
+    eurofer97.add_element('W', 1.0 + (1.2-1.0)*random.random(), 'wo')
+    eurofer97.add_element('Mn', 0.2 + (0.6-0.2)*random.random(), 'wo')
+    eurofer97.add_element('V', 0.15 + (0.25-0.15)*random.random(), 'wo')
+    eurofer97.add_element('Ta', 0.10 + (0.14-0.10)*random.random(), 'wo')
+    eurofer97.add_element('N', 0.03 + (0.09-0.03)*random.random(), 'wo')
+    eurofer97.add_element('P', 0.0 + 0.005*random.random(), 'wo')
+    eurofer97.add_element('S', 0.0 + 0.005*random.random(), 'wo')
+    eurofer97.add_element('B', 0.0 + 0.002*random.random(), 'wo')
+    eurofer97.add_element('O', 0.0 + 0.01*random.random(), 'wo')
 
-  # impurities
-  eurofer97.add_element('Nb', 0.005, 'wo')
-  eurofer97.add_element('Mo', 0.005, 'wo')
-  eurofer97.add_element('Ni', 0.01, 'wo')
-  eurofer97.add_element('Cu', 0.01, 'wo')
-  eurofer97.add_element('Al', 0.01, 'wo')
-  eurofer97.add_element('Ti', 0.02, 'wo')
-  eurofer97.add_element('Si', 0.05, 'wo')
-  eurofer97.add_element('Co', 0.01, 'wo')
-  eurofer97.add_element('As', 0.05/4, 'wo')
-  eurofer97.add_element('Sn', 0.05/4, 'wo')
-  eurofer97.add_element('Sb', 0.05/4, 'wo')
-  eurofer97.add_element('Zr', 0.05/4, 'wo')
+    # impurities
+    eurofer97.add_element('Nb', 0 + 0.005*random.random(), 'wo')
+    eurofer97.add_element('Mo', 0 + 0.005*random.random(), 'wo')
+    eurofer97.add_element('Ni', 0 + 0.01*random.random(), 'wo')
+    eurofer97.add_element('Cu', 0 + 0.01*random.random(), 'wo')
+    eurofer97.add_element('Al', 0 + 0.01*random.random(), 'wo')
+    eurofer97.add_element('Ti', 0 + 0.02*random.random(), 'wo')
+    eurofer97.add_element('Si', 0 + 0.05*random.random(), 'wo')
+    eurofer97.add_element('Co', 0 + 0.01*random.random(), 'wo')
+    eurofer97.add_element('As', 0 + 0.05/4*random.random(), 'wo')
+    eurofer97.add_element('Sn', 0 + 0.05/4*random.random(), 'wo')
+    eurofer97.add_element('Sb', 0 + 0.05/4*random.random(), 'wo')
+    eurofer97.add_element('Zr', 0 + 0.05/4*random.random(), 'wo')
 
+  # add the balance of iron
   weight_sum = 0
   for nuclide in eurofer97.nuclides:
     weight_sum += nuclide.percent
 
-  print('\tImpurity elements (weight %): ', weight_sum - alloy_weight_sum)
-
   eurofer97.add_element('Fe', 100 - weight_sum, 'wo')
-
-  print('\tIron (weight %):             ', 100 - weight_sum)
 
   eurofer97.set_density('g/cc', density)
   return eurofer97
@@ -355,7 +362,7 @@ def Helium(density):
   helium.set_density('g/cc', density)
   return helium
 
-def W(density):
+def W(density, seed=-1):
   """ Return an OpenMC material for tungsten.
 
   https://doi.org/10.1016/j.fusengdes.2021.112646
@@ -366,17 +373,33 @@ def W(density):
   """
 
   tungsten = openmc.Material()
-  tungsten.add_element('W', 99.94, 'wo')
-  tungsten.add_element('Ni', 0.01, 'wo')
-  tungsten.add_element('Fe', 0.01, 'wo')
-  tungsten.add_element('Si', 0.01, 'wo')
-  tungsten.add_element('O', 0.01, 'wo')
-  tungsten.add_element('N', 0.01, 'wo')
-  tungsten.add_element('C', 0.01, 'wo')
+
+  if (seed == -1):
+    # no sampling
+    tungsten.add_element('W', 99.94, 'wo')
+    tungsten.add_element('Ni', 0.01, 'wo')
+    tungsten.add_element('Fe', 0.01, 'wo')
+    tungsten.add_element('Si', 0.01, 'wo')
+    tungsten.add_element('O', 0.01, 'wo')
+    tungsten.add_element('N', 0.01, 'wo')
+    tungsten.add_element('C', 0.01, 'wo')
+  else:
+    random.seed(seed)
+    tungsten.add_element('Ni', 0.01e-2*random.random(), 'wo')
+    tungsten.add_element('Fe', 0.01e-2*random.random(), 'wo')
+    tungsten.add_element('Si', 0.01e-2*random.random(), 'wo')
+    tungsten.add_element('O', 0.01e-2*random.random(), 'wo')
+    tungsten.add_element('N', 0.01e-2*random.random(), 'wo')
+    tungsten.add_element('C', 0.01e-2*random.random(), 'wo')
+
+    weight_sum = 0
+    for nuclide in tungsten.nuclides:
+      weight_sum += nuclide.percent
+
+    tungsten.add_element('W', 1 - weight_sum, 'wo')
+
   tungsten.set_density('g/cc', density)
   return tungsten
-
-
 
 def CuCrZr(density):
   """ Return an OpenMC material for CuCrZr.
@@ -640,8 +663,6 @@ def ss304_b4(density):
     weight_sum += nuclide.percent
 
   ss304b4.add_element('Fe', 100 - weight_sum, 'wo')
-
-  #print('\tIron (weight %):             ', 100 - weight_sum)
   ss304b4.set_density('g/cc', density)
   return ss304b4
 
@@ -696,9 +717,6 @@ def ss316Ln_ig(density):
     weight_sum += nuclide.percent
 
   ss316Ln_ig.add_element('Fe', 100 - weight_sum, 'wo')
-
-  #print('\tIron (weight %):             ', 100 - weight_sum)
-
   ss316Ln_ig.set_density('g/cc', density)
   return ss316Ln_ig
 
