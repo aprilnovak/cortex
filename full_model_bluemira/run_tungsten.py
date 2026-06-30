@@ -2,7 +2,7 @@ import random
 import os
 
 # Runs the neutronics_model.py script 'ns' times, each with a different random number
-# seed. That random number seed is then applied in the neutronics_model.py to change
+# seed. That random number seed is then applied in the inputs.py to change
 # eurofer structural material composition stochastically. This script was used to
 # do the stochastic sampling of eurofer composition for transport (not depletion) in the WCLL blanket
 # for the FS&T paper. This script will launch jobs on Improv, wait until results are obtained,
