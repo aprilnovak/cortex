@@ -114,7 +114,7 @@ in `cardinal/config/moab.mk`:
        -DENABLE_PYMOAB=ON \
 ```
 
-Compile Cardinal following the without-conda instructions (here)[https://cardinal.cels.anl.gov/without_conda.html]. After you have obtained the cardinal executable, the last step is to install pymoab.
+Compile Cardinal following the without-conda instructions [here](https://cardinal.cels.anl.gov/without_conda.html). After you have obtained the cardinal executable, the last step is to install pymoab.
 
 ```
 cd cardinal/build/moab
