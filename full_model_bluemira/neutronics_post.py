@@ -768,6 +768,17 @@ def _build_special_surfaces(
 
     return special, special_ids, owner, debug
 
+def _oriented_sign_for_cell(info: dict, cid: int, sid: int) -> float:
+    """
+    Return +1 if this surface's OpenMC-positive current direction points
+    INTO cell cid, or -1 if it points OUT of cell cid — based on the
+    DAGMC-file forward/reverse sense.
+    """
+    for entry in info.get(int(cid), {}).get("all_surfaces", []):
+        if int(entry["surface_id"]) == int(sid):
+            return 1.0 if entry["orientation"] == geo._Orientation.FORWARD else -1.0
+    raise KeyError(f"surface {sid} not found for cell {cid}")
+
 def compute_albedo_for_chunk(
     sp: openmc.StatePoint,
     *,
@@ -910,6 +921,7 @@ def compute_albedo_for_chunk(
 
             Jnet_m, Jnet_s = Jnet_by_sid_particle[(sid, particle)]
             Jout_m, Jout_s = partial_by_cell_sid_particle.get((cid, sid, particle), (0.0, 0.0))
+
             Jnet_a = abs(Jnet_m)
             Jout_a = abs(Jout_m)
             Jin    = abs(Jout_a - Jnet_a)
@@ -1027,9 +1039,13 @@ def compute_albedo_for_chunk(
             key = str(r.get("special_key", ""))
             if key != "Armor_front_ext":
                 continue
-            J_out     = abs(float(r["J_out_mean"]))
-            J_net     = abs(float(r["J_total_mean"])) if pd.notna(r["J_total_mean"]) else 0.0
-            J_in      = abs(J_out - J_net)
+            J_out_signed = float(r["J_out_mean"])
+            J_net_signed = float(r["J_total_mean"]) if pd.notna(r["J_total_mean"]) else 0.0
+            sign_into_cell  = _oriented_sign_for_cell(info, int(r["cell_id"]), int(r["surface_id"]))
+            J_net_into_cell = sign_into_cell * J_net_signed
+            J_in      = abs(J_out_signed - J_net_into_cell)
+            J_out     = abs(J_out_signed)
+            J_net     = J_net_signed
             J_out_std = abs(float(r["J_out_std"]))
             J_net_std = abs(float(r["J_total_std"])) if pd.notna(r["J_total_std"]) else 0.0
             J_in_std  = math.sqrt(J_out_std ** 2 + J_net_std ** 2)

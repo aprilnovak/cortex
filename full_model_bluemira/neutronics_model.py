@@ -108,11 +108,13 @@ else:
         )
     model.settings.surf_source_read = {"path": str(cfg.SURFACE_SOURCE_FILE)}
 
+    NEUTRON_IDS = {0, 2112}
+
     # Check ratio of neutrons on source file
     with h5py.File(str(cfg.SURFACE_SOURCE_FILE), "r") as f:
         particles = f["source_bank"]["particle"][:]
     total      = len(particles)
-    n_neutrons = int((particles == 0).sum())
+    n_neutrons = int(np.isin(particles, list(NEUTRON_IDS)).sum())
     neutron_ratio_source: float = total / n_neutrons if n_neutrons > 0 else 1.0
     print(
         f"Surface source: {total} particles, {n_neutrons} neutrons "

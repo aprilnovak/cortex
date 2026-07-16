@@ -174,7 +174,7 @@ def _build_tokamak_geometry() -> openmc.Cell:
     cut_hi = _azimuthal_plane(theta1, boundary_type="reflective", surface_id=100_002)
     z_min  = openmc.ZPlane(z0=-3000, boundary_type="vacuum",      surface_id=100_003)
     z_max  = openmc.ZPlane(z0=+2000, boundary_type="vacuum",      surface_id=100_004)
-    r_out  = openmc.ZCylinder(r=3000, boundary_type="vacuum",     surface_id=100_005)
+    r_out  = openmc.ZCylinder(r=cfg.TOKAMAK_R_OUT_CM, boundary_type="vacuum",     surface_id=100_005)
     region = (+cut_lo & -cut_hi) & (+z_min & -z_max) & (-r_out)
     return openmc.Cell(
         cell_id=10_000, region=region, fill=dagmc_universe, name="sector_container"

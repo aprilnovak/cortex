@@ -241,6 +241,7 @@ else:
 
 SLAB_R_IN_CM       = 1130.0  # DO NOT CHANGE 
 SLAB_R_OUT_CM      = 1380.0  # DO NOT CHANGE 
+TOKAMAK_R_OUT_CM   = 3000.0  # Test OUTVESSEL (DEFAULT = 3000.0)
 
 # =============================================================================
 # REACTOR POWER & SOURCE SCALING
