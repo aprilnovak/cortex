@@ -773,11 +773,72 @@ def _oriented_sign_for_cell(info: dict, cid: int, sid: int) -> float:
     Return +1 if this surface's OpenMC-positive current direction points
     INTO cell cid, or -1 if it points OUT of cell cid — based on the
     DAGMC-file forward/reverse sense.
+
+    This is metadata-based (DAGMC sense tag), not derived from tally data.
+    It's only trusted as a fallback when the partial current itself is too
+    close to zero to reveal direction statistically — see
+    _orient_partial_current below.
     """
     for entry in info.get(int(cid), {}).get("all_surfaces", []):
         if int(entry["surface_id"]) == int(sid):
             return 1.0 if entry["orientation"] == geo._Orientation.FORWARD else -1.0
     raise KeyError(f"surface {sid} not found for cell {cid}")
+
+
+def _orient_partial_current(
+    *,
+    info: dict,
+    cid: int,
+    sid: int,
+    raw_mean: float,
+    raw_std: float,
+) -> Tuple[float, float, float]:
+    """
+    Interpret a CellFromFilter partial-current tally.
+
+    CellFromFilter selects only particles originating in `cid`, so this
+    tally is, by construction, current leaving that cell — in whichever
+    direction OpenMC's native surface-normal sign assigns to it.
+
+    OpenMC retains the native surface-normal sign:
+        raw_mean > 0: native positive direction is outward from the cell
+        raw_mean < 0: native negative direction is outward from the cell
+
+    Returns
+    -------
+    Jout
+        Positive magnitude of current leaving the cell.
+    Jout_std
+        Standard deviation of Jout.
+    outward_sign
+        Multiplier that converts a net-current tally's native sign (same
+        surface, same "current" score) into the "outward from this cell"
+        convention.
+    """
+    raw_mean = float(raw_mean)
+    raw_std  = abs(float(raw_std))
+
+    if abs(raw_mean) <= max(5.0 * raw_std, 1e-30):
+        # The direction cannot be determined reliably from a current
+        # statistically consistent with zero.
+        #
+        # Fall back to the geometry orientation only for this zero-current
+        # case. _oriented_sign_for_cell returns +1 if the surface's
+        # OpenMC-positive direction points INTO cid, so outward is the
+        # negation of that.
+        outward_sign = -_oriented_sign_for_cell(info, cid, sid)
+    else:
+        # Statistically confident: sign(raw_mean) IS OpenMC's own
+        # convention for "outward from cid" on this surface — because
+        # CellFromFilter guarantees every scored crossing here is leaving
+        # cid, and OpenMC's "current" score uses one fixed sign convention
+        # per surface for all crossings, regardless of which filters are
+        # attached to the tally.
+        outward_sign = 1.0 if raw_mean > 0.0 else -1.0
+
+    Jout = abs(raw_mean)
+
+    return Jout, raw_std, outward_sign
 
 def compute_albedo_for_chunk(
     sp: openmc.StatePoint,
@@ -922,16 +983,19 @@ def compute_albedo_for_chunk(
             Jnet_m, Jnet_s = Jnet_by_sid_particle[(sid, particle)]
             Jout_m, Jout_s = partial_by_cell_sid_particle.get((cid, sid, particle), (0.0, 0.0))
 
-            Jnet_a = abs(Jnet_m)
-            Jout_a = abs(Jout_m)
-            Jin    = abs(Jout_a - Jnet_a)
+            Jout_a, Jout_s, outward_sign = _orient_partial_current(
+                info=info, cid=cid, sid=sid,
+                raw_mean=Jout_m, raw_std=Jout_s,
+            )
+            Jnet_rel = outward_sign * Jnet_m   # net current, "outward from cid" convention
+            Jin      = abs(Jout_a - Jnet_rel)
 
             if Jout_a < eps:
                 A_mean = A_std = 0.0
             else:
                 A_mean   = Jin / Jout_a
-                dA_dJout = Jnet_a / (Jout_a ** 2)
-                dA_dJnet = -1.0   / Jout_a
+                dA_dJout = Jnet_rel / (Jout_a ** 2)
+                dA_dJnet = -1.0     / Jout_a
                 A_var    = (dA_dJout ** 2) * (Jout_s ** 2) + (dA_dJnet ** 2) * (Jnet_s ** 2)
                 A_std    = math.sqrt(max(A_var, 0.0))
 
@@ -1041,11 +1105,16 @@ def compute_albedo_for_chunk(
                 continue
             J_out_signed = float(r["J_out_mean"])
             J_net_signed = float(r["J_total_mean"]) if pd.notna(r["J_total_mean"]) else 0.0
-            sign_into_cell  = _oriented_sign_for_cell(info, int(r["cell_id"]), int(r["surface_id"]))
-            J_net_into_cell = sign_into_cell * J_net_signed
-            J_in      = abs(J_out_signed - J_net_into_cell)
-            J_out     = abs(J_out_signed)
-            J_net     = J_net_signed
+
+            J_out, _J_out_std_r, outward_sign = _orient_partial_current(
+                info=info,
+                cid=int(r["cell_id"]),
+                sid=int(r["surface_id"]),
+                raw_mean=J_out_signed,
+                raw_std=float(r["J_out_std"]),
+            )
+            J_net_rel = outward_sign * J_net_signed
+            J_in      = abs(J_out - J_net_rel)
             J_out_std = abs(float(r["J_out_std"]))
             J_net_std = abs(float(r["J_total_std"])) if pd.notna(r["J_total_std"]) else 0.0
             J_in_std  = math.sqrt(J_out_std ** 2 + J_net_std ** 2)
