@@ -773,11 +773,6 @@ def _oriented_sign_for_cell(info: dict, cid: int, sid: int) -> float:
     Return +1 if this surface's OpenMC-positive current direction points
     INTO cell cid, or -1 if it points OUT of cell cid — based on the
     DAGMC-file forward/reverse sense.
-
-    This is metadata-based (DAGMC sense tag), not derived from tally data.
-    It's only trusted as a fallback when the partial current itself is too
-    close to zero to reveal direction statistically — see
-    _orient_partial_current below.
     """
     for entry in info.get(int(cid), {}).get("all_surfaces", []):
         if int(entry["surface_id"]) == int(sid):
@@ -794,13 +789,7 @@ def _orient_partial_current(
     raw_std: float,
 ) -> Tuple[float, float, float]:
     """
-    Interpret a CellFromFilter partial-current tally.
-
-    CellFromFilter selects only particles originating in `cid`, so this
-    tally is, by construction, current leaving that cell — in whichever
-    direction OpenMC's native surface-normal sign assigns to it.
-
-    OpenMC retains the native surface-normal sign:
+    OpenMC surface-normal sign:
         raw_mean > 0: native positive direction is outward from the cell
         raw_mean < 0: native negative direction is outward from the cell
 
@@ -818,22 +807,10 @@ def _orient_partial_current(
     raw_mean = float(raw_mean)
     raw_std  = abs(float(raw_std))
 
-    if abs(raw_mean) <= max(5.0 * raw_std, 1e-30):
-        # The direction cannot be determined reliably from a current
-        # statistically consistent with zero.
-        #
-        # Fall back to the geometry orientation only for this zero-current
-        # case. _oriented_sign_for_cell returns +1 if the surface's
-        # OpenMC-positive direction points INTO cid, so outward is the
-        # negation of that.
+    if abs(raw_mean) <= max(3.0 * raw_std, 1e-30):
+        # if zero
         outward_sign = -_oriented_sign_for_cell(info, cid, sid)
     else:
-        # Statistically confident: sign(raw_mean) IS OpenMC's own
-        # convention for "outward from cid" on this surface — because
-        # CellFromFilter guarantees every scored crossing here is leaving
-        # cid, and OpenMC's "current" score uses one fixed sign convention
-        # per surface for all crossings, regardless of which filters are
-        # attached to the tally.
         outward_sign = 1.0 if raw_mean > 0.0 else -1.0
 
     Jout = abs(raw_mean)
