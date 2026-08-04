@@ -127,6 +127,10 @@ class Material:
         Calculate total mass currently specified.
 
     ------------------------------------------------------------------------
+    calculate_cost_breakdown(cost_db)
+        Per-element $/kg contribution to material cost.
+
+    ------------------------------------------------------------------------
     calculate_cost(cost_db)
         Calculate material cost ($/kg) from composition.
 
@@ -224,11 +228,54 @@ class Material:
         """
         return sum(el_data['wt'] for el_data in self.composition.values())
   
+    def calculate_cost_breakdown(self, cost_db):
+        """
+        Per-element $/kg contribution to material cost. Only 'alloy' and
+        'rem' elements contribute; 'residual' elements are free (present
+        without requiring direct material purchase) and always report 0.0.
+
+
+        ########################################################################
+        PARAMETERS
+        ########################################################################
+        ------------------------------------------------------------------------
+        cost_db : dict
+            Dictionary of elements and associated costs
+
+        ########################################################################
+        RETURNS
+        ########################################################################
+        ------------------------------------------------------------------------
+        rows : list of dict
+            One entry per element: {'element', 'wt', 'type', 'dollar_per_kg'}
+        missing_elements : list of str
+            Cost-contributing elements absent from cost_db
+        """
+
+        rows = []
+        missing_elements = []
+
+        for element, data in self.composition.items():
+            wt_percent = data['wt']
+            el_type = data['type']
+            contributes = el_type in ('alloy', 'rem')
+
+            dollar_per_kg = 0.0
+            if contributes:
+                if element not in cost_db:
+                    missing_elements.append(element)
+                else:
+                    dollar_per_kg = (wt_percent / 100.0) * cost_db[element].cost
+
+            rows.append({'element': element, 'wt': wt_percent, 'type': el_type, 'dollar_per_kg': dollar_per_kg})
+
+        return rows, missing_elements
+
     def calculate_cost(self, cost_db):
         """
         Calculate material cost ($/kg) from composition.
 
-        
+
         ########################################################################
         PARAMETERS
         ########################################################################
@@ -237,20 +284,8 @@ class Material:
             Dictionary of elements and associated costs
         """
 
-        total_cost = 0.0
-        missing_elements = []
-
-        for element, data in self.composition.items():
-            wt_percent = data['wt']
-            el_type = data['type']
-
-            if element not in cost_db:
-                if el_type in ['alloy', 'rem']:
-                    missing_elements.append(element)
-                continue
-
-            element_cost = cost_db[element].cost
-            total_cost += (wt_percent / 100.0) * element_cost
+        rows, missing_elements = self.calculate_cost_breakdown(cost_db)
+        total_cost = sum(row['dollar_per_kg'] for row in rows)
 
         if missing_elements:
             warn_block(f"Warning: Missing cost data for elements {missing_elements} in {self.name}")
@@ -456,6 +491,115 @@ def build_material(name, density, composition, remainder_element, Cmp_map):
     print(f"       Alloying elements (wt%): {total_wt:.2f}%")
     print(f"       Remainder ({remainder_element}) (wt%):   {' ' if len(remainder_element) == 1 else ''} {remainder}%")
     print(f"       Material cost:           ${mat.cost:.2f}/kg")
+
+    return mat
+
+# ----------------------------------------------------------------------
+# Function to blend two materials into one effective material.
+
+def blend_materials(name, material_a, material_b, fraction_a, basis="volume"):
+    """
+    Blend two materials into a single effective 'Material' object.
+
+    Models a part made from two materials (e.g. a functionally graded W/
+    Eurofer97 armor part) as one homogeneous material with rule-of-mixtures
+    density and mass-weighted composition/cost. This is NOT a spatially
+    resolved gradient - 'Component' only supports a single bulk material.
+
+
+    ########################################################################
+    PARAMETERS
+    ########################################################################
+    ------------------------------------------------------------------------
+    name : str
+        Name of the blended material
+
+    ------------------------------------------------------------------------
+    material_a, material_b : Material
+        The two materials to blend
+
+    ------------------------------------------------------------------------
+    fraction_a : float
+        Fraction of material_a in the blend (0 < fraction_a < 1), in the
+        units given by 'basis'. material_b makes up the remainder.
+
+    ------------------------------------------------------------------------
+    basis : str
+        'volume' (default): fraction_a is a volume fraction; density is
+            blended by the volume-weighted rule of mixtures.
+        'mass': fraction_a is a mass fraction; density is blended by the
+            mass-weighted (harmonic) rule of mixtures.
+
+    ########################################################################
+    RETURNS
+    ########################################################################
+    ------------------------------------------------------------------------
+    Material or None
+        The blended material, with an empty Cmp_map (process compatibility
+        for a novel blend isn't safely inferable from the source materials
+        and must be supplied by the caller, same as a custom material).
+        Returns None (and prints an error) if inputs are invalid.
+    """
+
+    if basis not in ("volume", "mass"):
+        print_error(f"Error blending material, '{name}'. Blend skipped. Basis must be 'volume' or 'mass'.")
+        return None
+
+    try:
+        fraction_a = positive_float(fraction_a)
+    except Exception:
+        print_error(f"Error blending material, '{name}'. Blend skipped. Fraction of material_a must be a positive number.")
+        return None
+
+    if fraction_a >= 1:
+        print_error(f"Error blending material, '{name}'. Blend skipped. Fraction of material_a must be less than 1.")
+        return None
+
+    # ------------------------------------
+    # Blended density and mass fractions
+    if basis == "volume":
+        mass_a = fraction_a * material_a.density
+        mass_b = (1 - fraction_a) * material_b.density
+        density = mass_a + mass_b
+        w_a = mass_a / density
+        w_b = mass_b / density
+    else:
+        w_a = fraction_a
+        w_b = 1 - fraction_a
+        density = 1 / (w_a / material_a.density + w_b / material_b.density)
+
+    # ------------------------------------
+    # Blended composition (mass-weighted average of each element's wt%;
+    # a source material's remainder element becomes a concrete alloy
+    # component in the blend rather than a remainder placeholder)
+    elements = set(material_a.composition) | set(material_b.composition)
+    composition = {}
+
+    for element in elements:
+        data_a = material_a.composition.get(element)
+        data_b = material_b.composition.get(element)
+        wt_a = data_a["wt"] if data_a else 0.0
+        wt_b = data_b["wt"] if data_b else 0.0
+
+        is_alloy = (data_a and data_a["type"] in ("alloy", "rem")) or (data_b and data_b["type"] in ("alloy", "rem"))
+        el_type = "alloy" if is_alloy else "residual"
+
+        composition[element] = {"wt": w_a * wt_a + w_b * wt_b, "type": el_type}
+
+    # ------------------------------------
+    # Build blended material
+    mat = Material(name)
+    mat.set_density(density)
+
+    for element, data in composition.items():
+        mat.add_element(element, data["wt"], data["type"])
+
+    mat.cost = mat.calculate_cost(cost_db)
+
+    print("\n➤ ", name)
+    print(f"       Blend:                    {fraction_a*100:.1f}% {material_a.name} / {(1-fraction_a)*100:.1f}% {material_b.name} (by {basis})")
+    print(f"       Density:                  {density:.3f} g/cm^3")
+    print(f"       Material cost:            ${mat.cost:.2f}/kg")
 
     return mat
 
