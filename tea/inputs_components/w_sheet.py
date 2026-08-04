@@ -18,7 +18,25 @@ component_name = 'W Sheet'
 # are not saved between runs. To access a material during a later run,
 # you must manually upload the material to the directory.
 
-material = 'W'
+# This component is a functionally graded W/Eurofer97 armor part, modeled
+# as one effective blended material rather than a single pure material.
+material_mode = 'blend'
+
+# Two materials to blend (must be resolvable from the materials database
+# and/or material_dir below)
+material_a = 'W'
+material_b = 'EROFER97'
+
+# Fraction of material_a in the blend, and the basis it's given in
+# ('volume' or 'mass')
+blend_fraction_a = 0.75   # 75% tungsten, 25% Eurofer97, by volume
+blend_basis = 'volume'
+
+# A blended material has no material-to-process compatibility data of its
+# own (it isn't safely inferable from the two source materials), so it
+# must be supplied here. Reusing W's prior Spray Deposition Cmp (1.1) as
+# an engineering placeholder for this tungsten-dominant blend.
+blend_cmp = {'Spray Deposition': 1.1}
 
 # Specify the directory containing material input files
 material_dir = 'inputs_materials'
@@ -43,41 +61,26 @@ processes = ['Spray Deposition']
 # Specify the directory containing process input files
 process_dir = 'inputs_processes'
 
-# List the relative cost coefficients for each of the listed processes.
-#
-# Relative cost coefficients determine how much more expensive it will 
-# be to produce a component with more demanding features than the 'ideal 
-# design'.
+# Relative cost coefficients (Cc, Cs, Ct, Cf) and component volume are
+# looked up from a named geometry in the geometries database instead of
+# being hardcoded here. Cc/Cs/Ct/Cf default to 1.0 for any listed process
+# not covered by the geometry's coefficient maps.
 
-# Relative cost associated with producing components of different 
-# geometrical complexity
-Cc =        [1.0]
+geometry = 'Plasma Facing Surface'
 
-# Relative cost associated with size considerations and achieving 
-# component section reductions/thickness
-Cs =        [1.0]
-
-# Relative cost associated with obtaining a specified tolerance
-Ct =        [1.0]
-
-# Relative cost associated with obtaining a specified a specified 
-# surface finish
-Cf =        [1.0]
+# Specify the directory containing custom geometry input files (or None
+# to use only the geometries database)
+geometry_dir = None
 
 # List the scrap coefficients for each of the listed processes.
 #
-# Scrap coefficients determine how much more material, relative to part 
-# volume, will be rerquired to produce the component when acounting for 
+# Scrap coefficients determine how much more material, relative to part
+# volume, will be rerquired to produce the component when acounting for
 # the scrap fraction of each process.
 Wc  =       [1.0]
 
 # ----------------------------------------------------------------------
-# Specify component volume (mm3)
-
-volume_mm3 = 3000000*.75  # 75% tungsten, 25% eurofer97     
-
-# ----------------------------------------------------------------------
 # Specify production quantity
 
-production_qty = 1000 
+production_qty = 1000
 

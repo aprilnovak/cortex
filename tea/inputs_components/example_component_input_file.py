@@ -43,41 +43,26 @@ processes = ['Hot Rolling', 'Cold Rolling', 'HIP']
 # Specify the directory containing process input files
 process_dir = 'inputs_processes'
 
-# List the relative cost coefficients for each of the listed processes.
-#
-# Relative cost coefficients determine how much more expensive it will 
-# be to produce a component with more demanding features than the 'ideal 
-# design'.
+# Relative cost coefficients (Cc, Cs, Ct, Cf) and component volume are
+# looked up from a named geometry in the geometries database instead of
+# being hardcoded here. Cc/Cs/Ct/Cf default to 1.0 for any listed process
+# not covered by the geometry's coefficient maps.
 
-# Relative cost associated with producing components of different 
-# geometrical complexity
-Cc =        [1.0, 1.0, 1.0]
+geometry = 'Plasma Facing Surface'
 
-# Relative cost associated with size considerations and achieving 
-# component section reductions/thickness
-Cs =        [1.0, 1.0, 1.0]
-
-# Relative cost associated with obtaining a specified tolerance
-Ct =        [1.0, 1.0, 1.0]
-
-# Relative cost associated with obtaining a specified a specified 
-# surface finish
-Cf =        [1.0, 1.0, 1.0]
+# Specify the directory containing custom geometry input files (or None
+# to use only the geometries database)
+geometry_dir = None
 
 # List the scrap coefficients for each of the listed processes.
 #
-# Scrap coefficients determine how much more material, relative to part 
-# volume, will be rerquired to produce the component when acounting for 
+# Scrap coefficients determine how much more material, relative to part
+# volume, will be rerquired to produce the component when acounting for
 # the scrap fraction of each process.
 Wc  =       [1.0, 1.0, 1.0]
 
 # ----------------------------------------------------------------------
-# Specify component volume (mm3)
-
-volume_mm3 = 3000000         
-
-# ----------------------------------------------------------------------
 # Specify production quantity
 
-production_qty = 1000 
+production_qty = 1000
 
