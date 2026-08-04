@@ -14,10 +14,10 @@ name : str
     Name of the manufacturing process (e.g., 'CNC', 'HIP')
 
 ------------------------------------------------------------------------
-alphaT : float
-
-------------------------------------------------------------------------
-beta : float
+tooling_level, equipment_level, time_level : str
+    One of process_def.COST_LEVELS each (Low, Low-Medium, Medium,
+    Medium-High, High, High-Very High, Very High). alphaT and beta are
+    computed from these by process_def.build_process().
 
 ------------------------------------------------------------------------
 description : str, optional
@@ -30,8 +30,8 @@ description : str, optional
 
 name = 'HIP'
 
-alphaT = 34.97
-
-beta = 1000
+tooling_level = 'Low-Medium'
+equipment_level = 'High'
+time_level = 'Medium'
 
 description = ""

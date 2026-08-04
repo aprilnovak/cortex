@@ -1,5 +1,5 @@
 """
-Cold Rolling
+Diffusion Bonding
 
 
 ########################################################################
@@ -28,10 +28,10 @@ description : str, optional
         "Computer numerical control machining"
 """
 
-name = 'Cold Rolling'
+name = 'Diffusion Bonding'
 
-tooling_level = 'Medium'
-equipment_level = 'High-Very High'
-time_level = 'Low'
+tooling_level = 'Low-Medium'
+equipment_level = 'Low-Medium'
+time_level = 'Medium'
 
 description = ""
