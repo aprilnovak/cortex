@@ -14,12 +14,16 @@ import sys
 import textwrap
 from material_def import load_materials
 from material_def import build_material
+from material_def import blend_materials
+from component_def import load_geometries
 from tea1 import Component
 import importlib
 from types import SimpleNamespace
 import argparse
 import process_def as process
 import difflib
+
+GEOMETRIES_DB_DIR = "geometries_database"
 
 # ----------------------------------------------------------------------
 # Formating
@@ -240,9 +244,17 @@ if inputs is None:
 allowed_attrs = {
     "material",
     "material_dir",
+    "material_mode",
+    "material_a",
+    "material_b",
+    "blend_fraction_a",
+    "blend_basis",
+    "blend_cmp",
     "processes",
     "process_dir",
     "component_name",
+    "geometry",
+    "geometry_dir",
     "volume_mm3",
     "production_qty",
     "Cc",
@@ -279,6 +291,22 @@ if unknown_attrs:
 
     
 
+# If blending two materials, validate the blend attributes now and give
+# 'inputs.material' a placeholder name so the existing single-material
+# checks/lookup below keep working unchanged; the real blended material
+# is built and registered under this name in the MATERIALS section.
+material_mode = getattr(inputs, "material_mode", "single")
+
+if material_mode == "blend":
+    missing = [a for a in ("material_a", "material_b", "blend_fraction_a") if not hasattr(inputs, a)]
+    if missing:
+        print_error(textwrap.fill(
+            f"Blended material requires {', '.join(missing)}. Edit input file, '{module_name}', and try again."
+        ))
+        print("\n════════════════════════ CALCULATION TERMINATED ════════════════════════\n")
+        sys.exit(1)
+    inputs.material = f"{inputs.material_a}/{inputs.material_b} Blend"
+
 # Material name must not be empty
 if not hasattr(inputs, "material") or not str(inputs.material).strip():
     print_error(textwrap.fill(
@@ -311,6 +339,48 @@ for pname in inputs.processes:
         ))
         print("\n════════════════════════ CALCULATION TERMINATED ════════════════════════\n")
         sys.exit(1)
+
+# Resolve geometry (optional) and, from it, default volume and any
+# per-process cost coefficients (Cc/Cs/Ct/Cf) not explicitly given in the
+# input file. Explicit values in the input file always take precedence.
+geometry = None
+
+if getattr(inputs, "geometry", None):
+    geometry_lookup = {}
+
+    db_geometries = load_geometries(GEOMETRIES_DB_DIR)
+    geometry_lookup.update({g.name: g for g in db_geometries if g is not None})
+
+    geometry_dir = getattr(inputs, "geometry_dir", None)
+    if geometry_dir:
+        custom_geometries = load_geometries(geometry_dir)
+        geometry_lookup.update({g.name: g for g in custom_geometries if g is not None})
+
+    if inputs.geometry not in geometry_lookup:
+        print_error(textwrap.fill(
+            f"Geometry, '{inputs.geometry}', not found. Edit attribute, 'geometry', in input file, '{module_name}', and try again."
+        ))
+        print("\n════════════════════════ CALCULATION TERMINATED ════════════════════════\n")
+        sys.exit(1)
+
+    geometry = geometry_lookup[inputs.geometry]
+
+if not hasattr(inputs, "volume_mm3"):
+    if geometry is None:
+        print_error(textwrap.fill(
+            f"Volume must be specified (directly via 'volume_mm3', or indirectly via 'geometry'). Edit input file, '{module_name}', and try again."
+        ))
+        print("\n════════════════════════ CALCULATION TERMINATED ════════════════════════\n")
+        sys.exit(1)
+    inputs.volume_mm3 = geometry.volume_mm3
+
+for attr_name, geometry_map_attr in [("Cc", "Cc_map"), ("Cs", "Cs_map"), ("Ct", "Ct_map"), ("Cf", "Cf_map")]:
+    manual = getattr(inputs, attr_name, None)
+    geom_map = getattr(geometry, geometry_map_attr) if geometry is not None else {}
+    setattr(inputs, attr_name, [
+        geom_map[pname] if pname in geom_map else (manual[i] if manual is not None else 1.0)
+        for i, pname in enumerate(inputs.processes)
+    ])
 
 # Volume must be positive
 try:
@@ -372,6 +442,43 @@ if inputs.material_dir:
 
 else:
     print("\nNo custom materials directory specified.")
+
+# ----------------------------------------------------------------------
+# If blending two materials, build the blend now and register it under
+# 'inputs.material' (set above) so the lookup below resolves to it
+# unchanged, exactly like any other pre-loaded material.
+
+if material_mode == "blend":
+
+    if inputs.material_a not in material_lookup:
+        print_error(textwrap.fill(f"Material, '{inputs.material_a}', not found in loaded materials for blending."))
+        print("\n════════════════════════ CALCULATION TERMINATED ════════════════════════\n")
+        sys.exit(1)
+
+    if inputs.material_b not in material_lookup:
+        print_error(textwrap.fill(f"Material, '{inputs.material_b}', not found in loaded materials for blending."))
+        print("\n════════════════════════ CALCULATION TERMINATED ════════════════════════\n")
+        sys.exit(1)
+
+    blended = blend_materials(
+        name=inputs.material,
+        material_a=material_lookup[inputs.material_a],
+        material_b=material_lookup[inputs.material_b],
+        fraction_a=inputs.blend_fraction_a,
+        basis=getattr(inputs, "blend_basis", "volume"),
+    )
+
+    if blended is None:
+        print_error(textwrap.fill(f"Failed to blend materials '{inputs.material_a}' and '{inputs.material_b}'."))
+        print("\n════════════════════════ CALCULATION TERMINATED ════════════════════════\n")
+        sys.exit(1)
+
+    # A blend has no Cmp_map of its own; apply any compatibility
+    # overrides explicitly supplied by the input file
+    for pname, Cmp in getattr(inputs, "blend_cmp", {}).items():
+        blended.add_Cmp(pname, Cmp)
+
+    material_lookup[blended.name] = blended
 
 # ----------------------------------------------------------------------
 # Lookup or define material
