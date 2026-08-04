@@ -30,8 +30,8 @@ description : str, optional
 
 name = 'Spray Deposition'
 
-alphaT = 40
-
-beta = 500
+tooling_level = 'Low-Medium'
+equipment_level = 'High'
+time_level = 'Medium'
 
 description = ""
