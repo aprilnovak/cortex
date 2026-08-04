@@ -20,6 +20,7 @@ Component (name: str, volume_mm3: float, material: Material, ...)
 
 from process_def import Process
 from material_def import Material
+from component_def import Geometry
 from typing import List
 
 class Component:
@@ -56,6 +57,12 @@ class Component:
     ------------------------------------------------------------------------
     production_qty : int
         Production quantity (N)
+
+    ------------------------------------------------------------------------
+    geometry : Geometry, optional
+        'Geometry' object. When given, Cc, Cs, Ct, and Cf are looked up
+        per process from the geometry (geometry.get_Cc(process.name),
+        etc.) for any of Cc/Cs/Ct/Cf not explicitly provided below.
 
     ------------------------------------------------------------------------
     cc : float
@@ -97,16 +104,17 @@ class Component:
         Generate a summary of the cost breakdown for the component
     """
 
-    def __init__(self, 
-                 name: str, 
-                 volume_mm3: float, 
+    def __init__(self,
+                 name: str,
+                 volume_mm3: float,
                  material: Material,
-                 processes: List[Process], 
+                 processes: List[Process],
                  production_qty: int,
-                 Cc = None, 
-                 Cs = None, 
-                 Ct = None, 
-                 Cf = None, 
+                 geometry: Geometry = None,
+                 Cc = None,
+                 Cs = None,
+                 Ct = None,
+                 Cf = None,
                  Wc = None):
 
         self.name = name
@@ -114,13 +122,38 @@ class Component:
         self.material = material
         self.processes = processes
         self.N = production_qty
+        self.geometry = geometry
 
         n = len(processes)
 
-        self.Cc = Cc if Cc is not None else [1.0] * n
-        self.Cs = Cs if Cs is not None else [1.0] * n
-        self.Ct = Ct if Ct is not None else [1.0] * n
-        self.Cf = Cf if Cf is not None else [1.0] * n
+        if Cc is not None:
+            self.Cc = Cc
+        elif geometry is not None:
+            self.Cc = [geometry.get_Cc(p.name) for p in processes]
+        else:
+            self.Cc = [1.0] * n
+
+        if Cs is not None:
+            self.Cs = Cs
+        elif geometry is not None:
+            self.Cs = [geometry.get_Cs(p.name) for p in processes]
+        else:
+            self.Cs = [1.0] * n
+
+        if Ct is not None:
+            self.Ct = Ct
+        elif geometry is not None:
+            self.Ct = [geometry.get_Ct(p.name) for p in processes]
+        else:
+            self.Ct = [1.0] * n
+
+        if Cf is not None:
+            self.Cf = Cf
+        elif geometry is not None:
+            self.Cf = [geometry.get_Cf(p.name) for p in processes]
+        else:
+            self.Cf = [1.0] * n
+
         self.Wc = Wc if Wc is not None else [1.0] * n
 
     def material_cost(self, verbose=False) -> float:
@@ -156,11 +189,63 @@ class Component:
 
         return self.material.density * self.Vf / 1e6 # kg---[g/cm³] [mm³] * [1 kg/1000 g] [1 cm³/1000 mm³]
 
+    def get_Rc(self, i: int) -> float:
+        """
+        Relative cost coefficient (Rc) for the i-th process:
+
+        Rc = Cmp * Cc * Cs * max(Ct, Cf)
+
+        Only the greater of the tolerance (Ct) and finish (Cf) coefficients
+        is applied, since achieving the tighter of the two typically also
+        satisfies the other.
+        """
+
+        p = self.processes[i]
+        Cmp = self.material.get_Cmp(p.name)
+
+        return Cmp * self.Cc[i] * self.Cs[i] * max(self.Ct[i], self.Cf[i])
+
+    def fabrication_cost_curve(self, quantities):
+        """
+        Fabrication cost (Rc * Pc) for every process, evaluated at the given
+        production quantity/quantities - both at this component's actual Rc
+        and at the DFM-ideal Rc (=1.0, i.e. Cmp=Cc=Cs=Ct=Cf=1). Used for the
+        "cost vs. production quantity" sensitivity view; quantities may be a
+        scalar or an array (Process.basic_processing_cost broadcasts).
+
+
+        ########################################################################
+        PARAMETERS
+        ########################################################################
+        ------------------------------------------------------------------------
+        quantities : int, float, or array-like
+            Production quantity/quantities (N) to evaluate at
+
+        ########################################################################
+        RETURNS
+        ########################################################################
+        ------------------------------------------------------------------------
+        rows : list of dict
+            One entry per process: {'process', 'Rc_selected', 'cost_ideal', 'cost_selected'}
+        """
+
+        rows = []
+        for i, p in enumerate(self.processes):
+            Rc_selected = self.get_Rc(i)
+            Pc = p.basic_processing_cost(quantities)
+            rows.append({
+                "process": p,
+                "Rc_selected": Rc_selected,
+                "cost_ideal": Pc,
+                "cost_selected": Rc_selected * Pc,
+            })
+        return rows
+
     def manufacturing_cost(self, verbose=False) -> dict:
         """
         M = Mc + Σ(Rc_i * Pc_i)
         """
-        
+
         if verbose:
             print(f"Calculating manufacturing cost for component {self.name}...")
 
@@ -173,9 +258,7 @@ class Component:
         for i, p in enumerate(self.processes):
 
             Pc = p.basic_processing_cost(self.N)
-            Cmp = self.material.get_Cmp(p.name)
-
-            Rc = Cmp * self.Cc[i] * self.Cs[i] * self.Ct[i] * self.Cf[i]
+            Rc = self.get_Rc(i)
 
             process_cost = Rc * Pc
             total_process_cost += process_cost
