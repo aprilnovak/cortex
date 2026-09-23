@@ -20,12 +20,14 @@ import openmc
 # =============================================================================
 # SIMULATION TYPE
 # =============================================================================
-SIM_TYPE     = "slab"      # "tokamak"  |  "slab" | "fast_slab"
+#SIM_TYPE     = "slab"      # "tokamak"  |  "slab" | "fast_slab"
+SIM_TYPE     = os.environ.get("SIM_TYPE", "slab")
 
 # =============================================================================
 # BREEDER TYPE
 # =============================================================================
-BREEDER_TYPE = "HCPB"         # "WCLL"  |  "HCLL"  |  "HCPB"
+#BREEDER_TYPE = "WCLL"         # "WCLL"  |  "HCLL"  |  "HCPB"
+BREEDER_TYPE = os.environ.get("BREEDER_TYPE", "WCLL")
 
 # =============================================================================
 # ENVIRONMENT FLAG
@@ -34,7 +36,8 @@ BREEDER_TYPE = "HCPB"         # "WCLL"  |  "HCLL"  |  "HCPB"
 # TESTING -> will load from previous tokamak run/folder
 # CORTEX  -> will load from file saved in the same slab folder
 #            (if not available, it will copy from tokamak run/folder)
-ENVIRONMENT  = "CORTEX"      # "CORTEX"  |  "TESTING"
+#ENVIRONMENT  = "CORTEX"      # "CORTEX"  |  "TESTING"
+ENVIRONMENT  = os.environ.get("ENVIRONMENT", "CORTEX")
 
 # =============================================================================
 # VALIDATION
@@ -125,6 +128,7 @@ if ENVIRONMENT == "CORTEX":
     # Pre-copied once into slab/BREEDER_TYPE/ and never change between runs.
     SURFACE_SOURCE_FILE = SIM_DIR / "surface_source.h5"
     ARMOR_CURRENT_JSON  = SIM_DIR / "armor_current_neutron.json"
+    TBR_SCALING_JSON    = SIM_DIR / "tbr_scaling.json" 
 
 else:  # TESTING
     # Load directly from the tokamak simulation outputs
@@ -135,6 +139,7 @@ else:  # TESTING
         BASE_DIR / "tokamak" / BREEDER_TYPE / "neutronics_results"
         / ALBEDO_CHUNK_KEY / "albedo" /"armor_current_neutron.json"
     )
+    TBR_SCALING_JSON    = BASE_DIR / "tokamak" / BREEDER_TYPE / "tbr_scaling.json"
 
 # CORTEX + slab only: one-time copy from tokamak outputs if files missing
 if ENVIRONMENT == "CORTEX" and SIM_TYPE in ("slab", "fast_slab"):
@@ -145,9 +150,13 @@ if ENVIRONMENT == "CORTEX" and SIM_TYPE in ("slab", "fast_slab"):
         BASE_DIR / "tokamak" / BREEDER_TYPE / "neutronics_results"
         / ALBEDO_CHUNK_KEY / "albedo" / "armor_current_neutron.json"
     )
+    _tokamak_tbr_scaling = (
+        BASE_DIR / "tokamak" / BREEDER_TYPE / "tbr_scaling.json"           
+    )
     _file_map = {
         SURFACE_SOURCE_FILE: _tokamak_surface_source,
         ARMOR_CURRENT_JSON:  _tokamak_armor_current,
+        TBR_SCALING_JSON:    _tokamak_tbr_scaling,                          
     }
     missing = [dst for dst in _file_map if not dst.exists()]
     if missing:
@@ -179,10 +188,24 @@ print("materials file:", materials.__file__)
 print("SIM_TYPE:", SIM_TYPE)
 print("BREEDER_TYPE:", BREEDER_TYPE)
 
-# Materials common to all breeder types
-armor_material      = materials.W(19.3)
-structural_material = materials.eurofer97(7.87)
-vv_material = materials.ss316Ln_ig(7.93)
+# ----------- The comments that follow here were used for the FS&T paper 2; please leave these
+#             as a reference for the future
+#STRUCTURAL_MATERIAL_NAME = os.environ.get("STRUCTURAL_MATERIAL", "Eurofer97")
+
+#_STRUCTURAL_MATERIALS = {
+#    "Inconel":     lambda: materials.inconel718(8.19),
+#    "Eurofer97":   lambda: materials.eurofer97(7.87),
+#    "ods_eurofer": lambda: materials.ods_eurofer(7.87),
+#    "SiC":         lambda: materials.SiC(2.5),
+#    "V4Cr4Ti":     lambda: materials.V4Cr4Ti(6.05),
+#    "ht9":         lambda: materials.ht9(7.86),
+#}
+#if STRUCTURAL_MATERIAL_NAME not in _STRUCTURAL_MATERIALS:
+#    sys.exit(f"[inputs] Unknown STRUCTURAL_MATERIAL '{STRUCTURAL_MATERIAL_NAME}'. "
+#              f"Choose from: {list(_STRUCTURAL_MATERIALS)}")
+#structural_material = _STRUCTURAL_MATERIALS[STRUCTURAL_MATERIAL_NAME]()
+
+# ------------
 
 # ----------- The comments that follow here were used for the FS&T paper; please leave these
 #             as a reference for the future
@@ -202,6 +225,12 @@ vv_material = materials.ss316Ln_ig(7.93)
 #structural_material = materials.ht9(7.86)
 #structural_material = materials.ods_eurofer(7.87)
 
+# ------------
+
+# Materials common to all breeder types
+armor_material      = materials.W(19.3)
+vv_material = materials.ss316Ln_ig(7.93)
+structural_material = materials.eurofer97(7.87)
 
 # Breeder-specific materials
 if BREEDER_TYPE == "WCLL":
@@ -239,7 +268,7 @@ if SIM_TYPE == "fast_slab":      # (DO NOT CHANGE)
 else:
     SLAB_TARGET_VOL_ID = 78      # VV in full dagmc Model 
 
-SLAB_R_IN_CM       = 1130.0  # DO NOT CHANGE 
+SLAB_R_IN_CM       = 1150.0  # DO NOT CHANGE 
 SLAB_R_OUT_CM      = 1380.0  # DO NOT CHANGE 
 TOKAMAK_R_OUT_CM   = 3000.0  # Test OUTVESSEL (DEFAULT = 3000.0)
 

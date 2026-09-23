@@ -27,7 +27,7 @@ class BreederType(str, Enum):
 #ss316    = materials.ss316Ln_ig(7.93)
 ccz      = materials.CuCrZr(8.9)
 he_low   = materials.Helium(0.0001785)
-nb3sn    = materials.Nb3Sn(5.7)
+nb3sn    = materials.Nb3Sn(8.74)
 epoxy    = materials.Epoxy(1.207)
 bronze   = materials.Bronze(8.8775)
 nbti     = materials.NbTi(6.538)

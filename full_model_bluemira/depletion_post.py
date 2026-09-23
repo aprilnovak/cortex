@@ -1086,7 +1086,16 @@ if __name__ == "__main__":
     if cfg.SIM_TYPE in ("slab", "fast_slab"):
         _map_df  = pd.read_csv(str(CELL_MATERIAL_MAP_CSV))
         _present = set(int(x) for x in _map_df["cell_id"])
-        CHUNKS   = {k: list(_present) for k in CHUNKS}
+        # IMPORTANT: filter each chunk's own (radially ordered) cell list
+        # down to the cells actually present, rather than replacing it with
+        # list(_present) — a set has no defined order, so it scrambles which
+        # cell gets which layer tag ("Armor", "VV", ...) and which radial
+        # x-position, and it also collapses every chunk key onto the same
+        # cell list instead of each key's own subset.
+        CHUNKS = {
+            k: [c for c in v if int(c) in _present]
+            for k, v in CHUNKS.items()
+        }
 
     # Layer tags and centroids
     layer_tags_by_chunk:  Dict[str, Sequence[str]]   = {}

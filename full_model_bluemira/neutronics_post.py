@@ -191,6 +191,29 @@ _dpa_gas_ids: Dict[int, int] = {
     for cid, tid in _tally_ids.get("dpa_gas", {}).items()
 }
 
+# TBR tally IDS
+tbr_tally = (
+    _get_tally_by_id(_tally_ids["tbr"], "tbr")
+    if _tally_ids.get("tbr") is not None
+    else None
+)
+
+# slab current tallies (to remove after)
+slab_current_tally: Optional[openmc.Tally] = None
+slab_partial_current_tallies: Dict[int, openmc.Tally] = {}
+
+if cfg.SIM_TYPE in ("slab", "fast_slab"):
+    slab_current_tally = (
+        _all_tallies.get(int(_tally_ids["slab_current_total"]))
+        if _tally_ids.get("slab_current_total") is not None
+        else None
+    )
+    slab_partial_current_tallies = {
+        int(cid): _all_tallies[int(tid)]
+        for cid, tid in _tally_ids.get("slab_partial_current", {}).items()
+        if int(tid) in _all_tallies
+    }
+
 _sp_for_tallies.close()
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1583,6 +1606,203 @@ def compute_dpa_cell_detailed(
     }
 
 # ──────────────────────────────────────────────────────────────────────────────
+# TBR
+# ──────────────────────────────────────────────────────────────────────────────
+def compute_global_tbr(sp: openmc.StatePoint) -> None:
+    """
+    TBR = (T atoms produced per full-power-year) / (T atoms consumed per full-power-year)
+    """
+    if tbr_tally is None:
+        print("[warn] TBR: no tritium-production tally found in run_meta.json — skipping.")
+        return
+
+    t_tbr         = sp.get_tally(id=require_tally_id(sp, tbr_tally, "tbr tally"))
+    cell_bins_tbr = get_cell_bins(t_tbr)
+    h3_mean       = t_tbr.get_values(value="mean").flatten()
+    h3_std        = t_tbr.get_values(value="std_dev").flatten()
+
+    _tbr_norm        = neutron_source_rate / geo.neutron_source_rate
+    tbr_per_cell     = h3_mean * _tbr_norm
+    tbr_per_cell_std = h3_std  * _tbr_norm
+
+    tbr_total     = float(tbr_per_cell.sum())
+    tbr_total_std = float(np.sqrt((tbr_per_cell_std ** 2).sum()))
+
+    # -------------------------------------------------------------------
+    # slab / fast_slab: scale the local (single-chunk) TBR up to an
+    # estimated global TBR using the tokamak-derived ratio.
+    # -------------------------------------------------------------------
+    if cfg.SIM_TYPE in ("slab", "fast_slab"):
+        if not cfg.TBR_SCALING_JSON.is_file():
+            print(
+                f"[warn] TBR: scaling JSON not found ({cfg.TBR_SCALING_JSON}). "
+                f"Run tokamak neutronics_post.py to generate it for a scaled "
+                f"global TBR estimate. Falling back to LOCAL (unscaled) TBR only."
+            )
+            pd.DataFrame([{
+                "TBR_local_chunk":     tbr_total,
+                "TBR_local_chunk_std": tbr_total_std,
+                "reference_chunk_key": cfg.SLAB_CHUNK_KEY,
+                "global_over_chunk_ratio":  None,
+                "TBR_estimated_global":     None,
+                "TBR_estimated_global_std": None,
+                "n_cells": len(cell_bins_tbr),
+            }]).to_csv(RESULTS_DIR / "tbr_summary.csv", index=False)
+
+            print(f"[TBR] Local ({cfg.SLAB_CHUNK_KEY}) TBR = "
+                  f"{tbr_total:.4f} +/- {tbr_total_std:.4f} "
+                  f"(no global scaling applied)")
+            return
+
+        with open(cfg.TBR_SCALING_JSON) as f:
+            _tbr_scaling = json.load(f)
+
+        ratio         = float(_tbr_scaling["global_over_chunk_ratio"])
+        chunk_key_ref = _tbr_scaling.get("reference_chunk_key", cfg.SLAB_CHUNK_KEY)
+
+        tbr_estimated_global     = tbr_total     * ratio
+        tbr_estimated_global_std = tbr_total_std * ratio
+
+        print(
+            "[warn] TBR: SIM_TYPE is slab/fast_slab — only ONE representative "
+            f"poloidal element is modeled. Scaling local TBR by the tokamak-derived "
+            f"global/{chunk_key_ref} ratio = {ratio:.4f} (from {cfg.TBR_SCALING_JSON}) "
+            "to estimate the blanket-integrated TBR."
+        )
+
+        pd.DataFrame([{
+            "TBR_local_chunk":          tbr_total,
+            "TBR_local_chunk_std":      tbr_total_std,
+            "reference_chunk_key":      chunk_key_ref,
+            "global_over_chunk_ratio":  ratio,
+            "TBR_estimated_global":     tbr_estimated_global,
+            "TBR_estimated_global_std": tbr_estimated_global_std,
+            "n_cells":                  len(cell_bins_tbr),
+        }]).to_csv(RESULTS_DIR / "tbr_summary.csv", index=False)
+
+        print(f"[TBR] Local ({chunk_key_ref}) TBR = {tbr_total:.4f} +/- {tbr_total_std:.4f}")
+        print(f"[TBR] Estimated global TBR = {tbr_estimated_global:.4f} "
+              f"+/- {tbr_estimated_global_std:.4f} (scaled by ratio={ratio:.4f})")
+        return
+
+    # -------------------------------------------------------------------
+    # tokamak: compute the real global TBR, plus the global/SLAB_CHUNK_KEY
+    # ratio
+    # -------------------------------------------------------------------
+    pd.DataFrame([{
+        "TBR": tbr_total, "TBR_std": tbr_total_std, "n_cells": len(cell_bins_tbr),
+    }]).to_csv(RESULTS_DIR / "tbr_summary.csv", index=False)
+
+    print(f"[TBR] Global TBR = {tbr_total:.4f} +/- {tbr_total_std:.4f} "
+          f"(summed over {len(cell_bins_tbr)} cells)")
+
+    chunk_key_ref = cfg.SLAB_CHUNK_KEY   # "OB_1_b6" — what the slab geometry represents
+    ref_cell_ids  = ob_by_key.get(chunk_key_ref) or ib_by_key.get(chunk_key_ref)
+
+    if not ref_cell_ids:
+        print(f"[warn] TBR: reference chunk_key '{chunk_key_ref}' not found in "
+              f"ob_by_key/ib_by_key — cannot write scaling ratio for slab runs.")
+        return
+
+    ref_mask      = np.isin(np.asarray(cell_bins_tbr, dtype=int),
+                             np.asarray(ref_cell_ids, dtype=int))
+    tbr_ref_total = float(tbr_per_cell[ref_mask].sum())
+
+    if tbr_ref_total <= 0.0:
+        print(f"[warn] TBR: reference chunk '{chunk_key_ref}' has zero TBR contribution — "
+              f"cannot write scaling ratio for slab runs.")
+        return
+
+    ratio = tbr_total / tbr_ref_total
+
+    cfg.TBR_SCALING_JSON.parent.mkdir(parents=True, exist_ok=True)
+    with open(cfg.TBR_SCALING_JSON, "w") as f:
+        json.dump({
+            "reference_chunk_key":     chunk_key_ref,
+            "global_TBR":              tbr_total,
+            "reference_chunk_TBR":     tbr_ref_total,
+            "global_over_chunk_ratio": ratio,
+        }, f, indent=2)
+
+    print(f"[TBR] {chunk_key_ref} contributes {tbr_ref_total:.4f} of {tbr_total:.4f} global TBR "
+          f"(ratio={ratio:.4f}) → wrote {cfg.TBR_SCALING_JSON}")
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Slab current check
+# ──────────────────────────────────────────────────────────────────────────────
+def compute_slab_current_check(sp: openmc.StatePoint, *, outdir: Path) -> Optional[pd.DataFrame]:
+    """
+    Slab-only: J_in at the breeder-back and VV-front surfaces, using the
+    dedicated slab_current_total / slab_partial_current tallies added in
+    neutronics_model.py.
+    """
+    if slab_current_tally is None or not slab_partial_current_tallies:
+        print("[warn] slab current check: tallies not available — skipping.")
+        return None
+
+    info = geo.info
+
+    t_tot  = sp.get_tally(id=slab_current_tally.id)
+    df_tot = t_tot.get_pandas_dataframe()
+
+    rows = []
+    for cid, tt in slab_partial_current_tallies.items():
+        t_part  = sp.get_tally(id=tt.id)
+        df_part = t_part.get_pandas_dataframe()
+
+        for particle in ("neutron", "photon"):
+            surf_ids = sorted(
+                df_part.loc[df_part.particle.str.lower() == particle, "surface"].unique()
+            )
+            for sid in surf_ids:
+                sid = int(sid)
+
+                row_tot = df_tot[
+                    (df_tot.surface == sid) & (df_tot.particle.str.lower() == particle)
+                ]
+                if row_tot.empty:
+                    continue  # internal surface, no net-current entry — expected
+
+                Jnet_m, Jnet_s = float(row_tot["mean"].iloc[0]), float(row_tot["std. dev."].iloc[0])
+
+                row_part = df_part[
+                    (df_part.surface == sid) & (df_part.particle.str.lower() == particle)
+                ]
+                if row_part.empty:
+                    continue
+
+                Jout_m, Jout_s = float(row_part["mean"].iloc[0]), float(row_part["std. dev."].iloc[0])
+
+                Jout_a, Jout_s, outward_sign = _orient_partial_current(
+                    info=info, cid=cid, sid=sid, raw_mean=Jout_m, raw_std=Jout_s
+                )
+                Jnet_rel = outward_sign * Jnet_m
+                Jin      = abs(Jout_a - Jnet_rel)
+                Jin_std  = math.sqrt(Jout_s ** 2 + Jnet_s ** 2)
+
+                rows.append(dict(
+                    particle=particle,
+                    cell_id=cid,
+                    surface_id=sid,
+                    J_out_mean=Jout_a,
+                    J_out_std=Jout_s,
+                    J_in_mean=Jin,
+                    J_in_std=Jin_std,
+                ))
+
+    if not rows:
+        print("[warn] slab current check: no rows computed.")
+        return None
+
+    df = pd.DataFrame(rows).sort_values(["particle", "cell_id"])
+    outdir = Path(outdir)
+    outdir.mkdir(parents=True, exist_ok=True)
+    out_path = outdir / "slab_current_check.csv"
+    df.to_csv(out_path, index=False)
+    print(f"[completed] slab current check → {out_path}")
+    return df
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Core per-chunk processor
 # ──────────────────────────────────────────────────────────────────────────────
 def process_chunk(
@@ -1786,7 +2006,43 @@ def process_chunk(
     save_profile(base_df, profiles_dir, quantity="heating",
                  mean=heat_w, std=heat_w_std, units="W/cm3")
 
+    # ==========================================
+    # Tritium production (TBR)
+    # ==========================================
+    t_tbr         = sp.get_tally(id=require_tally_id(sp, tbr_tally, "tbr tally"))
+    cell_bins_tbr = get_cell_bins(t_tbr)
+    h3_mean       = t_tbr.get_values(value="mean").flatten()
+    h3_std        = t_tbr.get_values(value="std_dev").flatten()
 
+    h3_mean_chunk = subset_by_cells(h3_mean, cell_bins_tbr, cell_ids)
+    h3_std_chunk  = subset_by_cells(h3_std,  cell_bins_tbr, cell_ids)
+
+    _tbr_norm = neutron_source_rate / geo.neutron_source_rate
+    tbr_y     = h3_mean_chunk * _tbr_norm
+    tbr_y_std = h3_std_chunk  * _tbr_norm
+
+    fig, ax = plt.subplots()
+    ax.set_yscale("log")
+    lo = np.maximum(tbr_y - tbr_y_std, 1e-30)
+    hi = tbr_y + tbr_y_std
+    ax.step(xedges, np.r_[tbr_y, tbr_y[-1]], where="post", label="TBR")
+    ax.fill_between(xedges, np.r_[lo, lo[-1]], np.r_[hi, hi[-1]],
+                    step="post", alpha=0.3)
+    ax.set(xlabel="Radial Position [cm]", ylabel="TBR [dimensionless]")
+    ax.grid(True, which="both", linestyle="--", linewidth=0.5)
+    fig.savefig(plots_dir / f"tbr_{chunk_key}.png", dpi=300, bbox_inches="tight")
+
+    if _ref_data:
+        _overlay_ref(ax, chunk_key, "tbr", color="black", ls=(0, (5, 2)))
+        handles, _ = ax.get_legend_handles_labels()
+        if handles:
+            ax.legend()
+        fig.savefig(plots_dir / f"tbr_{chunk_key}_vs_ref.png",
+                    dpi=300, bbox_inches="tight")
+    plt.close(fig)
+
+    save_profile(base_df, profiles_dir, quantity="tbr",
+                 mean=tbr_y, std=tbr_y_std, units="dimensionless")
 
     # ==========================================
     # H, He, DPA — computed once per cell,
@@ -2346,6 +2602,10 @@ with openmc.StatePoint(str(STATEPOINT_FILE)) as sp:
 
     # load gas map
     dpa_gas_map = build_dpa_gas_map(sp)
+    # compute global dpa
+    compute_global_tbr(sp)
+    if cfg.SIM_TYPE in ("slab", "fast_slab"):
+        compute_slab_current_check(sp, outdir=RESULTS_DIR)
 
     if cfg.SIM_TYPE in ("slab", "fast_slab"):
         keys_to_process = [cfg.ALBEDO_CHUNK_KEY]

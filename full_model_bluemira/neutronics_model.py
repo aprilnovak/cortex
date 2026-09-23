@@ -444,7 +444,49 @@ for cid in _tally_cells:
     model.tallies.append(tg)
     dpa_gas_tallies[cid] = tg
 
-# 7 TBD (n,gamma)
+# 7 Tritium production (TBR)
+tbr_tally = openmc.Tally()
+tbr_tally.filters = [cell_filter_all, n_filter]
+tbr_tally.scores  = ["H3-production"]
+model.tallies.append(tbr_tally)
+
+# 8 Slab current tallies 
+slab_current_tally: openmc.Tally | None      = None
+slab_partial_current_tallies: Dict[int, openmc.Tally] = {}
+
+if cfg.SIM_TYPE in ("slab", "fast_slab"):
+    # Generic: last breeder layer is second-to-last cell in the chunk,
+    # VV is the last cell — matches _build_special_surfaces' convention
+    # (breeder_back_cell_id = cell_ids[-2], vv_cell_id = cell_ids[-1]).
+    _slab_target_cells = [int(_albedo_cells[-2]), int(_albedo_cells[-1])]
+
+    slab_surf_filter    = openmc.SurfaceFilter(external_surface_ids)
+    slab_current_tally  = openmc.Tally(name="slab_current_total")
+    slab_current_tally.filters = [slab_surf_filter, particle_filter]
+    slab_current_tally.scores  = ["current"]
+    model.tallies.append(slab_current_tally)
+
+    for cid in _slab_target_cells:
+        ocell          = dagmc_universe_cells[cid]
+        surf_ids_local = [
+            int(s["surface_id"])
+            for s in info.get(cid, {}).get("all_surfaces", [])
+        ]
+        if not surf_ids_local:
+            print(f"[warn] slab current tally: cell {cid} has no surfaces in info; skipping.")
+            continue
+        pt = openmc.Tally(name=f"slab_current_cell{cid}")
+        pt.filters = [
+            openmc.CellFromFilter([ocell]),
+            openmc.SurfaceFilter(surf_ids_local),
+            particle_filter,
+        ]
+        pt.scores = ["current"]
+        model.tallies.append(pt)
+        slab_partial_current_tallies[cid] = pt
+
+    print(f"[slab current] Targeting cells {_slab_target_cells} "
+          f"(breeder-back, VV) with {len(slab_partial_current_tallies)} partial tallies")
 # 8 flux in the VV_port_filling? (tokamak only)
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -475,6 +517,9 @@ _run_meta = {
         "total_current":     t_current_tally.id if t_current_tally else None,
         "partial_current":   {str(cid): t.id for cid, t in p_current_tallies.items()},
         "dpa_gas":           {str(cid): t.id for cid, t in dpa_gas_tallies.items()},
+        "tbr":               tbr_tally.id,
+        "slab_current_total":   slab_current_tally.id if slab_current_tally else None,
+        "slab_partial_current": {str(cid): t.id for cid, t in slab_partial_current_tallies.items()},
     },
 }
 
