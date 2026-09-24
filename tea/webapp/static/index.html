@@ -1,0 +1,938 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CORTEX TEA Toolkit</title>
+<script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+<style>
+  :root {
+    --bg: #f9f9f7;
+    --card: #fcfcfb;
+    --border: #e1e0d9;
+    --text: #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted: #898781;
+    --accent: #2a78d6;
+    --accent-dark: #184f95;
+    --danger: #d03b3b;
+    --danger-bg: #fbeceb;
+    --warning: #a86a00;
+    --warning-bg: #fdf3e2;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d0d0d;
+      --card: #1a1a19;
+      --border: #2c2c2a;
+      --text: #ffffff;
+      --text-secondary: #c3c2b7;
+      --text-muted: #898781;
+      --accent: #3987e5;
+      --accent-dark: #86b6ef;
+      --danger: #e66767;
+      --danger-bg: #3a1f1f;
+      --warning: #eda100;
+      --warning-bg: #3a2f10;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    line-height: 1.4;
+  }
+  header {
+    padding: 1.5rem 1.5rem 0.5rem;
+    max-width: 900px;
+    margin: 0 auto;
+  }
+  header h1 { font-size: 1.4rem; margin: 0 0 0.15rem; }
+  header p { color: var(--text-secondary); margin: 0; font-size: 0.9rem; }
+
+  main { max-width: 900px; margin: 0 auto; padding: 1rem 1.5rem 3rem; }
+
+  section.card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.25rem 1.5rem;
+    margin-bottom: 1.25rem;
+  }
+  section.card h2 {
+    font-size: 1.05rem;
+    margin: 0 0 1rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .field-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(220px, 1fr));
+    gap: 1rem;
+    margin-bottom: 0.85rem;
+  }
+  @media (max-width: 560px) {
+    .field-row { grid-template-columns: 1fr; }
+  }
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    min-width: 0;
+  }
+  .field label {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+  }
+  .field input, .field select, .field textarea {
+    font: inherit;
+    padding: 0.4rem 0.55rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg);
+    color: var(--text);
+  }
+  .field input::placeholder, .field textarea::placeholder {
+    color: var(--text-muted);
+    font-style: italic;
+  }
+  .field .hint { font-size: 0.75rem; color: var(--text-muted); }
+  .field.readonly input {
+    background: var(--border);
+    color: var(--text-secondary);
+    cursor: not-allowed;
+  }
+  .inline-btn-field { display: flex; gap: 0.5rem; align-items: flex-end; }
+
+  .required-marker { color: var(--danger); margin-left: 0.15rem; }
+
+  .subheading {
+    font-size: 0.78rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    color: var(--text-muted);
+    margin: 1.25rem 0 0.6rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border);
+  }
+  h2 + .subheading, .process-block-header + .subheading {
+    margin-top: 0;
+    padding-top: 0;
+    border-top: none;
+  }
+
+  button {
+    font: inherit;
+    padding: 0.45rem 0.9rem;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--text);
+    cursor: pointer;
+  }
+  button:hover { border-color: var(--accent); }
+  button.primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+    font-weight: 600;
+  }
+  button.primary:hover { background: var(--accent-dark); border-color: var(--accent-dark); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button.remove { color: var(--danger); border-color: var(--danger); background: transparent; padding: 0.25rem 0.6rem; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 0.88rem; margin-bottom: 0.5rem; }
+  th, td { text-align: left; padding: 0.35rem 0.5rem; border-bottom: 1px solid var(--border); }
+  th { color: var(--text-secondary); font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+  .process-block {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+    position: relative;
+  }
+  .process-block-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.75rem;
+    padding-bottom: 0.6rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .process-block-header h3 { margin: 0; font-size: 0.95rem; color: var(--text-secondary); }
+
+  .coeff-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(90px, 1fr));
+    gap: 0.75rem;
+  }
+  @media (max-width: 560px) {
+    .coeff-grid { grid-template-columns: repeat(2, minmax(90px, 1fr)); }
+  }
+
+  .banner {
+    padding: 0.75rem 1rem;
+    border-radius: 8px;
+    margin-bottom: 1.25rem;
+    font-size: 0.9rem;
+  }
+  .banner.error { background: var(--danger-bg); color: var(--danger); border: 1px solid var(--danger); }
+  .banner.warning { background: var(--warning-bg); color: var(--warning); border: 1px solid var(--warning); }
+  .banner.warning ul { margin: 0; padding-left: 1.1rem; }
+
+  .summary-line { display: flex; justify-content: space-between; padding: 0.3rem 0; border-bottom: 1px solid var(--border); }
+  .summary-line:last-child { border-bottom: none; }
+  .summary-line .label { color: var(--text-secondary); }
+  .summary-line .value { font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  .total-cost { text-align: center; margin: 0.5rem 0 1.25rem; }
+  .total-cost .amount { font-size: 2rem; font-weight: 700; }
+  .total-cost .unit { color: var(--text-secondary); font-size: 0.85rem; }
+
+  img.chart { max-width: 100%; border-radius: 8px; display: block; margin: 0 auto; }
+
+  .add-row { margin-top: 0.25rem; }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>CORTEX Design for Manufacture Toolkit</h1>
+    <p>Define a component, its material, and its fabrication processes to estimate manufacturing cost.</p>
+  </header>
+
+  <main>
+    <div v-if="errorMessage" class="banner error">{{ errorMessage }}</div>
+
+    <!-- Component Specifications -->
+    <section class="card">
+      <h2>Component Specifications</h2>
+
+      <div class="subheading">Basics</div>
+      <div class="field-row">
+        <div class="field">
+          <label>Component Name <span class="hint">(optional)</span></label>
+          <input v-model="componentName" type="text" placeholder="e.g. My Component">
+        </div>
+        <div class="field">
+          <label>Production Quantity <span class="required-marker">*</span></label>
+          <input v-model.number="productionQty" type="number" min="1" step="1">
+        </div>
+      </div>
+
+      <div class="subheading">Geometry &amp; Volume</div>
+      <div class="field-row">
+        <div class="field">
+          <label>Geometry</label>
+          <select v-model="selectedGeometryName">
+            <option value="" disabled>Select…</option>
+            <option value="__manual__">Manual (no geometry)</option>
+            <option v-for="g in geometriesList" :key="g.name" :value="g.name">{{ g.name }}</option>
+          </select>
+        </div>
+        <div class="field" :class="{ readonly: selectedGeometry }">
+          <label>Volume <span class="hint">{{ selectedGeometry ? '(from geometry, mm³)' : '(mm³)' }}</span> <span v-if="!selectedGeometry" class="required-marker">*</span></label>
+          <input v-if="selectedGeometry" :value="selectedGeometry.volume_mm3" readonly>
+          <input v-else v-model.number="volumeMm3" type="number" min="0" step="any">
+        </div>
+        <template v-if="selectedGeometry">
+          <div class="field readonly">
+            <label>Shape Class <span class="hint">(from geometry)</span></label>
+            <input :value="selectedGeometry.shape_class" readonly>
+          </div>
+          <div class="field readonly">
+            <label>Section Thickness <span class="hint">(from geometry, mm)</span></label>
+            <input :value="selectedGeometry.section_thickness_mm" readonly>
+          </div>
+          <div class="field readonly">
+            <label>Tolerance <span class="hint">(from geometry, mm)</span></label>
+            <input :value="selectedGeometry.tolerance_mm" readonly>
+          </div>
+          <div class="field readonly">
+            <label>Surface Finish <span class="hint">(from geometry, &micro;m Ra)</span></label>
+            <input :value="selectedGeometry.surface_finish_um_ra" readonly>
+          </div>
+        </template>
+      </div>
+    </section>
+
+    <!-- Material -->
+    <section class="card">
+      <h2>Material</h2>
+
+      <div class="subheading">Basics</div>
+      <div class="field-row">
+        <div class="inline-btn-field">
+          <div class="field">
+            <label>Material Directory <span class="hint">(optional)</span></label>
+            <input v-model="materialDir" type="text">
+          </div>
+          <button @click="loadMaterials" :disabled="loadingMaterials">
+            {{ loadingMaterials ? 'Loading…' : 'Connect' }}
+          </button>
+        </div>
+        <div class="field">
+          <label>Material <span class="required-marker">*</span></label>
+          <select v-model="selectedMaterialName">
+            <option value="" disabled>Select…</option>
+            <option v-for="m in materialsList" :key="m.name" :value="m.name">{{ m.name }}</option>
+            <option value="__custom__">Custom Material</option>
+            <option value="__blend__">Blend Two Materials</option>
+          </select>
+        </div>
+        <div class="field" v-if="selectedMaterialName === '__custom__'">
+          <label>Name <span class="hint">(optional)</span></label>
+          <input v-model="customMaterial.name" type="text" placeholder="e.g. My Material">
+        </div>
+      </div>
+
+      <div v-if="selectedMaterialName === '__blend__'" class="field-row">
+        <div class="field">
+          <label>Material A <span class="required-marker">*</span></label>
+          <select v-model="blendMaterialAName">
+            <option value="" disabled>Select…</option>
+            <option v-for="m in materialsList" :key="m.name" :value="m.name">{{ m.name }}</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Material B <span class="required-marker">*</span></label>
+          <select v-model="blendMaterialBName">
+            <option value="" disabled>Select…</option>
+            <option v-for="m in materialsList" :key="m.name" :value="m.name">{{ m.name }}</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Material A Fraction <span class="hint">(%)</span> <span class="required-marker">*</span></label>
+          <input v-model.number="blendFractionAPercent" type="number" min="0" max="100" step="any" placeholder="e.g. 75">
+        </div>
+        <div class="field">
+          <label>Basis <span class="required-marker">*</span></label>
+          <select v-model="blendBasis">
+            <option value="" disabled>Select…</option>
+            <option value="volume">Volume</option>
+            <option value="mass">Mass</option>
+          </select>
+        </div>
+      </div>
+
+      <template v-if="selectedMaterialName === '__custom__'">
+        <div class="subheading">Properties</div>
+        <div class="field-row">
+          <div class="field">
+            <label>Density <span class="hint">(g/cm&sup3;)</span> <span class="required-marker">*</span></label>
+            <input v-model.number="customMaterial.density" type="number" min="0" step="any" placeholder="e.g. 10">
+          </div>
+          <div class="field">
+            <label>Remainder Element <span class="required-marker">*</span></label>
+            <input v-model="customMaterial.remainderElement" type="text" placeholder="e.g. Fe">
+          </div>
+        </div>
+
+        <div class="subheading">Composition</div>
+        <p class="hint">Added elements default to alloy. Mark an element as residual to exclude its cost from the calculation — appropriate for elements, such as carbon or sulfur, that are compositionally controlled but not deliberately added and so carry no material cost.</p>
+        <table>
+          <thead>
+            <tr><th>Element <span class="required-marker">*</span></th><th class="num">Weight % <span class="required-marker">*</span></th><th>Type</th><th></th></tr>
+          </thead>
+          <tbody>
+            <tr v-for="(row, i) in customMaterial.composition" :key="i">
+              <td><input v-model="row.element" style="width:5rem" placeholder="e.g. Cr"></td>
+              <td class="num"><input v-model.number="row.wt" type="number" min="0" step="any" style="width:6rem" placeholder="e.g. 18"></td>
+              <td>
+                <select v-model="row.type">
+                  <option value="" disabled>Select…</option>
+                  <option value="alloy">alloy</option>
+                  <option value="residual">residual</option>
+                </select>
+              </td>
+              <td><button class="remove" @click="customMaterial.composition.splice(i, 1)">&times;</button></td>
+            </tr>
+          </tbody>
+        </table>
+        <button class="add-row" @click="customMaterial.composition.push({element: '', wt: null, type: 'alloy'})">+ Add element</button>
+      </template>
+
+      <template v-else-if="selectedMaterialName === '__blend__'">
+        <template v-if="materialPreview">
+          <div class="subheading">Properties</div>
+          <div class="field-row">
+            <div class="field readonly">
+              <label>Density <span class="hint">(from material, g/cm&sup3;)</span></label>
+              <input :value="materialPreview.density.toFixed(3)" readonly>
+            </div>
+          </div>
+
+          <div class="subheading">Composition</div>
+          <table>
+            <thead><tr><th>Element</th><th class="num">Weight %</th><th>Type</th></tr></thead>
+            <tbody>
+              <tr v-for="row in materialPreview.composition" :key="row.element">
+                <td>{{ row.element }}</td>
+                <td class="num">{{ row.wt.toFixed(3) }}</td>
+                <td>{{ row.type }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </template>
+        <p v-else class="hint">Select two materials and a fraction to preview the blend.</p>
+      </template>
+
+      <template v-else-if="selectedMaterial">
+        <div class="subheading">Properties</div>
+        <div class="field-row">
+          <div class="field readonly">
+            <label>Density <span class="hint">(from material, g/cm&sup3;)</span></label>
+            <input :value="selectedMaterial.density" readonly>
+          </div>
+        </div>
+
+        <div class="subheading">Composition</div>
+        <table>
+          <thead><tr><th>Element</th><th class="num">Weight %</th><th>Type</th></tr></thead>
+          <tbody>
+            <tr v-for="(data, el) in selectedMaterial.composition" :key="el">
+              <td>{{ el }}</td>
+              <td class="num">{{ data.wt }}</td>
+              <td>{{ data.type }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </template>
+    </section>
+
+    <!-- Fabrication Process -->
+    <section class="card">
+      <h2>Fabrication Process</h2>
+
+      <div v-for="(proc, i) in processes" :key="proc.id" class="process-block">
+        <div class="process-block-header">
+          <h3>Process {{ i + 1 }}</h3>
+          <button class="remove" v-if="processes.length > 1" @click="processes.splice(i, 1)">Remove</button>
+        </div>
+
+        <div class="subheading">Basics</div>
+        <div class="field-row">
+          <div class="field">
+            <label>Process <span class="required-marker">*</span></label>
+            <select v-model="proc.name" @change="proc.cmp = 1">
+              <option value="" disabled>Select…</option>
+              <option v-for="p in processesList" :key="p.name" :value="p.name">{{ p.name }}</option>
+              <option value="__custom__">Custom Process</option>
+            </select>
+          </div>
+          <div class="field" v-if="proc.name === '__custom__'">
+            <label>Name <span class="hint">(optional)</span></label>
+            <input v-model="proc.customName" type="text" placeholder="e.g. My Process">
+          </div>
+        </div>
+
+        <div class="subheading">Cost Basis</div>
+        <div class="field-row">
+          <template v-if="proc.name === '__custom__'">
+            <div class="field">
+              <label>Tooling Cost <span class="required-marker">*</span></label>
+              <select v-model="proc.toolingLevel" @change="scheduleProcessPreview(proc)">
+                <option value="" disabled>Select…</option>
+                <option v-for="lvl in costLevelData.levels" :key="lvl" :value="lvl">{{ lvl }}</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Equipment Cost <span class="required-marker">*</span></label>
+              <select v-model="proc.equipmentLevel" @change="scheduleProcessPreview(proc)">
+                <option value="" disabled>Select…</option>
+                <option v-for="lvl in costLevelData.levels" :key="lvl" :value="lvl">{{ lvl }}</option>
+              </select>
+            </div>
+            <div class="field">
+              <label>Processing Time <span class="required-marker">*</span></label>
+              <select v-model="proc.timeLevel" @change="scheduleProcessPreview(proc)">
+                <option value="" disabled>Select…</option>
+                <option v-for="lvl in costLevelData.levels" :key="lvl" :value="lvl">{{ lvl }}</option>
+              </select>
+            </div>
+          </template>
+          <template v-else-if="processByName(proc.name)">
+            <div class="field readonly">
+              <label>Tooling Cost <span class="hint">(from process)</span></label>
+              <input :value="processByName(proc.name).tooling_level ?? '—'" readonly>
+            </div>
+            <div class="field readonly">
+              <label>Equipment Cost <span class="hint">(from process)</span></label>
+              <input :value="processByName(proc.name).equipment_level ?? '—'" readonly>
+            </div>
+            <div class="field readonly">
+              <label>Processing Time <span class="hint">(from process)</span></label>
+              <input :value="processByName(proc.name).time_level ?? '—'" readonly>
+            </div>
+          </template>
+        </div>
+
+        <div class="subheading">Fabrication Cost Regression</div>
+        <div class="field-row">
+          <template v-if="proc.name === '__custom__'">
+            <div class="field readonly">
+              <label>&alpha;T <span class="hint">(from equipment cost, processing time)</span></label>
+              <input :value="procAlphaT(proc)?.toFixed(3) ?? ''" readonly>
+            </div>
+            <div class="field readonly">
+              <label>&beta; <span class="hint">(from tooling cost)</span></label>
+              <input :value="procBeta(proc)?.toFixed(2) ?? ''" readonly>
+            </div>
+          </template>
+          <template v-else-if="processByName(proc.name)">
+            <div class="field readonly">
+              <label>&alpha;T <span class="hint">(from equipment cost, processing time)</span></label>
+              <input :value="processByName(proc.name).alphaT" readonly>
+            </div>
+            <div class="field readonly">
+              <label>&beta; <span class="hint">(from tooling cost)</span></label>
+              <input :value="processByName(proc.name).beta" readonly>
+            </div>
+          </template>
+        </div>
+        <p v-if="procAlphaT(proc) !== null && procBeta(proc) !== null" class="hint">
+          Pc(N) = &alpha;T + &beta;/N = {{ procAlphaT(proc).toFixed(3) }} + {{ procBeta(proc).toFixed(2) }}/N
+        </p>
+
+        <div class="subheading">Cost Coefficients</div>
+        <div class="coeff-grid">
+          <div class="field" :class="{ readonly: geometryCoeffFor(proc.name, 'Cc') !== undefined }">
+            <label>Cc <span class="hint">{{ geometryCoeffFor(proc.name, 'Cc') !== undefined ? '(from geometry)' : 'complexity' }}</span> <span v-if="geometryCoeffFor(proc.name, 'Cc') === undefined" class="required-marker">*</span></label>
+            <input v-if="geometryCoeffFor(proc.name, 'Cc') !== undefined" :value="geometryCoeffFor(proc.name, 'Cc')" readonly>
+            <input v-else v-model.number="proc.Cc" type="number" min="0" step="any">
+          </div>
+          <div class="field" :class="{ readonly: geometryCoeffFor(proc.name, 'Cs') !== undefined }">
+            <label>Cs <span class="hint">{{ geometryCoeffFor(proc.name, 'Cs') !== undefined ? '(from geometry)' : 'size' }}</span> <span v-if="geometryCoeffFor(proc.name, 'Cs') === undefined" class="required-marker">*</span></label>
+            <input v-if="geometryCoeffFor(proc.name, 'Cs') !== undefined" :value="geometryCoeffFor(proc.name, 'Cs')" readonly>
+            <input v-else v-model.number="proc.Cs" type="number" min="0" step="any">
+          </div>
+          <div class="field" :class="{ readonly: geometryCoeffFor(proc.name, 'Ct') !== undefined }">
+            <label>Ct <span class="hint">{{ geometryCoeffFor(proc.name, 'Ct') !== undefined ? '(from geometry)' : 'tolerance' }}</span> <span v-if="geometryCoeffFor(proc.name, 'Ct') === undefined" class="required-marker">*</span></label>
+            <input v-if="geometryCoeffFor(proc.name, 'Ct') !== undefined" :value="geometryCoeffFor(proc.name, 'Ct')" readonly>
+            <input v-else v-model.number="proc.Ct" type="number" min="0" step="any">
+          </div>
+          <div class="field" :class="{ readonly: geometryCoeffFor(proc.name, 'Cf') !== undefined }">
+            <label>Cf <span class="hint">{{ geometryCoeffFor(proc.name, 'Cf') !== undefined ? '(from geometry)' : 'finish' }}</span> <span v-if="geometryCoeffFor(proc.name, 'Cf') === undefined" class="required-marker">*</span></label>
+            <input v-if="geometryCoeffFor(proc.name, 'Cf') !== undefined" :value="geometryCoeffFor(proc.name, 'Cf')" readonly>
+            <input v-else v-model.number="proc.Cf" type="number" min="0" step="any">
+          </div>
+          <div class="field" :class="{ readonly: materialCmpFor(proc.name) !== undefined }">
+            <label>Cmp <span class="hint">{{ materialCmpFor(proc.name) !== undefined ? '(from material)' : 'process-material compatibility' }}</span> <span v-if="materialCmpFor(proc.name) === undefined" class="required-marker">*</span></label>
+            <input v-if="materialCmpFor(proc.name) !== undefined" :value="materialCmpFor(proc.name)" readonly>
+            <input v-else v-model.number="proc.cmp" type="number" min="0" step="any" placeholder="e.g. 1.0">
+          </div>
+          <div class="field">
+            <label>Wc <span class="hint">scrap</span> <span class="required-marker">*</span></label>
+            <input v-model.number="proc.Wc" type="number" min="0" step="any">
+          </div>
+        </div>
+      </div>
+
+      <button @click="addProcess">+ Add another process</button>
+    </section>
+
+    <!-- Results -->
+    <section class="card">
+      <h2>Results</h2>
+      <button class="primary" @click="calculate" :disabled="calculating">
+        {{ calculating ? 'Calculating…' : 'Calculate' }}
+      </button>
+      <button @click="screenDirectory" :disabled="screening || !materialDir" title="Runs the cost model for every material file in the connected Material Directory, using the current processes/geometry/quantity, and downloads the results as a CSV.">
+        {{ screening ? 'Running…' : 'Run All Materials in Directory & Export CSV' }}
+      </button>
+
+      <div v-if="result" style="margin-top: 1.5rem">
+        <div v-if="result.warnings && result.warnings.length" class="banner warning">
+          <ul>
+            <li v-for="(w, i) in result.warnings" :key="i">{{ w }}</li>
+          </ul>
+        </div>
+
+        <div class="subheading">Summary</div>
+        <div class="total-cost">
+          <div class="amount">${{ result.summary['Total cost'].toFixed(2) }}</div>
+          <div class="unit">per component &middot; ${{ result.summary['Unit cost'].toFixed(2) }} per kg &middot; {{ result.summary.Mass.toFixed(3) }} kg</div>
+        </div>
+
+        <div class="subheading">Cost Breakdown</div>
+        <img class="chart" :src="'data:image/png;base64,' + result.chart_png_base64" alt="Cost breakdown chart, with a zoomed-in material cost breakdown by element">
+        <p class="hint">Total cost by category (left), with the Material segment zoomed in to show its cost broken down by element (right).</p>
+
+        <div class="subheading">Fabrication Cost Sensitivity</div>
+        <img class="chart" :src="'data:image/png;base64,' + result.process_cost_curve_chart_png_base64" alt="Fabrication cost vs. quantity, all processes">
+        <p class="hint">Fabrication cost vs. production quantity for each process. Solid lines use this material and this geometry; dashed lines use an ideal material with an ideal geometry (Cmp = Cc = Cs = Ct = Cf = 1, the DFM baseline design). The dotted vertical line marks the entered production quantity.</p>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script>
+const { createApp, ref, reactive, computed, watch, onMounted } = Vue;
+
+createApp({
+  setup() {
+    const componentName = ref('');
+    const productionQty = ref(1000);
+    const volumeMm3 = ref(3000000);
+
+    const materialDir = ref('');
+    const materialsList = ref([]);
+    const selectedMaterialName = ref('');
+    const loadingMaterials = ref(false);
+    const customMaterial = reactive({
+      name: '',
+      density: null,
+      remainderElement: '',
+      composition: [{ element: '', wt: null, type: 'alloy' }],
+    });
+
+    const blendMaterialAName = ref('');
+    const blendMaterialBName = ref('');
+    const blendFractionAPercent = ref(null);
+    const blendBasis = ref('');
+
+    const processesList = ref([]);
+    const costLevelData = ref({ levels: [], tooling_cost: {}, equipment_cost: {}, processing_time: {} });
+    const geometriesList = ref([]);
+    const selectedGeometryName = ref('');
+    let nextProcId = 1;
+    const processes = ref([]);
+
+    const errorMessage = ref('');
+    const calculating = ref(false);
+    const result = ref(null);
+    const screening = ref(false);
+
+    const selectedMaterial = computed(() =>
+      materialsList.value.find(m => m.name === selectedMaterialName.value) || null
+    );
+
+    // Authoritative preview of the drafted material's density and
+    // composition for custom/blend mode - this file only fetches and
+    // displays it, material_def.py (build_material / blend_materials)
+    // computes it. Cost and all charts only appear in Results, rendered
+    // once from the material actually used in a Calculate call.
+    const materialPreview = ref(null);
+    let materialPreviewTimer = null;
+
+    function materialDraftReady() {
+      if (selectedMaterialName.value === '__custom__') {
+        return !!customMaterial.density && !!customMaterial.remainderElement &&
+          customMaterial.composition.some(r => r.element && r.wt);
+      }
+      if (selectedMaterialName.value === '__blend__') {
+        return !!blendMaterialAName.value && !!blendMaterialBName.value && !!blendFractionAPercent.value;
+      }
+      return !!selectedMaterialName.value;
+    }
+
+    async function fetchMaterialPreview() {
+      if (!materialDraftReady()) {
+        materialPreview.value = null;
+        return;
+      }
+      try {
+        const res = await fetch('/api/material-preview', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(buildMaterialPayload()),
+        });
+        materialPreview.value = res.ok ? await res.json() : null;
+      } catch {
+        materialPreview.value = null;
+      }
+    }
+
+    function scheduleMaterialPreview() {
+      clearTimeout(materialPreviewTimer);
+      materialPreviewTimer = setTimeout(fetchMaterialPreview, 400);
+    }
+
+    function processByName(name) {
+      return processesList.value.find(p => p.name === name) || null;
+    }
+
+    function materialCmpFor(processName) {
+      if (!selectedMaterial.value) return undefined;
+      return selectedMaterial.value.cmp_map[processName];
+    }
+
+    const selectedGeometry = computed(() =>
+      geometriesList.value.find(g => g.name === selectedGeometryName.value) || null
+    );
+
+    function geometryCoeffFor(processName, coeff) {
+      if (!selectedGeometry.value) return undefined;
+      return selectedGeometry.value[`${coeff}_map`][processName];
+    }
+
+    function newProcessRow() {
+      return {
+        id: nextProcId++,
+        name: '',
+        customName: '',
+        toolingLevel: '',
+        equipmentLevel: '',
+        timeLevel: '',
+        cmp: 1,
+        Cc: 1, Cs: 1, Ct: 1, Cf: 1, Wc: 1,
+      };
+    }
+
+    function addProcess() {
+      processes.value.push(newProcessRow());
+    }
+
+    async function loadMaterials() {
+      loadingMaterials.value = true;
+      errorMessage.value = '';
+      try {
+        const params = materialDir.value ? `?material_dir=${encodeURIComponent(materialDir.value)}` : '';
+        const res = await fetch(`/api/materials${params}`);
+        if (!res.ok) throw new Error(await readError(res));
+        materialsList.value = await res.json();
+        const stillValid = ['', '__custom__', '__blend__'].includes(selectedMaterialName.value) ||
+          materialsList.value.some(m => m.name === selectedMaterialName.value);
+        if (!stillValid) {
+          selectedMaterialName.value = '';
+        }
+      } catch (e) {
+        errorMessage.value = e.message;
+      } finally {
+        loadingMaterials.value = false;
+      }
+    }
+
+    async function loadProcesses() {
+      try {
+        const res = await fetch('/api/processes');
+        if (!res.ok) throw new Error(await readError(res));
+        processesList.value = await res.json();
+      } catch (e) {
+        errorMessage.value = e.message;
+      }
+    }
+
+    async function loadCostLevels() {
+      try {
+        const res = await fetch('/api/cost-levels');
+        if (!res.ok) throw new Error(await readError(res));
+        costLevelData.value = await res.json();
+      } catch (e) {
+        errorMessage.value = e.message;
+      }
+    }
+
+    async function loadGeometries() {
+      try {
+        const res = await fetch('/api/geometries');
+        if (!res.ok) throw new Error(await readError(res));
+        geometriesList.value = await res.json();
+      } catch (e) {
+        errorMessage.value = e.message;
+      }
+    }
+
+    // Authoritative preview of a draft custom process's alphaT/beta - this
+    // file only fetches and displays it, process_def.py (build_process /
+    // compute_alphaT_beta) computes it. Keyed by proc.id since multiple
+    // process rows can each have their own in-progress custom draft.
+    const processPreviews = reactive({});
+    const processPreviewTimers = {};
+
+    async function fetchProcessPreview(proc) {
+      if (!proc.toolingLevel || !proc.equipmentLevel || !proc.timeLevel) {
+        delete processPreviews[proc.id];
+        return;
+      }
+      try {
+        const res = await fetch('/api/process-preview', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(buildProcessPayload(proc)),
+        });
+        if (res.ok) {
+          processPreviews[proc.id] = await res.json();
+        } else {
+          delete processPreviews[proc.id];
+        }
+      } catch {
+        delete processPreviews[proc.id];
+      }
+    }
+
+    function scheduleProcessPreview(proc) {
+      clearTimeout(processPreviewTimers[proc.id]);
+      processPreviewTimers[proc.id] = setTimeout(() => fetchProcessPreview(proc), 400);
+    }
+
+    function procAlphaT(proc) {
+      return proc.name === '__custom__' ? (processPreviews[proc.id]?.alphaT ?? null) : (processByName(proc.name)?.alphaT ?? null);
+    }
+
+    function procBeta(proc) {
+      return proc.name === '__custom__' ? (processPreviews[proc.id]?.beta ?? null) : (processByName(proc.name)?.beta ?? null);
+    }
+
+    async function readError(res) {
+      try {
+        const body = await res.json();
+        if (Array.isArray(body.detail)) {
+          return body.detail.map(d => d.msg).join('; ');
+        }
+        return body.detail || res.statusText;
+      } catch {
+        return res.statusText;
+      }
+    }
+
+    function buildMaterialPayload() {
+      if (selectedMaterialName.value === '__custom__') {
+        const composition = {};
+        for (const row of customMaterial.composition) {
+          if (row.element) composition[row.element] = { wt: row.wt, type: row.type };
+        }
+        return {
+          mode: 'custom',
+          name: customMaterial.name || 'Custom Material',
+          density: customMaterial.density,
+          composition,
+          remainder_element: customMaterial.remainderElement,
+        };
+      }
+      if (selectedMaterialName.value === '__blend__') {
+        return {
+          mode: 'blend',
+          name: '',
+          material_dir: materialDir.value || null,
+          material_a_name: blendMaterialAName.value || null,
+          material_b_name: blendMaterialBName.value || null,
+          blend_fraction_a: blendFractionAPercent.value ? blendFractionAPercent.value / 100 : null,
+          blend_basis: blendBasis.value,
+        };
+      }
+      return {
+        mode: 'existing',
+        name: selectedMaterialName.value,
+        material_dir: materialDir.value || null,
+      };
+    }
+
+    function buildProcessPayload(proc) {
+      const base = {
+        Cc: proc.Cc, Cs: proc.Cs, Ct: proc.Ct, Cf: proc.Cf, Wc: proc.Wc,
+        Cmp: materialCmpFor(proc.name) !== undefined ? undefined : proc.cmp,
+      };
+      if (proc.name === '__custom__') {
+        return {
+          ...base,
+          mode: 'custom',
+          name: proc.customName || `Custom Process ${proc.id}`,
+          tooling_level: proc.toolingLevel,
+          equipment_level: proc.equipmentLevel,
+          time_level: proc.timeLevel,
+        };
+      }
+      return { ...base, mode: 'existing', name: proc.name, process_dir: null };
+    }
+
+    async function calculate() {
+      calculating.value = true;
+      errorMessage.value = '';
+      result.value = null;
+      try {
+        const payload = {
+          component_name: componentName.value || null,
+          volume_mm3: selectedGeometry.value ? selectedGeometry.value.volume_mm3 : volumeMm3.value,
+          production_qty: productionQty.value,
+          material: buildMaterialPayload(),
+          processes: processes.value.map(buildProcessPayload),
+          geometry: selectedGeometry.value ? { name: selectedGeometryName.value, geometry_dir: null } : null,
+        };
+        const res = await fetch('/api/calculate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) throw new Error(await readError(res));
+        result.value = await res.json();
+      } catch (e) {
+        errorMessage.value = e.message;
+      } finally {
+        calculating.value = false;
+      }
+    }
+
+    async function screenDirectory() {
+      if (!materialDir.value) {
+        errorMessage.value = 'Enter a Material Directory above and click Connect first.';
+        return;
+      }
+      screening.value = true;
+      errorMessage.value = '';
+      try {
+        const payload = {
+          component_name: componentName.value || null,
+          volume_mm3: selectedGeometry.value ? selectedGeometry.value.volume_mm3 : volumeMm3.value,
+          production_qty: productionQty.value,
+          material_dir: materialDir.value,
+          processes: processes.value.map(buildProcessPayload),
+          geometry: selectedGeometry.value ? { name: selectedGeometryName.value, geometry_dir: null } : null,
+        };
+        const res = await fetch('/api/screen-directory', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) throw new Error(await readError(res));
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'tea_screen_results.csv';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      } catch (e) {
+        errorMessage.value = e.message;
+      } finally {
+        screening.value = false;
+      }
+    }
+
+    watch(
+      [selectedMaterialName, blendMaterialAName, blendMaterialBName, blendFractionAPercent, blendBasis,
+       () => customMaterial.density, () => customMaterial.remainderElement,
+       () => JSON.stringify(customMaterial.composition)],
+      scheduleMaterialPreview
+    );
+
+    onMounted(async () => {
+      await Promise.all([loadMaterials(), loadProcesses(), loadCostLevels(), loadGeometries()]);
+      processes.value.push(newProcessRow());
+      fetchMaterialPreview();
+    });
+
+    return {
+      componentName, productionQty, volumeMm3,
+      materialDir, materialsList, selectedMaterialName, loadingMaterials, customMaterial, selectedMaterial,
+      blendMaterialAName, blendMaterialBName, blendFractionAPercent, blendBasis,
+      materialPreview,
+      geometriesList, selectedGeometryName, selectedGeometry, geometryCoeffFor,
+      processesList, costLevelData, processes, processByName, materialCmpFor, procAlphaT, procBeta, scheduleProcessPreview, addProcess,
+      errorMessage, calculating, result, screening,
+      loadMaterials, calculate, screenDirectory,
+    };
+  },
+}).mount('#app');
+</script>
+</body>
+</html>
