@@ -5,9 +5,7 @@ Lets a researcher import this module directly (no running server, no
 interactive prompts) and run the cost model on one material or screen a
 batch of candidate materials, getting back plain JSON-serializable dicts.
 
-    import sys
-    sys.path.insert(0, "/path/to/cortex/tea")
-    import tea_api
+    from cortex_tea import tea_api
 
     result = tea_api.evaluate("EROFER97", ["CNC", "Hot Rolling"],
                                volume_mm3=3_000_000, production_qty=100)
@@ -19,11 +17,11 @@ batch of candidate materials, getting back plain JSON-serializable dicts.
                               volume_mm3=1_000_000, production_qty=50)
 
     # Or run every material file in a directory (e.g. a folder of candidate
-    # alloy .py files, same format as materials_database/):
+    # alloy .py files, same format as database_materials/):
     results = tea_api.screen_directory("candidate_alloys/", ["CNC"],
                                         volume_mm3=1_000_000, production_qty=50)
 
-This module is also the shared backend for tea/webapp/server.py, which
+This module is also the shared backend for webapp/server.py, which
 wraps the TeaError/TeaNotFoundError exceptions raised here into HTTP
 responses for the browser GUI.
 """
@@ -36,16 +34,16 @@ import re
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 
-import material_def
-import process_def
-import component_def
-import cost_variables
-from tea1 import Component
+from . import material_def
+from . import process_def
+from . import component_def
+from . import cost_variables
+from .tea1 import Component
 
 _TEA_DIR = Path(__file__).resolve().parent
-MATERIALS_DB_DIR = str(_TEA_DIR / "materials_database")
-PROCESSES_DB_DIR = str(_TEA_DIR / "processes_database")
-GEOMETRIES_DB_DIR = str(_TEA_DIR / "geometries_database")
+MATERIALS_DB_DIR = str(_TEA_DIR / "database_materials")
+PROCESSES_DB_DIR = str(_TEA_DIR / "database_processes")
+GEOMETRIES_DB_DIR = str(_TEA_DIR / "database_geometries")
 
 
 class TeaError(ValueError):
@@ -495,6 +493,32 @@ def evaluate(
     )
 
 
+def make_component(
+    material: MaterialSpec,
+    processes: List[ProcessSpec],
+    volume_mm3: float,
+    production_qty: int,
+    *,
+    geometry: GeometrySpec = None,
+    component_name: str = "Component",
+    material_dir: Optional[str] = None,
+    process_dir: Optional[str] = None,
+    geometry_dir: Optional[str] = None,
+) -> "Component":
+    """Same inputs as evaluate(), but returns the built Component instead of
+    a result dict - e.g. for plotting.process_cost_curves_png()."""
+    if not processes:
+        raise TeaError("At least one process must be specified.")
+
+    return build_component(
+        component_name, volume_mm3, production_qty,
+        resolve_material(material, material_dir),
+        [resolve_process(p, process_dir) for p in processes],
+        process_specs=processes,
+        geometry=resolve_geometry(geometry, geometry_dir),
+    )
+
+
 def _candidate_label(candidate: MaterialSpec) -> str:
     if isinstance(candidate, str):
         return candidate
@@ -600,7 +624,7 @@ def screen_directory(
     geometry_dir: Optional[str] = None,
 ) -> List[dict]:
     """Run the cost model for every material file in material_dir (same
-    module-attribute convention as materials_database/ - each file defines
+    module-attribute convention as database_materials/ - each file defines
     name/density/composition/remainder_element/Cmp_map at module level),
     sharing the same processes/geometry/volume/production_qty across all of
     them. Same skip-and-record behavior as screen(): a file that fails to

@@ -14,26 +14,27 @@ There are two ways to run it:
 * **The web GUI** — a FastAPI backend + single-page frontend for interactive,
   point-and-click use.
 
-Both sit on the same underlying modules (`tea1.py`, `material_def.py`,
-`process_def.py`, `component_def.py`, `cost_variables.py`), so results from
-one match the other exactly.
+Both sit on the same underlying modules in the `cortex_tea` package
+(`tea1.py`, `material_def.py`, `process_def.py`, `component_def.py`,
+`cost_variables.py`), so results from one match the other exactly.
 
 ## Install
 
-`tea/` is a pip-installable package. From this directory:
+`tea/` is a pip-installable project (distribution name `cortex-tea`) that
+installs one package, `cortex_tea`. From this directory:
 
 ```bash
 pip install -e .
 ```
 
-The core cost model has no third-party dependencies, so that's all you need
-for `tea_api`. `-e` ("editable") installs it in place, pointing back at this
-checkout rather than copying files.
+Its only dependencies are matplotlib and numpy, for the charts. `-e` ("editable") installs it in place, pointing back at this
+checkout rather than copying files. A regular `pip install .` works too; the
+material, process and geometry databases ship inside the package.
 
 Optional extras, if you need them:
 
 ```bash
-pip install -e ".[webapp]"    # fastapi, uvicorn, matplotlib, pydantic — to run the web GUI
+pip install -e ".[webapp]"    # fastapi, uvicorn, pydantic — to run the web GUI
 pip install -e ".[notebook]"  # pandas, ipykernel — for the example notebook's optional cells
 ```
 
@@ -48,15 +49,30 @@ cheat sheet of every public function.
 Minimal example:
 
 ```python
-import tea_api
+from cortex_tea import tea_api
 
 result = tea_api.evaluate(
-    "EROFER97",              # material name, looked up in materials_database/
-    ["CNC", "Hot Rolling"],  # process names, looked up in processes_database/
+    "EROFER97",              # material name, looked up in database_materials/
+    ["CNC", "Hot Rolling"],  # process names, looked up in database_processes/
     volume_mm3=3_000_000,
     production_qty=100,
 )
 print(result["summary"]["Total cost"])
+```
+
+## Charts
+
+`cortex_tea.plotting` draws the same two charts the web GUI shows, as PNG
+bytes (and optionally a file):
+
+```python
+from cortex_tea import plotting
+
+plotting.cost_breakdown_png(result, path="breakdown.png")
+
+component = tea_api.make_component("EROFER97", ["CNC", "Hot Rolling"],
+                                   volume_mm3=3_000_000, production_qty=100)
+plotting.process_cost_curves_png(component, path="curves.png")
 ```
 
 ## Running the web GUI
@@ -69,21 +85,24 @@ uvicorn server:app --reload
 
 Then open `http://127.0.0.1:8000` — it's a single self-contained
 `static/index.html` (Vue via CDN, no build step) talking to the FastAPI
-backend's `/api/*` routes, which wrap the same `tea_api` functions used
-above.
+backend's `/api/*` routes, which wrap the same `tea_api` and `plotting`
+functions used above.
 
 ## Directory layout
 
-* `materials_database/`, `processes_database/`, `geometries_database/` —
-  the material/process/geometry `.py` definition files `tea_api` and the
-  web GUI look names up in by default. Each is a plain module with
+* `cortex_tea/` — the package: the cost model modules, `tea_api`, `plotting`, and the
+  three databases below.
+* `cortex_tea/database_materials/`, `cortex_tea/database_processes/`,
+  `cortex_tea/database_geometries/` — the material/process/geometry `.py`
+  definition files `tea_api` and the web GUI look names up in by default. Each is a plain module with
   module-level variables (`name`, `density`, `composition`, `Cmp_map`, ...
   — see any existing file for the format). Point `tea_api` at a different
   directory instead with the `material_dir=`/`process_dir=`/`geometry_dir=`
   keyword arguments.
 * `inputs_materials/`, `inputs_processes/`, `inputs_components/` — example/
   template input files in the same format, used by the archived interactive
-  workflow below.
+  workflow below. Material files import `cost_variables` as
+  `from cortex_tea import cost_variables as defaults`.
 * `inputs_materials_machiningdoctor/` — a large set of reference material
   property files sourced from the MachiningDoctor database.
 * `archived_modules/` — the original interactive, `input()`-prompt-driven

@@ -1,5 +1,5 @@
 """
-Oxide Dispersion Strengthened Steel
+Ditungsten Carbide (W2C, Ni binder)
 
 
 ########################################################################
@@ -82,36 +82,31 @@ Cmp_map : dict
             costs.
 """
 
-name = 'ODS'
+name = 'W2C'
 
-density = 8
+density = 16.767
 
 composition = {
-    # TODO validate composition
     # alloying elements
-    'Cr': {'wt': 13.5,   'type': 'alloy'}, 
-    'Mn': {'wt': 0.0917, 'type': 'alloy'},
-    'W':  {'wt': 0.99,   'type': 'alloy'},
-    'Y':  {'wt': 0.146,  'type': 'alloy'}, 
-    'Ti': {'wt': 0.16,   'type': 'alloy'},
+    'C':  {'wt': 4.0,  'type': 'alloy'},     # 3.8 - 4.2
+    'Ni': {'wt': 4.0,  'type': 'alloy'},     # 3.0 - 5.0
 
-    # residuals / impurities
-    'Ni': {'wt': 0.0599, 'type': 'residual'},
-    'H':  {'wt': 0.0057, 'type': 'residual'},
-    'N':  {'wt': 0.0078, 'type': 'residual'},
-    'O':  {'wt': 0.117,  'type': 'residual'},
-    'C':  {'wt': 0.0164, 'type': 'residual'}
+    # residuals / impurities (max limits)
+    'Cr': {'wt': 0.1,  'type': 'residual'},
+    'V':  {'wt': 0.1,  'type': 'residual'},
+    'Fe': {'wt': 0.05, 'type': 'residual'},
+    'Ti': {'wt': 0.1,  'type': 'residual'},
+    'Co': {'wt': 0.1,  'type': 'residual'},
+    # W balance: 91.55
 }
 
-remainder_element = 'Fe'
+remainder_element = 'W'
 
 from cortex_tea import cost_variables as defaults
 
 Cmp_map ={                    
-    'CNC': 4,
-    'Hot Rolling': 2,
-    'Cold Rolling': 2,
-    'HIP': 1.1,
-    'Spray Deposition': 1.1,
-    'Electron Beam': 1
+    # Replace 'defaults.Cmp_map_1[process]' with the desired 'Cmp'
+    # TODO: Validate values
+    'HIP': 2,
+    'Spray Deposition': 1.5
 }

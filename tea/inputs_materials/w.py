@@ -92,7 +92,7 @@ composition = {
 
 remainder_element = 'W'
 
-import cost_variables as defaults
+from cortex_tea import cost_variables as defaults
 
 Cmp_map ={                    
     # Replace 'defaults.Cmp_map_1[process]' with the desired 'Cmp'
