@@ -296,10 +296,10 @@ def calculate(req: CalculateRequest):
     except Exception as exc:
         raise HTTPException(400, str(exc))
 
-    material_fraction_rows, warnings = tea_api.material_cost_breakdown(material)
+    _, warnings = tea_api.material_cost_breakdown(material)
 
-    chart_png = plotting.cost_breakdown_png({"summary": summary, "material_composition": material_fraction_rows})
-    curves_png = plotting.process_cost_curves_png(component, req.production_qty)
+    chart_png = plotting.cost_breakdown_png(component)
+    curves_png = plotting.process_cost_curves_png(component)
 
     return {
         "summary": summary,

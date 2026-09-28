@@ -3,12 +3,9 @@ PNG charts for TEA results, shared by the web GUI, Sirepo and scripts.
 
     from cortex_tea import tea_api, plotting
 
-    result = tea_api.evaluate("EROFER97", ["CNC", "Hot Rolling"],
-                              volume_mm3=3_000_000, production_qty=100)
-    png = plotting.cost_breakdown_png(result, path="breakdown.png")
-
     component = tea_api.make_component("EROFER97", ["CNC", "Hot Rolling"],
                                        volume_mm3=3_000_000, production_qty=100)
+    png = plotting.cost_breakdown_png(component, path="breakdown.png")
     png = plotting.process_cost_curves_png(component, path="curves.png")
 
 Each function returns the PNG as bytes, and also writes it to `path` if one
@@ -25,6 +22,8 @@ import numpy as np
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
 from matplotlib.patches import ConnectionPatch
+
+from .tea_api import material_cost_breakdown
 
 
 # Styling per the dataviz skill: fixed-order categorical palette (never
@@ -133,9 +132,9 @@ def _style_stacked_axis(ax, title: str, ylabel: str, value_fmt) -> None:
         ax.spines[spine_name].set_visible(False)
 
 
-def cost_breakdown_png(result: dict, path: Optional[Union[str, Path]] = None) -> bytes:
+def cost_breakdown_png(component, path: Optional[Union[str, Path]] = None) -> bytes:
     """
-    Cost breakdown chart for one tea_api.evaluate() result.
+    Cost breakdown chart for a Component (see tea_api.make_component).
 
     Stacked bar of Material + each process's cost, with a "zoom" panel next
     to it showing the Material segment's cost broken down by element -
@@ -144,8 +143,8 @@ def cost_breakdown_png(result: dict, path: Optional[Union[str, Path]] = None) ->
     reads as a detail view of that one segment (matplotlib's "bar of pie"
     pattern, bar-to-bar instead of pie-to-bar).
     """
-    summary = result["summary"]
-    material_fraction_rows = result["material_composition"]
+    summary = component.manufacturing_cost()
+    material_fraction_rows, _ = material_cost_breakdown(component.material)
 
     labels = ["Material"] + [p["Process"] for p in summary["Processes"]]
     values = [summary["Cost Breakdown"][label] for label in labels]

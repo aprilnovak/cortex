@@ -62,17 +62,19 @@ print(result["summary"]["Total cost"])
 
 ## Charts
 
-`cortex_tea.plotting` draws the same two charts the web GUI shows, as PNG
-bytes (and optionally a file):
+`cortex_tea.plotting` draws the same two charts the web GUI shows, from a
+Component. `make_component` takes the same inputs as `evaluate` and returns
+the Component. Each function returns PNG bytes and also saves a file if
+given `path=`:
 
 ```python
-from cortex_tea import plotting
-
-plotting.cost_breakdown_png(result, path="breakdown.png")
+from cortex_tea import tea_api, plotting
 
 component = tea_api.make_component("EROFER97", ["CNC", "Hot Rolling"],
                                    volume_mm3=3_000_000, production_qty=100)
+plotting.cost_breakdown_png(component, path="breakdown.png")
 plotting.process_cost_curves_png(component, path="curves.png")
+summary = component.manufacturing_cost()   # same as evaluate()["summary"]
 ```
 
 ## Running the web GUI
