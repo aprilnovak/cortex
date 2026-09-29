@@ -331,7 +331,7 @@ else:
 
 # Depletion
 IRRADIATION_YEARS    = 5.0
-CONSTANT_POWER_RATIO = 0.3
+CONSTANT_POWER_RATIO = 1.0 #0.3
 REDUCED_CHAIN_LEVEL = 5
 
 # =============================================================================
@@ -364,7 +364,21 @@ DEPLETION_CHUNKS = {
     "OB_1_b6": None,
 }
 
-DEPLETION_IDX_TO_PLOT = (0, 3, 6, 9, 12, 15, 18, 21, 24, 27)
+# Target cooling times (seconds, since shutdown) for the radial
+# activity/decay-heat profile plots. 
+_y_to_s_milestones = 24 * 365 * 3_600
+DEPLETION_MILESTONE_SECONDS_TO_PLOT = (
+    1.0,                          # 1 second
+    60.0,                         # 1 minute
+    3_600.0,                      # 1 hour
+    86_400.0,                     # 1 day
+    7 * 86_400.0,                 # 1 week
+    _y_to_s_milestones / 12.0,    # 1 month
+    1 * _y_to_s_milestones,       # 1 year
+    10 * _y_to_s_milestones,      # 10 years
+    100 * _y_to_s_milestones,     # 100 years
+    1_000 * _y_to_s_milestones,   # 1000 years
+)
 
 # =============================================================================
 # REFERENCE (GOLD) RUN COMPARISON
