@@ -3,41 +3,24 @@ the CORTEX ARPA-E project...
 
 For any large files (like meshes), [put them on Box](https://uofi.app.box.com/folder/303093159824).
 
-## Instructions for building BlueMira with EUDEMO model enabled
+## TOKAMAK - SLAB INSTRUCTIONS
 
-```
-# delete old environments and do a fresh clone if you get messed up
-conda remove -n bluemira --all
-rm -rf bluemira
-rm -rf process
-git clone git@github.com:Fusion-Power-Plant-Framework/bluemira.git
-git clone https://github.com/ukaea/PROCESS.git
-cd bluemira
+(Detailed instructions are also available on ```./full_model_bluemira/README.md```)
 
-# create bluemira conda environment assuming you already have conda installed
-sed s/".*python.*"/"  - python="3.11/g ./conda/environment.yml > ./conda/tmp_env.yml
-mamba env create -f ./conda/tmp_env.yml -n bluemira
+In order to run the slab model, you must first run the Tokamak model to generate two important files: ```surface_source.h5``` and ```armor_current_neutron.json```. 
 
-# enter bluemira environment and add some missing dependencies
-conda activate bluemira
-conda install pythonocc-core
-pip install fast_ctd@git+https://github.com/Fusion-Power-Plant-Framework/fast_ctd@main
+To generate these files, run the Tokamak model (```SIM_TYPE = tokamak```): 
+1. Run ```python neutronics_model.py``` in the respective directory ```./full_model_bluemira```.
+2. Execute ```openmc``` command inside ```./{SIM_TYPE}/{BREEDER_TYPE}/neutronics_run/``` folder.
+3. Move back to ```./full_model_bluemira``` with ```cd ../../../```.
+4. Run the ```python neutronics_post.py```.
+5. Run ```python depletion_model.py```.
+6. Run ```python depletion_post.py```.
 
-# install process
-cd $HOME
-cd PROCESS
-pip install setuptools\<65
-git checkout 48e3910bed862af1e159e7a46a31b0acacd1676e
-cmake -G Ninja -S . -B build -DRELEASE=TRUE
-cmake --build build
+Slab simulations can follow using the same method and switching ```SIM_TYPE = slab```.
 
-# check out the bluemira commit with the working model
-cd ../bluemira
-pip install -e .\[dagmc\]
-git checkout 75307027c22364a3ee7710351f050c9d88b475ff
-cd eudemo
-ln -s $(pwd)/../data/materials config/materials_data
-```
+The current version allows ```ENIVORNMENT = TESTING / CORTEX```. For ```TESTING```, ```surface_source.h5``` and the ```armor_current_neutron.json``` are pulled directly from the last tokamak run (```./tokamak/{BREEDER_TYPE}/neutronics_run/```). For ```CORTEX```, it uses pre-saved ```surface_source.h5``` and ```armor_current_neutron.json``` stored in the ```./slab/{BREEDER_TYPE}/``` directory.
+
 ## Instructions for Installing MOAB
 
 Provide CMake arguments during MOAB installation to enable HDF5 format and be able to load exodus files.
@@ -121,21 +104,39 @@ cd cardinal/build/moab
 pip install .
 ```
 
-## TOKAMAK - SLAB INSTRUCTIONS
 
-(Detailed instructions are also available on ```./full_model_bluemira/README.md```)
+## Instructions for building BlueMira with EUDEMO model enabled (outdated?)
 
-In order to run the slab model, you must first run the Tokamak model to generate two important files: ```surface_source.h5``` and ```armor_current_neutron.json```. 
+```
+# delete old environments and do a fresh clone if you get messed up
+conda remove -n bluemira --all
+rm -rf bluemira
+rm -rf process
+git clone git@github.com:Fusion-Power-Plant-Framework/bluemira.git
+git clone https://github.com/ukaea/PROCESS.git
+cd bluemira
 
-To generate these files, run the Tokamak model (```SIM_TYPE = tokamak```): 
-1. Run ```python neutronics_model.py``` in the respective directory ```./full_model_bluemira```.
-2. Execute ```openmc``` command inside ```./{SIM_TYPE}/{BREEDER_TYPE}/neutronics_run/``` folder.
-3. Move back to ```./full_model_bluemira``` with ```cd ../../../```.
-4. Run the ```python neutronics_post.py```.
-5. Run ```python depletion_model.py```.
-6. Run ```python depletion_post.py```.
+# create bluemira conda environment assuming you already have conda installed
+sed s/".*python.*"/"  - python="3.11/g ./conda/environment.yml > ./conda/tmp_env.yml
+mamba env create -f ./conda/tmp_env.yml -n bluemira
 
-Slab simulations can follow using the same method and switching ```SIM_TYPE = slab```.
+# enter bluemira environment and add some missing dependencies
+conda activate bluemira
+conda install pythonocc-core
+pip install fast_ctd@git+https://github.com/Fusion-Power-Plant-Framework/fast_ctd@main
 
-The current version allows ```ENIVORNMENT = TESTING / CORTEX```. For ```TESTING```, ```surface_source.h5``` and the ```armor_current_neutron.json``` are pulled directly from the last tokamak run (```./tokamak/{BREEDER_TYPE}/neutronics_run/```). For ```CORTEX```, it uses pre-saved ```surface_source.h5``` and ```armor_current_neutron.json``` stored in the ```./slab/{BREEDER_TYPE}/``` directory.
+# install process
+cd $HOME
+cd PROCESS
+pip install setuptools\<65
+git checkout 48e3910bed862af1e159e7a46a31b0acacd1676e
+cmake -G Ninja -S . -B build -DRELEASE=TRUE
+cmake --build build
 
+# check out the bluemira commit with the working model
+cd ../bluemira
+pip install -e .\[dagmc\]
+git checkout 75307027c22364a3ee7710351f050c9d88b475ff
+cd eudemo
+ln -s $(pwd)/../data/materials config/materials_data
+```
