@@ -17,6 +17,9 @@ def rand_number(is_impurity=True):
     rr = min(r[0], 1.0)
     return 1-rr
 
+    # for uniform distribution
+    #return random.random()
+
   else:
     # for uniform distribution for the non-impurity things
     return random.random()
