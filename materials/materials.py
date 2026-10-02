@@ -2,8 +2,24 @@ import openmc
 import openmc.data
 import re
 import random
+import numpy as np
+import math
 
 # This file defines default materials to populate into existing models
+
+def rand_number(is_impurity=True):
+
+  if (is_impurity):
+    # for exponential distribution
+    pr = 0.99
+    C2 = -math.log(1-pr)
+    r = np.random.default_rng().exponential(scale=1/C2, size=1)
+    rr = min(r[0], 1.0)
+    return 1-rr
+
+  else:
+    # for uniform distribution for the non-impurity things
+    return random.random()
 
 def ods_eurofer(density):
   """ Return an OpenMC material for ODS-EUROFER steel based on 10.3389/fnuen.2025.1683702.
@@ -305,33 +321,34 @@ def eurofer97(density, seed=-1):
     eurofer97.add_element('Sb', 0.05/4, 'wo')
     eurofer97.add_element('Zr', 0.05/4, 'wo')
   else:
-    # random sampling
+    # random sampling; these are the alloying elements and as such are still
+    # sampled from a uniform distribution
     random.seed(seed)
-    eurofer97.add_element('C', 0.09 + (0.12-0.09)*random.random(), 'wo')
-    eurofer97.add_element('Cr', 8.5+(9.5-8.5)*random.random(), 'wo')
-    eurofer97.add_element('W', 1.0 + (1.2-1.0)*random.random(), 'wo')
-    eurofer97.add_element('Mn', 0.2 + (0.6-0.2)*random.random(), 'wo')
-    eurofer97.add_element('V', 0.15 + (0.25-0.15)*random.random(), 'wo')
-    eurofer97.add_element('Ta', 0.10 + (0.14-0.10)*random.random(), 'wo')
-    eurofer97.add_element('N', 0.03 + (0.09-0.03)*random.random(), 'wo')
-    eurofer97.add_element('P', 0.0 + 0.005*random.random(), 'wo')
-    eurofer97.add_element('S', 0.0 + 0.005*random.random(), 'wo')
-    eurofer97.add_element('B', 0.0 + 0.002*random.random(), 'wo')
-    eurofer97.add_element('O', 0.0 + 0.01*random.random(), 'wo')
+    eurofer97.add_element('C', 0.09 + (0.12-0.09)*rand_number(False), 'wo')
+    eurofer97.add_element('Cr', 8.5+(9.5-8.5)*rand_number(False), 'wo')
+    eurofer97.add_element('W', 1.0 + (1.2-1.0)*rand_number(False), 'wo')
+    eurofer97.add_element('Mn', 0.2 + (0.6-0.2)*rand_number(False), 'wo')
+    eurofer97.add_element('V', 0.15 + (0.25-0.15)*rand_number(False), 'wo')
+    eurofer97.add_element('Ta', 0.10 + (0.14-0.10)*rand_number(False), 'wo')
+    eurofer97.add_element('N', 0.03 + (0.09-0.03)*rand_number(False), 'wo')
 
     # impurities
-    eurofer97.add_element('Nb', 0 + 0.005*random.random(), 'wo')
-    eurofer97.add_element('Mo', 0 + 0.005*random.random(), 'wo')
-    eurofer97.add_element('Ni', 0 + 0.01*random.random(), 'wo')
-    eurofer97.add_element('Cu', 0 + 0.01*random.random(), 'wo')
-    eurofer97.add_element('Al', 0 + 0.01*random.random(), 'wo')
-    eurofer97.add_element('Ti', 0 + 0.02*random.random(), 'wo')
-    eurofer97.add_element('Si', 0 + 0.05*random.random(), 'wo')
-    eurofer97.add_element('Co', 0 + 0.01*random.random(), 'wo')
-    eurofer97.add_element('As', 0 + 0.05/4*random.random(), 'wo')
-    eurofer97.add_element('Sn', 0 + 0.05/4*random.random(), 'wo')
-    eurofer97.add_element('Sb', 0 + 0.05/4*random.random(), 'wo')
-    eurofer97.add_element('Zr', 0 + 0.05/4*random.random(), 'wo')
+    eurofer97.add_element('P', 0.0 + 0.005*rand_number(), 'wo')
+    eurofer97.add_element('S', 0.0 + 0.005*rand_number(), 'wo')
+    eurofer97.add_element('B', 0.0 + 0.002*rand_number(), 'wo')
+    eurofer97.add_element('O', 0.0 + 0.01*rand_number(), 'wo')
+    eurofer97.add_element('Nb', 0 + 0.005*rand_number(), 'wo')
+    eurofer97.add_element('Mo', 0 + 0.005*rand_number(), 'wo')
+    eurofer97.add_element('Ni', 0 + 0.01*rand_number(), 'wo')
+    eurofer97.add_element('Cu', 0 + 0.01*rand_number(), 'wo')
+    eurofer97.add_element('Al', 0 + 0.01*rand_number(), 'wo')
+    eurofer97.add_element('Ti', 0 + 0.02*rand_number(), 'wo')
+    eurofer97.add_element('Si', 0 + 0.05*rand_number(), 'wo')
+    eurofer97.add_element('Co', 0 + 0.01*rand_number(), 'wo')
+    eurofer97.add_element('As', 0 + 0.05/4*rand_number(), 'wo')
+    eurofer97.add_element('Sn', 0 + 0.05/4*rand_number(), 'wo')
+    eurofer97.add_element('Sb', 0 + 0.05/4*rand_number(), 'wo')
+    eurofer97.add_element('Zr', 0 + 0.05/4*rand_number(), 'wo')
 
   # add the balance of iron
   weight_sum = 0
@@ -385,18 +402,19 @@ def W(density, seed=-1):
     tungsten.add_element('C', 0.01, 'wo')
   else:
     random.seed(seed)
-    tungsten.add_element('Ni', 0.01e-2*random.random(), 'wo')
-    tungsten.add_element('Fe', 0.01e-2*random.random(), 'wo')
-    tungsten.add_element('Si', 0.01e-2*random.random(), 'wo')
-    tungsten.add_element('O', 0.01e-2*random.random(), 'wo')
-    tungsten.add_element('N', 0.01e-2*random.random(), 'wo')
-    tungsten.add_element('C', 0.01e-2*random.random(), 'wo')
+    tungsten.add_element('Ni', 0.01e-2*rand_number(), 'wo')
+    tungsten.add_element('Fe', 0.01e-2*rand_number(), 'wo')
+    tungsten.add_element('Si', 0.01e-2*rand_number(), 'wo')
+    tungsten.add_element('O',  0.01e-2*rand_number(), 'wo')
+    tungsten.add_element('N',  0.01e-2*rand_number(), 'wo')
+    tungsten.add_element('C',  0.01e-2*rand_number(), 'wo')
 
     weight_sum = 0
     for nuclide in tungsten.nuclides:
       weight_sum += nuclide.percent
 
     tungsten.add_element('W', 1 - weight_sum, 'wo')
+    print('\tTungsten (weight %):    ', (1 - weight_sum) * 100)
 
   tungsten.set_density('g/cc', density)
   return tungsten
