@@ -44,7 +44,7 @@ import geometry as geo
 # ──────────────────────────────────────────────────────────────────────────────
 # Feature toggles
 # ──────────────────────────────────────────────────────────────────────────────
-RUN_D1S       = False
+RUN_D1S       = True
 RUN_DEPLETION = True
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -279,33 +279,8 @@ to_μSv           = 1e-6
 to_mSv           = 1e-9
 SECONDS_PER_YEAR = y_to_s
 
-irr_total_s = cfg.IRRADIATION_YEARS * y_to_s
-
-# Log-spaced irradiation sub-step milestones (time since start of
-# irradiation) — finer near start-up, where H/gas concentration rises
-# fastest and saturates soonest, coarser later toward shutdown. Mirrors the
-# cooling milestone convention below (just without interior log points,
-# since 1 day -> IRRADIATION_YEARS is a narrower range than the cooling
-# sweep). Replaces the previous single 5-year timestep so depletion results
-# actually carry intra-irradiation resolution.
-_irr_milestone_candidates_s = np.array([
-    1 * 86_400.0,        # 1 day
-    7 * 86_400.0,        # 1 week
-    30 * 86_400.0,       # 1 month
-    91 * 86_400.0,       # ~3 months
-    182 * 86_400.0,      # ~6 months
-    1 * y_to_s,          # 1 year
-    2 * y_to_s,          # 2 years
-    3 * y_to_s,          # 3 years
-    4 * y_to_s,          # 4 years
-], dtype=float)
-irradiation_times_abs_s = np.unique(np.concatenate([
-    _irr_milestone_candidates_s[_irr_milestone_candidates_s < irr_total_s],
-    [irr_total_s],
-]))
-irradiation_intervals_s = np.diff(
-    np.concatenate(([0.0], irradiation_times_abs_s))
-).tolist()
+irradiation_time_y      = np.array([cfg.IRRADIATION_YEARS], dtype=float)
+irradiation_intervals_s = (irradiation_time_y * y_to_s).tolist()
 
 # Cooling milestone times since shutdown (absolute times)
 _milestones_s = np.array([

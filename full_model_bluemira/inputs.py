@@ -221,7 +221,7 @@ print("BREEDER_TYPE:", BREEDER_TYPE)
 # other structural materials explored in the FS&T paper
 #structural_material = materials.V4Cr4Ti(6.05)
 #structural_material = materials.SiC(2.5)
-#structural_material = materials.inconel718(8.19)
+structural_material = materials.inconel718(8.19)
 #structural_material = materials.ht9(7.86)
 #structural_material = materials.ods_eurofer(7.87)
 
@@ -230,7 +230,7 @@ print("BREEDER_TYPE:", BREEDER_TYPE)
 # Materials common to all breeder types
 armor_material      = materials.W(19.3)
 vv_material = materials.ss316Ln_ig(7.93)
-structural_material = materials.eurofer97(7.87)
+#structural_material = materials.eurofer97(7.87)
 
 # Breeder-specific materials
 if BREEDER_TYPE == "WCLL":
@@ -288,15 +288,15 @@ CHUNK_START_CM = 0.0
 # OPENMC RUN SETTINGS
 #=============================================================================
 if SIM_TYPE == "tokamak":
-    TALLY_CONVERGENCE_THRESHOLD = 0.01
+    TALLY_CONVERGENCE_THRESHOLD = 0.05
     BATCHES                     = 10
     TRIGGER_BATCH_INTERVAL      = 10
     PARTICLES_PER_BATCH         = 1_000_000
 else:
-    TALLY_CONVERGENCE_THRESHOLD = 0.01
+    TALLY_CONVERGENCE_THRESHOLD = 0.05
     BATCHES                     = 10
     TRIGGER_BATCH_INTERVAL      = 10
-    PARTICLES_PER_BATCH         = 1_000_000
+    PARTICLES_PER_BATCH         = 100_000
 
 
 USE_TRIGGER            = True  # False = fixed batches, no convergence check
@@ -331,7 +331,7 @@ else:
 
 # Depletion
 IRRADIATION_YEARS    = 5.0
-CONSTANT_POWER_RATIO = 1.0 #0.3
+CONSTANT_POWER_RATIO = 0.3 
 REDUCED_CHAIN_LEVEL = 5
 
 # =============================================================================
@@ -389,16 +389,10 @@ REFERENCE_PLOT_SUFFIX = "_vs_ref"                      # appended to overlay fig
 
 # Improvements ideas
 # A) Introduce Random RAY
-# B) Fine tune number of particles
-# C) Clear code to Cortex to improve performance:
+# B) Clear code to Cortex to improve performance:
 #   1 - Remove albedo tallies and calculations.
 #   2 - Merge neutronics/post/depletion/post in same script.
 #       2.1 - Avoid re-loading neutronics_model.py
 #       2.2 - Remove storing/loading info mapping across files (tallies, material, cell, volume)
 #       2.3 - Add safe guard for ONLY OB_1_b6 for slab model. (add warning that is ignoring others)
 #
-# LIMITATIONS:
-#   Current tokamak model allows any breeder chunk tally. However Slab model only works
-#   for OB_1_b6. To improve for any given breeder chunk we must first improve:
-#      1 - _get_breeder_reflective_cuts
-#      2 - TBD
