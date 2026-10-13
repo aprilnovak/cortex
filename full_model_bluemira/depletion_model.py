@@ -280,12 +280,7 @@ to_mSv           = 1e-9
 SECONDS_PER_YEAR = y_to_s
 
 # Log-spaced irradiation sub-step milestones (time since start of
-# irradiation) — finer near start-up, where H/gas concentration rises
-# fastest and saturates soonest, coarser later toward shutdown. Mirrors the
-# cooling milestone convention below (just without interior log points,
-# since 1 day -> IRRADIATION_YEARS is a narrower range than the cooling
-# sweep). Replaces the previous single 5-year timestep so depletion results
-# actually carry intra-irradiation resolution.
+# irradiation). Replaces the previous single 5-year timestep.
 irr_total_s = cfg.IRRADIATION_YEARS * y_to_s
 
 _irr_milestone_candidates_s = np.array([
