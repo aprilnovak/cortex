@@ -289,13 +289,13 @@ CHUNK_START_CM = 0.0
 #=============================================================================
 if SIM_TYPE == "tokamak":
     TALLY_CONVERGENCE_THRESHOLD = 0.05
-    BATCHES                     = 10
-    TRIGGER_BATCH_INTERVAL      = 10
+    BATCHES                     = 5
+    TRIGGER_BATCH_INTERVAL      = 5
     PARTICLES_PER_BATCH         = 1_000_000
 else:
     TALLY_CONVERGENCE_THRESHOLD = 0.05
-    BATCHES                     = 10
-    TRIGGER_BATCH_INTERVAL      = 10
+    BATCHES                     = 5
+    TRIGGER_BATCH_INTERVAL      = 5
     PARTICLES_PER_BATCH         = 100_000
 
 
