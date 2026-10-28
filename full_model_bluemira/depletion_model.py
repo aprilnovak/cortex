@@ -64,30 +64,25 @@ with open(_run_meta_path) as _f:
     _run_meta = json.load(_f)
 
 if not cfg.USE_TRIGGER:
-    _neutronics_batches_completed = _run_meta.get("batches_completed")
-    if _neutronics_batches_completed is not None and int(_neutronics_batches_completed) != cfg.FIXED_BATCHES:
-        print(
-            f"[depletion] WARNING: run_meta.json says batches_completed="
-            f"{_neutronics_batches_completed}, but cfg.FIXED_BATCHES={cfg.FIXED_BATCHES}. "
-            f"Using FIXED_BATCHES anyway since USE_TRIGGER=False."
-        )
+    # Fixed-batch mode: inputs.py is authoritative; just flag any mismatch.
     _neutronics_batches = cfg.FIXED_BATCHES
-    print(
-        f"[depletion] USE_TRIGGER=False — overriding batches from "
-        f"run_meta.json with cfg.FIXED_BATCHES={cfg.FIXED_BATCHES}."
-    )
+    _neutronics_ppb     = cfg.PARTICLES_PER_BATCH
+    for _key, _cfg_val in (("batches_completed", _neutronics_batches),
+                           ("particles_per_batch", _neutronics_ppb)):
+        _meta_val = _run_meta.get(_key)
+        if _meta_val is not None and int(_meta_val) != _cfg_val:
+            print(f"[depletion] WARNING: run_meta.json {_key}={_meta_val} differs from "
+                  f"inputs.py ({_cfg_val}); using inputs.py since USE_TRIGGER=False.")
 else:
-    _neutronics_batches = _run_meta.get("batches_completed")
-    if _neutronics_batches is None:
+    # Trigger mode: match the converged neutronics run.
+    if _run_meta.get("batches_completed") is None:
         raise RuntimeError(
             "[depletion] batches_completed is null in run_meta.json, and "
             "USE_TRIGGER=True so there is no fixed batch count to fall back to. "
             "Run neutronics_post.py before depletion_model.py."
         )
-
-_neutronics_batches = int(_neutronics_batches)
-
-_neutronics_ppb     = int(_run_meta.get("particles_per_batch") or cfg.PARTICLES_PER_BATCH)
+    _neutronics_batches = int(_run_meta["batches_completed"])
+    _neutronics_ppb     = int(_run_meta.get("particles_per_batch") or cfg.PARTICLES_PER_BATCH)
 print(f"[Loading] Matching neutronics: {_neutronics_batches} batches × {_neutronics_ppb} particles")
 
 # ──────────────────────────────────────────────────────────────────────────────
