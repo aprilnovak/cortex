@@ -63,8 +63,26 @@ _run_meta_path = cfg.NEUTRONICS_RESULTS_DIR / "run_meta.json"
 with open(_run_meta_path) as _f:
     _run_meta = json.load(_f)
 
-_neutronics_batches = int(_run_meta.get("batches_completed") or cfg.FIXED_BATCHES)
-_neutronics_ppb     = int(_run_meta.get("particles_per_batch") or cfg.PARTICLES_PER_BATCH)
+if not cfg.USE_TRIGGER:
+    # Fixed-batch mode: inputs.py is authoritative; just flag any mismatch.
+    _neutronics_batches = cfg.FIXED_BATCHES
+    _neutronics_ppb     = cfg.PARTICLES_PER_BATCH
+    for _key, _cfg_val in (("batches_completed", _neutronics_batches),
+                           ("particles_per_batch", _neutronics_ppb)):
+        _meta_val = _run_meta.get(_key)
+        if _meta_val is not None and int(_meta_val) != _cfg_val:
+            print(f"[depletion] WARNING: run_meta.json {_key}={_meta_val} differs from "
+                  f"inputs.py ({_cfg_val}); using inputs.py since USE_TRIGGER=False.")
+else:
+    # Trigger mode: match the converged neutronics run.
+    if _run_meta.get("batches_completed") is None:
+        raise RuntimeError(
+            "[depletion] batches_completed is null in run_meta.json, and "
+            "USE_TRIGGER=True so there is no fixed batch count to fall back to. "
+            "Run neutronics_post.py before depletion_model.py."
+        )
+    _neutronics_batches = int(_run_meta["batches_completed"])
+    _neutronics_ppb     = int(_run_meta.get("particles_per_batch") or cfg.PARTICLES_PER_BATCH)
 print(f"[Loading] Matching neutronics: {_neutronics_batches} batches × {_neutronics_ppb} particles")
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -87,15 +105,39 @@ print(f"[depletion] transport: {_dep_batches} batches - {_dep_particles} particl
 # ──────────────────────────────────────────────────────────────────────────────
 # Aliases from geometry
 # ──────────────────────────────────────────────────────────────────────────────
-pydagmc_model       = geo.pydagmc_model
-neutron_source_rate = geo.neutron_source_rate
-ob_by_key           = geo.ob_by_key
-ib_by_key           = geo.ib_by_key
-OB_CHUNK_SIZE       = geo.OB_CHUNK_SIZE
-IB_CHUNK_SIZE       = geo.IB_CHUNK_SIZE
+pydagmc_model                = geo.pydagmc_model
+neutron_source_rate_physical = geo.neutron_source_rate
+ob_by_key                    = geo.ob_by_key
+ib_by_key                    = geo.ib_by_key
+OB_CHUNK_SIZE                = geo.OB_CHUNK_SIZE
+IB_CHUNK_SIZE                = geo.IB_CHUNK_SIZE
 
 TRANSPORT_THREADS   = cfg.OPENMP_THREADS
 DEPLETION_PROCESSES = cfg.DEPLETION_PROCESSES
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Particle-ID conventions in surface_source.h5 files
+# ──────────────────────────────────────────────────────────────────────────────
+_PARTICLE_ID_TO_NAME = {
+    0: "neutron", 1: "photon", 2: "electron", 3: "positron",
+    2112: "neutron", 22: "photon", 11: "electron", -11: "positron",
+}
+
+
+def particle_names(particle_array) -> np.ndarray:
+    arr = np.asarray(particle_array)
+
+    if arr.dtype.kind in ("S", "U", "O"):
+        def _decode(x):
+            if isinstance(x, bytes):
+                x = x.decode(errors="replace")
+            return str(x).strip().lower()
+        return np.vectorize(_decode, otypes=[object])(arr)
+
+    def _lookup(x):
+        xi = int(x)
+        return _PARTICLE_ID_TO_NAME.get(xi, f"unknown({xi})")
+    return np.vectorize(_lookup, otypes=[object])(arr)
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Output directories
@@ -186,9 +228,14 @@ if cfg.SIM_TYPE in ("slab", "fast_slab"):
         )
     with h5py.File(str(cfg.SURFACE_SOURCE_FILE), "r") as _f:
         _particles = _f["source_bank"]["particle"][:]
+    _particle_names_arr  = particle_names(_particles)
     _total                = len(_particles)
-    _n_neutrons           = int((_particles == 0).sum())
+    _n_neutrons           = int((_particle_names_arr == "neutron").sum())
     _neutron_ratio_source = _total / _n_neutrons if _n_neutrons > 0 else 1.0
+    print(
+        f"[source] Particle types present in {cfg.SURFACE_SOURCE_FILE.name}: "
+        f"{sorted(set(_particle_names_arr.tolist()))}"
+    )
 
     # J_in from armor current JSON (written by tokamak neutronics_post.py)
     if not cfg.ARMOR_CURRENT_JSON.is_file():
@@ -200,13 +247,17 @@ if cfg.SIM_TYPE in ("slab", "fast_slab"):
         _records = json.load(_f)
     _J_in = float(_records[0]["J_in_mean"])
 
-    neutron_source_rate: float = (
-        _neutron_ratio_source
-        * _J_in
+    # Removed _neutron_ratio_source since depletion uses filtered source
+    neutron_source_rate_physical: float = (
+        _J_in
         * (cfg.TOTAL_FUSION_POWER_W / cfg.NUMBER_OF_SECTORS)
         / (geo.ev_to_joule * cfg.EV_PER_FUSION)
     )
-    print(f"[source] SIM_TYPE={cfg.SIM_TYPE}: neutron_source_rate (surface-scaled) = {neutron_source_rate:.6e} n/s")
+
+    # D1S will use complete source
+    neutron_source_rate: float = _neutron_ratio_source * neutron_source_rate_physical
+
+    print(f"[source] SIM_TYPE={cfg.SIM_TYPE}: neutron_source_rate (surface-scaled) = {neutron_source_rate_physical:.6e} n/s")
     print(f"  neutron_ratio_source = {_neutron_ratio_source:.6f}")
     print(f"  J_in (ratio of neutrons from full tokamak source) = {_J_in:.6e}")
 
@@ -223,8 +274,28 @@ to_μSv           = 1e-6
 to_mSv           = 1e-9
 SECONDS_PER_YEAR = y_to_s
 
-irradiation_time_y      = np.array([cfg.IRRADIATION_YEARS], dtype=float)
-irradiation_intervals_s = (irradiation_time_y * y_to_s).tolist()
+# Log-spaced irradiation sub-step milestones (time since start of
+# irradiation). Replaces the previous single 5-year timestep.
+irr_total_s = cfg.IRRADIATION_YEARS * y_to_s
+
+_irr_milestone_candidates_s = np.array([
+    1 * 86_400.0,        # 1 day
+    7 * 86_400.0,        # 1 week
+    30 * 86_400.0,       # 1 month
+    91 * 86_400.0,       # ~3 months
+    182 * 86_400.0,      # ~6 months
+    1 * y_to_s,          # 1 year
+    2 * y_to_s,          # 2 years
+    3 * y_to_s,          # 3 years
+    4 * y_to_s,          # 4 years
+], dtype=float)
+irradiation_times_abs_s = np.unique(np.concatenate([
+    _irr_milestone_candidates_s[_irr_milestone_candidates_s < irr_total_s],
+    [irr_total_s],
+]))
+irradiation_intervals_s = np.diff(
+    np.concatenate(([0.0], irradiation_times_abs_s))
+).tolist()
 
 # Cooling milestone times since shutdown (absolute times)
 _milestones_s = np.array([
@@ -261,23 +332,36 @@ cooling_intervals_s = np.diff(
 
 timesteps = irradiation_intervals_s + cooling_intervals_s
 
-source_rates = (
+source_rates = (                         # for D1S (mixed-species surface source)
     [cfg.CONSTANT_POWER_RATIO * neutron_source_rate] * len(irradiation_intervals_s)
+    + [0.0] * len(cooling_intervals_s)
+)
+
+source_rates_depletion = (                # for depletion (neutron-only filtered source)
+    [cfg.CONSTANT_POWER_RATIO * neutron_source_rate_physical] * len(irradiation_intervals_s)
     + [0.0] * len(cooling_intervals_s)
 )
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Surface-source helper for slab depletion
 # ──────────────────────────────────────────────────────────────────────────────
-def write_neutron_only_surface_source(src_path: Path, dst_path: Path) -> tuple[Path, float]:
+def write_neutron_only_surface_source(
+    src_path: Path,
+    dst_path: Path,
+    *,
+    particle_name: str = "neutron",
+) -> tuple[Path, float]:
     """
-    Copy an OpenMC surface_source.h5 file but keep only neutron source particles.
+    Copy an OpenMC surface_source.h5 file but keep only particles matching
+    ``particle_name`` (default: "neutron").
 
-    OpenMC particle IDs in source_bank:
-      0 = neutron
-      1 = photon
-      2 = electron
-      3 = positron
+    ``particle`` values in source_bank are NOT guaranteed to follow OpenMC's
+    internal ordinal scheme (0 = neutron, 1 = photon, 2 = electron,
+    3 = positron). Some surface source files instead use PDG particle codes
+    (e.g. 2112 = neutron, 22 = photon) or byte/string particle names
+    (b"neutron"). ``particle_names()`` normalizes all of these to a lowercase
+    name string before filtering, so this works regardless of which
+    convention wrote the file.
 
     Returns
     -------
@@ -301,18 +385,29 @@ def write_neutron_only_surface_source(src_path: Path, dst_path: Path) -> tuple[P
         if "particle" not in bank.dtype.names:
             raise KeyError("source_bank does not contain a 'particle' field")
 
-        neutron_bank = bank[bank["particle"] == 0]
+        names        = particle_names(bank["particle"])
+        present      = sorted(set(names.tolist()))
+        neutron_mask = (names == particle_name)
+        neutron_bank = bank[neutron_mask]
 
         n_total = len(bank)
         n_neutrons = len(neutron_bank)
+
+        print(
+            f"[surface source] Particle types present in {src_path.name}: {present} "
+            f"(matching '{particle_name}': {n_neutrons}/{n_total})"
+        )
 
         if n_total == 0:
             raise RuntimeError(f"{src_path} contains an empty source_bank")
 
         if n_neutrons == 0:
             raise RuntimeError(
-                f"No neutron particles found in {src_path}. "
-                "Cannot use this source for neutron depletion."
+                f"No particles matching '{particle_name}' found in {src_path}. "
+                f"Particle types actually present: {present}. "
+                "Cannot use this source for neutron depletion. If the file "
+                "uses a different particle-id convention, extend "
+                "_PARTICLE_ID_TO_NAME or pass particle_name= explicitly."
             )
 
         with h5py.File(dst_path, "w") as dst:
@@ -346,7 +441,7 @@ vol_by_cell = {
     for cid, cell in all_cells.items()
     if cell.volume is not None and cell.volume > 0.0
 }
-print(f"[Volume] vol_by_cell populated for {len(vol_by_cell)} cells")
+#print(f"[CHECK] vol_by_cell populated for {len(vol_by_cell)} cells")
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Identify plasma and VV port-fill cells (last two DAGMC volumes)
@@ -355,7 +450,7 @@ if cfg.SIM_TYPE == "tokamak":
     vols = list(pydagmc_model.volumes)
     plasma_vol_id     = vols[-2].id
     vvportfill_vol_id = vols[-1].id
-    #print(f"[info] SDR cells: plasma={plasma_vol_id}, vv_port_fill={vvportfill_vol_id}")
+    #print(f"[CHECK] SDR cells: plasma={plasma_vol_id}, vv_port_fill={vvportfill_vol_id}")
 
     for _cid in [plasma_vol_id, vvportfill_vol_id]:
         if _cid not in vol_by_cell:
@@ -363,11 +458,11 @@ if cfg.SIM_TYPE == "tokamak":
                 f"Cell {_cid} has no volume. "
                 f"Available (sample): {list(vol_by_cell)[:10]}"
             )
-        print(f"[info] Cell {_cid} volume = {vol_by_cell[_cid]:.4e} cm³")
+        #print(f"[CHECK] Cell {_cid} volume = {vol_by_cell[_cid]:.4e} cm³")
 else:
     plasma_vol_id     = None
     vvportfill_vol_id = None
-    #print(f"[D1S] SIM_TYPE={cfg.SIM_TYPE}: plasma/vvportfill cells not present — skipping SDR time-series")
+    #print(f"[CHECK] SIM_TYPE={cfg.SIM_TYPE}: plasma/vvportfill cells not present — skipping SDR time-series")
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Plot helpers
@@ -767,7 +862,7 @@ if RUN_D1S:
     fig.savefig(SDR_DIR / f"sdr_time_layers_{OB_KEY}.png", dpi=300, bbox_inches="tight")
     plt.close(fig)
 
-    print(f"[info] Wrote combined per-layer SDR → {SDR_DIR / f'sdr_time_layers_{OB_KEY}.png'}")
+    print(f"[D1S] Wrote combined per-layer SDR → {SDR_DIR / f'sdr_time_layers_{OB_KEY}.png'}")
 
     # 2B-ii: Individual plot per layer
     SDR_LAYERS_DIR = SDR_DIR / "layers"
@@ -804,7 +899,7 @@ if RUN_D1S:
         ax.set_ylim(bottom=0.01)
         ax.set_ylabel("Shutdown Dose [μSv/h]")
         ax.set_xlabel("Cooling Time [y]")
-        ax.set_title(f"D1S SDR — {tag} ({OB_KEY})")
+        ax.set_title(f"D1S SDR — {tag}")
         fig.tight_layout()
 
         # filename: zero-padded layer index so files sort correctly
@@ -814,7 +909,7 @@ if RUN_D1S:
         plt.close(fig)
 
     print(
-        f"[info] Wrote {OB_CHUNK_SIZE} individual layer SDR plots → {SDR_LAYERS_DIR}"
+        f"[D1S] Wrote {OB_CHUNK_SIZE} individual layer SDR plots → {SDR_LAYERS_DIR}"
     )
 
     # ------------------------------------------------------------------
@@ -851,9 +946,9 @@ if RUN_D1S:
         SDR_DIR / f"sdr_summary_{OB_KEY}.csv", index=False
     )
 
-    print(f"[info] Wrote {len(profiles)} per-timestep SDR CSVs to {SDR_CSV_DIR}")
+    print(f"[D1S] Wrote {len(profiles)} per-timestep SDR CSVs to {SDR_CSV_DIR}")
     if cfg.SIM_TYPE == "tokamak":
-        print(f"[info] Wrote plasma/vvpf time series → "
+        print(f"[D1S] Wrote plasma/vvpf time series → "
               f"{SDR_DIR / 'sdr_timeseries_plasma_vvpf.csv'}")
     print(f"[D1S] Wrote OB summary → {SDR_DIR / f'sdr_summary_{OB_KEY}.csv'}")
 
@@ -977,7 +1072,7 @@ if RUN_DEPLETION:
     print(f"[chain] Reduced to {len(reduced_chain.nuclides)} nuclides")
 
     openmc.config["chain_file"] = str(bluemira_chain)
-    model.settings.depletion    = {"chain_file": str(bluemira_chain)}
+    #model.settings.depletion    = {"chain_file": str(bluemira_chain)}
 
     # -------------------------------------------------------------------------
     # Sync materials and geometry paths before differentiate_mats
@@ -1120,7 +1215,7 @@ if RUN_DEPLETION:
     integrator = openmc.deplete.PredictorIntegrator(
         operator,
         timesteps,
-        source_rates=source_rates,
+        source_rates=source_rates_depletion,
     )
 
     timer.stop("Set up depletion model")
@@ -1130,7 +1225,10 @@ if RUN_DEPLETION:
     # -------------------------------------------------------------------------
     timer.start("Depletion run")
 
-    integrator.integrate()
+    # write_rates lives on integrate(), not the Integrator constructor —
+    # added in OpenMC 0.15.3. Needed so openmc-pathway-analysis has
+    # reaction rates to trace (see depletion_post_pathway.py).
+    integrator.integrate(write_rates=True)
 
     results = openmc.deplete.Results(
         str(R2S_ACTIVATION_DIR / "depletion_results.h5")

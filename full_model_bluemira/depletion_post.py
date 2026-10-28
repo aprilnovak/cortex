@@ -40,6 +40,7 @@ import openmc
 import openmc.deplete
 
 import inputs as cfg
+import eudemo_materials
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Paths
@@ -491,6 +492,22 @@ def shutdown_index_from_source_rates(source_rates: np.ndarray, n_steps: int) -> 
         return 0
     idx = int(irr_intervals[-1] + 1)
     return min(idx, n_steps - 1)
+
+def indices_for_milestone_years(
+    times_s: np.ndarray, idx_shutdown: int, milestone_seconds: Sequence[float]
+) -> List[int]:
+    """
+    Nearest post-shutdown index in `times_s` for each target cooling time.
+    """
+    t_rel_s = np.asarray(times_s, float) - times_s[idx_shutdown]
+    cooling_idx = np.nonzero(t_rel_s > 0.0)[0]
+    if cooling_idx.size == 0:
+        return []
+    out = []
+    for target in milestone_seconds:
+        j = cooling_idx[np.argmin(np.abs(t_rel_s[cooling_idx] - target))]
+        out.append(int(j))
+    return sorted(set(out))
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Activity
@@ -959,6 +976,258 @@ def plot_decayheat_radial(
                 dpi=200, bbox_inches="tight")
     plt.close(fig)
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Waste Classification -
+# (no differentiation on coolant/breeder/structural material)
+# ──────────────────────────────────────────────────────────────────────────────
+
+WASTE_METAL_LAYERS = None #("Armor", "First wall", "VV")   # NRC "activated metal" form; None = all layers
+
+# obtain structural_material ratio in layer/cell
+def _structural_volume_fraction_by_layer(n_breeder_layers: int = 10) -> Dict[str, float]:
+    """Structural/solid volume fraction per layer tag (make_default_layer_tags
+    convention), from eudemo_materials.build_mix_recipes()."""
+    recipes = eudemo_materials.build_mix_recipes(cfg)
+    solid_materials = {cfg.armor_material, cfg.structural_material, cfg.vv_material}
+
+    def _frac(recipe_key: str) -> float:
+        recipe = recipes.get(recipe_key, {})
+        return float(sum(v for m, v in recipe.items() if m in solid_materials))
+
+    out = {
+        "Armor":      _frac("Armor"),
+        "First wall": _frac("First_Wall"),
+        "VV":         _frac("VV_OB"),
+    }
+    for i in range(1, n_breeder_layers + 1):
+        out[f"Breeder layer {i}"] = _frac(f"OB_Layer_{i}")
+    return out
+
+# Classify waste disposal based on waste_disposal_rating()
+def _classify_from_ratios(ratio1: float, ratio2_abc: Tuple[float, float, float]) -> str:
+    def _classify_table2(col1, col2, col3):
+        if col1 < 1.0:
+            return "Class A"
+        elif col2 < 1.0:
+            return "Class B"
+        elif col3 < 1.0:
+            return "Class C"
+        else:
+            return "GTCC"
+
+    table1_present = ratio1 > 0.0
+    table2_present = any(x > 0.0 for x in ratio2_abc)
+    if table1_present and table2_present:
+        if ratio1 < 0.1:
+            return _classify_table2(*ratio2_abc)
+        elif ratio1 < 1.0:
+            return "Class C" if ratio2_abc[2] < 1.0 else "GTCC"
+        else:
+            return "GTCC"
+    elif table1_present:
+        if ratio1 < 0.1:
+            return "Class A"
+        elif ratio1 < 1.0:
+            return "Class C"
+        else:
+            return "GTCC"
+    elif table2_present:
+        return _classify_table2(*ratio2_abc)
+    else:
+        return "Class A"
+
+def waste_timeseries(results, mapping, cell_ids, cell_id_to_name, idx_shutdown):
+    """
+    One row per (cell, cooling step): wdr_long/short_a/b/c/fetter and
+    nrc_class from OpenMC's waste_disposal_rating()/waste_classification(),
+    plus a structural-volume-scaled version of each (*_struct_scaled,
+    nrc_class_struct_scaled) where the layer's structural fraction is known.
+    classification_check_ok cross-checks _classify_from_ratios() against
+    OpenMC's own waste_classification().
+    """
+    t = np.asarray(results.get_times(time_units="s"), float)
+    t = (t - t[idx_shutdown]) / SECONDS_PER_YEAR
+    struct_frac_by_layer = _structural_volume_fraction_by_layer()
+    rows = []
+    for cid in cell_ids:
+        if cid not in mapping.cell_to_mat:
+            continue
+        mat_id = str(mapping.cell_to_mat[cid])
+        layer  = cell_id_to_name.get(cid, str(cid))
+        metal  = True if WASTE_METAL_LAYERS is None else (layer in WASTE_METAL_LAYERS)
+        struct_frac = struct_frac_by_layer.get(layer)
+        for i in np.nonzero(t > 0.0)[0]:
+            mat = results[i].get_material(mat_id)
+            wdr_long    = mat.waste_disposal_rating("NRC_long",    metal=metal)
+            wdr_short_a = mat.waste_disposal_rating("NRC_short_A", metal=metal)
+            wdr_short_b = mat.waste_disposal_rating("NRC_short_B", metal=metal)
+            wdr_short_c = mat.waste_disposal_rating("NRC_short_C", metal=metal)
+            wdr_fetter  = mat.waste_disposal_rating("Fetter")
+            nrc_class   = mat.waste_classification(metal=metal)
+
+            # correctness check: re-derive the class from the ratios by hand
+            # and compare against OpenMC's own classification call
+            nrc_class_rederived = _classify_from_ratios(wdr_long, (wdr_short_a, wdr_short_b, wdr_short_c))
+            classification_check_ok = (nrc_class_rederived == nrc_class)
+
+            row = dict(
+                layer=layer, cell_id=cid, Cooling_time_years=t[i],
+                nrc_class=nrc_class,
+                wdr_nrc=max(wdr_long, wdr_short_c),
+                wdr_long=wdr_long,
+                wdr_short_a=wdr_short_a,
+                wdr_short_b=wdr_short_b,
+                wdr_short_c=wdr_short_c,
+                wdr_fetter=wdr_fetter,
+                classification_check_ok=classification_check_ok,
+                structural_volume_fraction=struct_frac,
+            )
+
+            if struct_frac is not None and struct_frac > 0.0:
+                factor = 1.0 / struct_frac
+                wdr_long_s    = wdr_long    * factor
+                wdr_short_a_s = wdr_short_a * factor
+                wdr_short_b_s = wdr_short_b * factor
+                wdr_short_c_s = wdr_short_c * factor
+                wdr_fetter_s  = wdr_fetter  * factor
+                nrc_class_s   = _classify_from_ratios(
+                    wdr_long_s, (wdr_short_a_s, wdr_short_b_s, wdr_short_c_s))
+
+                row.update(
+                    wdr_long_struct_scaled=wdr_long_s,
+                    wdr_short_a_struct_scaled=wdr_short_a_s,
+                    wdr_short_b_struct_scaled=wdr_short_b_s,
+                    wdr_short_c_struct_scaled=wdr_short_c_s,
+                    wdr_nrc_struct_scaled=max(wdr_long_s, wdr_short_c_s),
+                    wdr_fetter_struct_scaled=wdr_fetter_s,
+                    nrc_class_struct_scaled=nrc_class_s,
+                    nrc_class_changed_by_scaling=(nrc_class_s != nrc_class),
+                )
+
+            rows.append(row)
+    return pd.DataFrame(rows)
+
+WASTE_SUMMARY_METRICS = (
+    ("wdr_long",    "NRC Table 1 (long-lived)"),
+    ("wdr_short_a", "NRC Table 2 Class A"),
+    ("wdr_short_b", "NRC Table 2 Class B"),
+    ("wdr_short_c", "NRC Table 2 Class C"),
+    ("wdr_fetter",  "Fetter et al. (1990)"),
+)
+
+CLASS_COLORS = {
+    "Class A": "tab:green",
+    "Class B": "goldenrod",
+    "Class C": "darkorange",
+    "GTCC":    "tab:red",
+}
+
+def _class_regions(t: np.ndarray, classes: Sequence[str]) -> List[Tuple[float, float, str]]:
+    """Continuous (t_start, t_end, class) runs from a per-timestep class array.
+    `t` and `classes` must already be sorted by increasing cooling time.
+    """
+    regions = []
+    start = 0
+    n = len(classes)
+    for i in range(1, n + 1):
+        if i == n or classes[i] != classes[start]:
+            regions.append((float(t[start]), float(t[i - 1]), classes[start]))
+            start = i
+    return regions
+
+def _plot_waste_summary_one(d: pd.DataFrame, layer: str, out_dir: Path,
+                             suffix: str, class_col: str, fetter_col: str,
+                             title_suffix: str) -> None:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    t = d["Cooling_time_years"].to_numpy()
+    fetter_exceeds = (d[fetter_col] > 1.0).to_numpy()
+    region_labels = [
+        f"{c} (Fetter WDR > 1.0)" if exceeds else c
+        for c, exceeds in zip(d[class_col].tolist(), fetter_exceeds)
+    ]
+    regions = _class_regions(t, region_labels)
+
+    fig, ax = plt.subplots(figsize=(11, 6))
+    for col, label in WASTE_SUMMARY_METRICS:
+        metric_col = col + suffix
+        ax.loglog(d["Cooling_time_years"], d[metric_col].where(d[metric_col] > 0),
+                   lw=2, label=label)
+    ax.axhline(1.0, ls="--", lw=1.5, color="k")   # regulatory limit (=1)
+    ax.axhline(0.1, ls=":",  lw=1.5, color="k")   # informational reference (=0.1)
+
+    N_LABEL_LANES = 4
+    LABEL_Y0      = 0.03
+    LABEL_Y_STEP  = 0.055   # axes-fraction vertical spacing between lanes
+    LABEL_PAD_PX  = 4       # minimum horizontal gap between labels, in pixels
+
+    label_texts = []
+    for j, (t0, t1, region_label) in enumerate(regions):
+        base_class = region_label.split(" (")[0]   # strip the Fetter tag for coloring
+        color = CLASS_COLORS.get(base_class, "gray")
+        span_end = regions[j + 1][0] if j + 1 < len(regions) else t1
+        ax.axvspan(t0, span_end, color=color, alpha=0.10, zorder=0, lw=0)
+        if j > 0:
+            ax.axvline(t0, color="purple", lw=1.0, ls="-", alpha=0.5, zorder=1)
+        x_mid = math.sqrt(max(t0, 1e-30) * max(t1, t0 * (1 + 1e-9)))
+        txt = ax.text(x_mid, LABEL_Y0, region_label, transform=ax.get_xaxis_transform(),
+                       ha="center", va="bottom", fontsize=8, fontweight="bold",
+                       color=color, zorder=5,
+                       bbox=dict(boxstyle="round,pad=0.2", fc="white", ec="none", alpha=0.75))
+        label_texts.append(txt)
+
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    lane_right_edge = [-np.inf] * N_LABEL_LANES
+    for txt in label_texts:
+        bbox = txt.get_window_extent(renderer=renderer)
+        lane = 0
+        while lane < N_LABEL_LANES - 1 and bbox.x0 < lane_right_edge[lane] + LABEL_PAD_PX:
+            lane += 1
+        if lane > 0:
+            x_data, _ = txt.get_position()
+            txt.set_position((x_data, LABEL_Y0 + lane * LABEL_Y_STEP))
+            bbox = txt.get_window_extent(renderer=renderer)
+        lane_right_edge[lane] = bbox.x1
+
+    ax.set(xlabel="Time after irradiation [years]",
+           ylabel="Waste disposal rating [–]",
+           title=f"Waste disposal rating — {layer}{title_suffix}")
+    _add_time_reference_lines(ax); _format_log_axes(ax)
+    _finalize_legend(ax, ncol=1, title="Metric")
+    fig.subplots_adjust(right=0.78)
+    out_png = out_dir / f"waste_summary_{_safe_csv_label(layer)}.png"
+    fig.savefig(out_png, dpi=200, bbox_inches="tight")
+    plt.close(fig)
+    print(f"[waste summary] {layer}: wrote {out_png}")
+
+def plot_waste_wdr_per_layer(df: pd.DataFrame, out_dir: Path) -> None:
+    """
+    Two figures per layer (Armor, First wall, Breeder layer 1-10, VV — 13
+    total): the as-computed metrics in out_dir/raw/, and their
+    structural-volume-scaled counterparts in out_dir/struct_scaled/ where
+    the layer's structural fraction is known. Each plots wdr_long/short_a/
+    b/c/fetter vs cooling time, with background shading by NRC class and a
+    "(Fetter WDR > 1.0)" tag wherever the Fetter metric alone exceeds its
+    limit, without changing the underlying NRC class shown or its color —
+    Fetter isn't a 10 CFR 61.55 criterion, so it's surfaced as an
+    annotation, not a classification override.
+
+    Written to out_dir/{raw,struct_scaled}/waste_summary_<layer>.png
+    """
+    for layer, d in df.groupby("layer", sort=False):
+        d = d.sort_values("Cooling_time_years")
+
+        _plot_waste_summary_one(d, layer, out_dir / "raw", suffix="",
+                                 class_col="nrc_class", fetter_col="wdr_fetter",
+                                 title_suffix="")
+
+        has_scaled = "nrc_class_struct_scaled" in d.columns and d["nrc_class_struct_scaled"].notna().any()
+        if has_scaled:
+            struct_frac = d["structural_volume_fraction"].iloc[0]
+            _plot_waste_summary_one(d, layer, out_dir / "struct_scaled", suffix="_struct_scaled",
+                                     class_col="nrc_class_struct_scaled",
+                                     fetter_col="wdr_fetter_struct_scaled",
+                                     title_suffix=f" (struct. frac={struct_frac:.2f})")
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Chunk runner
@@ -1041,6 +1310,11 @@ def run_chunk_postprocess(
                               decayheat_units=decayheat_units,
                               global_min_topn_edge=dh_min, max_heat=max_h)
 
+
+        df_w = waste_timeseries(results, mapping, cell_ids, cell_id_to_name, idx_shutdown)
+        df_w.to_csv(out_dir / "waste_all_cells.csv", index=False)
+        plot_waste_wdr_per_layer(df_w, out_dir / "rad_waste")
+
         print(f"[completed] {chunk_key} → {out_dir}")
 
 
@@ -1086,7 +1360,16 @@ if __name__ == "__main__":
     if cfg.SIM_TYPE in ("slab", "fast_slab"):
         _map_df  = pd.read_csv(str(CELL_MATERIAL_MAP_CSV))
         _present = set(int(x) for x in _map_df["cell_id"])
-        CHUNKS   = {k: list(_present) for k in CHUNKS}
+        # IMPORTANT: filter each chunk's own (radially ordered) cell list
+        # down to the cells actually present, rather than replacing it with
+        # list(_present) — a set has no defined order, so it scrambles which
+        # cell gets which layer tag ("Armor", "VV", ...) and which radial
+        # x-position, and it also collapses every chunk key onto the same
+        # cell list instead of each key's own subset.
+        CHUNKS = {
+            k: [c for c in v if int(c) in _present]
+            for k, v in CHUNKS.items()
+        }
 
     # Layer tags and centroids
     layer_tags_by_chunk:  Dict[str, Sequence[str]]   = {}
@@ -1107,8 +1390,14 @@ if __name__ == "__main__":
 
     # Shutdown index
     sr           = results.get_source_rates()
-    times        = results.get_times()
+    times        = results.get_times(time_units="s")
     idx_shutdown = shutdown_index_from_source_rates(np.asarray(sr), len(times))
+
+    # Radial-profile snapshot indices — resolved from actual cooling times
+    # rather than a hardcoded array position (see indices_for_milestone_years).
+    idx_to_plot = indices_for_milestone_years(
+        times, idx_shutdown, cfg.DEPLETION_MILESTONE_SECONDS_TO_PLOT
+    )
 
     # Run
     run_chunk_postprocess(
@@ -1119,7 +1408,7 @@ if __name__ == "__main__":
         idx_shutdown        = idx_shutdown,
         activity_units      = "Bq/kg",
         decayheat_units     = "W/cm3",
-        idx_to_plot         = cfg.DEPLETION_IDX_TO_PLOT,
+        idx_to_plot         = idx_to_plot,
     )
 
 
