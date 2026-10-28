@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tea"
+version = "0.1.0"
+description = "Techno-economic analysis (TEA) manufacturing cost model for fusion reactor components"
+requires-python = ">=3.9"
+dependencies = []
+
+[project.optional-dependencies]
+webapp = ["fastapi", "uvicorn", "matplotlib", "pydantic"]
+notebook = ["pandas", "ipykernel"]
+
+# tea/ is a flat folder of sibling modules (component_def.py, material_def.py,
+# ...) that import each other by bare name (e.g. `from process_def import
+# Process`) rather than as a `tea.` package - materials_database/*.py,
+# processes_database/*.py, etc. do the same (e.g. `import cost_variables`),
+# so those stay bare top-level imports too. This config installs the core
+# modules as-is instead of nesting them under a "tea" package, so none of
+# that has to change.
+[tool.setuptools]
+py-modules = [
+    "component_def",
+    "cost_variables",
+    "material_def",
+    "process_def",
+    "tea1",
+    "tea_api",
+]
+packages = []
