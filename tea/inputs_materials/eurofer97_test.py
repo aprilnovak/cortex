@@ -120,7 +120,7 @@ composition = {
 
 remainder_element = 'Fe'
 
-import cost_variables as defaults
+from cortex_tea import cost_variables as defaults
 
 Cmp_map ={
     'CNC': 4,

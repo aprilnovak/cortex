@@ -327,7 +327,7 @@ class Material:
 # ----------------------------------------------------------------------
 # Function to build a 'Material' object from input data.
 
-from cost_variables import material_cost_database as cost_db
+from .cost_variables import material_cost_database as cost_db
 
 def build_material(name, density, composition, remainder_element, Cmp_map):
     """

@@ -1,5 +1,5 @@
 """
-EUROFER97
+Ditungsten Carbide (W2C, Ni binder)
 
 
 ########################################################################
@@ -82,49 +82,31 @@ Cmp_map : dict
             costs.
 """
 
-name = 'EROFER97'
+name = 'W2C'
 
-density = 8
+density = 16.767
 
 composition = {
     # alloying elements
-    'Cr': {'wt': 9.0,   'type': 'alloy'},
-    'W':  {'wt': 1.1,   'type': 'alloy'},
-    'Mn': {'wt': 0.4,   'type': 'alloy'},
-    'V':  {'wt': (0.25 + 0.15) / 2, 'type': 'alloy'},  # average = 0.20
-    'Ta': {'wt': 0.12,  'type': 'alloy'},
-    'B':  {'wt': 0.002, 'type': 'alloy'},
-    
+    'C':  {'wt': 4.0,  'type': 'alloy'},     # 3.8 - 4.2
+    'Ni': {'wt': 4.0,  'type': 'alloy'},     # 3.0 - 5.0
 
-    # residuals / impurities
-    'C':  {'wt': 0.11,  'type': 'residual'},
-    'O':  {'wt': 0.01,  'type': 'residual'},
-    'N':  {'wt': 0.03,  'type': 'residual'},
-    'P':  {'wt': 0.005, 'type': 'residual'},
-    'S':  {'wt': 0.005, 'type': 'residual'},
-    'Nb': {'wt': 0.005, 'type': 'residual'},
-    'Mo': {'wt': 0.005, 'type': 'residual'},
-    'Ni': {'wt': 0.01,  'type': 'residual'},
-    'Cu': {'wt': 0.01,  'type': 'residual'},
-    'Al': {'wt': 0.01,  'type': 'residual'},
-    'Ti': {'wt': 0.02,  'type': 'residual'},
-    'Si': {'wt': 0.05,  'type': 'residual'},
-    'Co': {'wt': 0.01,  'type': 'residual'},
-    'As': {'wt': 0.05 / 4, 'type': 'residual'},
-    'Sn': {'wt': 0.05 / 4, 'type': 'residual'},
-    'Sb': {'wt': 0.05 / 4, 'type': 'residual'},
-    'Zr': {'wt': 0.05 / 4, 'type': 'residual'}
+    # residuals / impurities (max limits)
+    'Cr': {'wt': 0.1,  'type': 'residual'},
+    'V':  {'wt': 0.1,  'type': 'residual'},
+    'Fe': {'wt': 0.05, 'type': 'residual'},
+    'Ti': {'wt': 0.1,  'type': 'residual'},
+    'Co': {'wt': 0.1,  'type': 'residual'},
+    # W balance: 91.55
 }
 
-remainder_element = 'Fe'
+remainder_element = 'W'
 
-import cost_variables as defaults
+from cortex_tea import cost_variables as defaults
 
 Cmp_map ={                    
-    'CNC': 4,
-    'Hot Rolling': 2,
-    'Cold Rolling': 2,
-    'HIP': 1.1,
-    'Spray Deposition': 1.1,
-    'Electron Beam': 1
+    # Replace 'defaults.Cmp_map_1[process]' with the desired 'Cmp'
+    # TODO: Validate values
+    'HIP': 2,
+    'Spray Deposition': 1.5
 }

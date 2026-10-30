@@ -3,30 +3,25 @@ requires = ["setuptools>=64"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "tea"
+name = "cortex-tea"
 version = "0.1.0"
 description = "Techno-economic analysis (TEA) manufacturing cost model for fusion reactor components"
 requires-python = ">=3.9"
-dependencies = []
+dependencies = ["matplotlib", "numpy"]
 
 [project.optional-dependencies]
-webapp = ["fastapi", "uvicorn", "matplotlib", "pydantic"]
+webapp = ["fastapi", "uvicorn", "pydantic"]
 notebook = ["pandas", "ipykernel"]
 
-# tea/ is a flat folder of sibling modules (component_def.py, material_def.py,
-# ...) that import each other by bare name (e.g. `from process_def import
-# Process`) rather than as a `tea.` package - materials_database/*.py,
-# processes_database/*.py, etc. do the same (e.g. `import cost_variables`),
-# so those stay bare top-level imports too. This config installs the core
-# modules as-is instead of nesting them under a "tea" package, so none of
-# that has to change.
+# Everything installs under the one `cortex_tea` package. The three
+# databases are folders of plain data files, not subpackages, so they ship as
+# package data; tea_api finds them next to itself.
 [tool.setuptools]
-py-modules = [
-    "component_def",
-    "cost_variables",
-    "material_def",
-    "process_def",
-    "tea1",
-    "tea_api",
+packages = ["cortex_tea"]
+
+[tool.setuptools.package-data]
+cortex_tea = [
+    "database_materials/*.py",
+    "database_processes/*.py",
+    "database_geometries/*.py",
 ]
-packages = []

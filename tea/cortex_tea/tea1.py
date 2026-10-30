@@ -18,9 +18,9 @@ Component (name: str, volume_mm3: float, material: Material, ...)
 """
 
 
-from process_def import Process
-from material_def import Material
-from component_def import Geometry
+from .process_def import Process
+from .material_def import Material
+from .component_def import Geometry
 from typing import List
 
 class Component:
