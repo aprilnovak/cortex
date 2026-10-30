@@ -26,7 +26,8 @@ tallies.out
 *.csv
 *.out
 *.png
-*.h5dagmc_files/equilibrium_eqdsk.json
+*.h5
+dagmc_files/equilibrium_eqdsk.json
 *.o*
 *.e*
 *.vtp
