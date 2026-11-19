@@ -35,6 +35,7 @@ from cortex_tea import component_def
 from cortex_tea import cost_variables
 from cortex_tea import tea_api
 from cortex_tea import plotting
+from cortex_tea import sensitivity
 from cortex_tea.process_def import (
     COST_LEVELS,
     TOOLING_COST_BY_LEVEL,
@@ -117,6 +118,15 @@ class CalculateRequest(BaseModel):
     material: MaterialInput
     processes: List[ProcessInput]
     geometry: Optional[GeometryInput] = None
+
+
+class SensitivityRequest(CalculateRequest):
+    metric: Literal["Total cost", "Unit cost", "Material cost", "Processing cost"] = "Total cost"
+    rel_range: float = Field(default=0.20, gt=0, lt=1)
+    overrides: Dict[str, List] = Field(default_factory=dict)
+    exclude: List[str] = Field(default_factory=list)
+    level_steps: bool = False
+    top_n: int = Field(default=15, gt=0, le=60)
 
 
 class ScreenDirectoryRequest(BaseModel):
@@ -306,6 +316,54 @@ def calculate(req: CalculateRequest):
         "chart_png_base64": base64.b64encode(chart_png).decode("ascii"),
         "process_cost_curve_chart_png_base64": base64.b64encode(curves_png).decode("ascii"),
         "warnings": warnings,
+    }
+
+
+@app.post("/api/sensitivity")
+def sensitivity_route(req: SensitivityRequest):
+    """One-at-a-time sensitivity on the same inputs as /api/calculate:
+    returns the rows (largest swing first), the base value, the basis, and
+    a tornado chart."""
+    if not req.processes:
+        raise HTTPException(400, "At least one process must be specified.")
+
+    try:
+        material = tea_api.resolve_material(_material_spec(req.material), material_dir=req.material.material_dir)
+
+        geometry = None
+        if req.geometry is not None:
+            geometry = tea_api.resolve_geometry(req.geometry.name, geometry_dir=req.geometry.geometry_dir)
+
+        process_specs = [_process_spec(p) for p in req.processes]
+        processes = [
+            tea_api.resolve_process(spec, process_dir=p.process_dir)
+            for spec, p in zip(process_specs, req.processes)
+        ]
+
+        component = tea_api.build_component(
+            req.component_name or "Component", req.volume_mm3, req.production_qty,
+            material, processes, process_specs=process_specs, geometry=geometry,
+        )
+
+        overrides = {}
+        for key, pair in req.overrides.items():
+            if len(pair) != 2:
+                raise tea_api.TeaError(f"Override '{key}' needs [low, high].")
+            overrides[key] = (pair[0], pair[1])
+
+        result = sensitivity.from_component(
+            component, metric=req.metric, rel_range=req.rel_range, overrides=overrides,
+            exclude=req.exclude or None, level_steps=req.level_steps,
+        )
+    except tea_api.TeaNotFoundError as e:
+        raise HTTPException(404, str(e))
+    except tea_api.TeaError as e:
+        raise HTTPException(400, str(e))
+
+    tornado = plotting.tornado_png(result, top_n=req.top_n)
+    return {
+        **result.to_dict(),
+        "tornado_png_base64": base64.b64encode(tornado).decode("ascii"),
     }
 
 

@@ -269,3 +269,106 @@ def process_cost_curves_png(
     fig.tight_layout()
 
     return _save_png(fig, path, facecolor=fig.get_facecolor())
+
+
+def _fmt_input(value) -> str:
+    if isinstance(value, str):
+        return value
+    if value == 0:
+        return "0"
+    a = abs(value)
+    if a >= 1e8 or a < 1e-2:
+        return f"{value:.3g}"
+    if a >= 1e3:
+        return f"{value:,.0f}"
+    return f"{value:.4g}"
+
+
+def tornado_png(result, top_n: int = 15, path: Optional[Union[str, Path]] = None) -> bytes:
+    """
+    Tornado chart for a sensitivity.SensitivityResult (see
+    sensitivity.one_at_a_time).
+
+    One row per input, largest swing at the top, bars drawn from the base
+    value to the output at the input's low value (blue) and high value
+    (orange). Each row label carries the input's low - high range. Inputs
+    with zero swing are left off and counted in the footer, which also
+    states the basis (material, processes, volume, quantity, metric, range,
+    price source).
+    """
+    rows = [r for r in result.rows if r["swing"] > 0][:top_n]
+    n_zero = sum(1 for r in result.rows if r["swing"] == 0)
+    n_hidden = sum(1 for r in result.rows if r["swing"] > 0) - len(rows)
+    base = result.base_value
+    money = result.units.startswith("$")
+    value_fmt = (lambda v: f"${v:,.2f}") if money else (lambda v: f"{v:,.4g}")
+
+    height = 1.6 + 0.38 * max(len(rows), 1)
+    fig = _new_figure(figsize=(8.6, height), dpi=150)
+    ax = fig.subplots()
+    fig.patch.set_facecolor(_SURFACE)
+    ax.set_facecolor(_SURFACE)
+
+    low_color, high_color = _CATEGORICAL_PALETTE[0], _CATEGORICAL_PALETTE[1]
+    labels = []
+    for y, r in enumerate(rows):
+        unit = "" if r["units"] in ("-", "level", "level value", "fraction") else f" {r['units']}"
+        labels.append(f"{r['label']}  ({_fmt_input(r['low_input'])} – {_fmt_input(r['high_input'])}{unit})")
+        for side, color in (("low", low_color), ("high", high_color)):
+            out = r[f"{side}_output"]
+            if out is None or out == base:
+                continue
+            ax.barh(y, out - base, left=base, height=0.62, color=color, edgecolor="none", zorder=3,
+                    label="Input at low value" if side == "low" else "Input at high value")
+            ax.text(out, y, f" {value_fmt(out)} ", ha="left" if out > base else "right", va="center", fontsize=7.5,
+                    color=_INK_SECONDARY, zorder=4)
+
+    ax.axvline(base, color=_INK_PRIMARY, linewidth=1, zorder=5)
+    ax.set_yticks(range(len(rows)))
+    ax.set_yticklabels(labels, fontsize=8, color=_INK_PRIMARY)
+    ax.set_ylim(len(rows) - 0.5, -0.5)  # largest swing on top
+
+    # Leave room for the end-of-bar value labels.
+    outs = [o for r in rows for o in (r["low_output"], r["high_output"]) if o is not None] + [base]
+    lo, hi = min(outs), max(outs)
+    pad = (hi - lo) * 0.18 or abs(base) * 0.05 or 1.0
+    ax.set_xlim(lo - pad, hi + pad)
+
+    ax.set_xlabel(f"{result.metric} ({result.units})", color=_INK_SECONDARY, fontsize=9)
+    ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda v, _: value_fmt(v) if not money else f"${v:,.0f}"))
+    ax.tick_params(axis="x", colors=_INK_MUTED, labelsize=8)
+    ax.tick_params(axis="y", length=0)
+    ax.xaxis.grid(True, color=_GRIDLINE, linewidth=1, zorder=0)
+    ax.set_axisbelow(True)
+    for spine_name in ("top", "right", "left"):
+        ax.spines[spine_name].set_visible(False)
+    ax.spines["bottom"].set_color(_BASELINE)
+
+    ax.set_title(f"Base {result.metric.lower()}: {value_fmt(base)}", loc="left", color=_INK_PRIMARY, fontsize=10, pad=8)
+
+    handles, legend_labels = ax.get_legend_handles_labels()
+    unique = dict(zip(legend_labels, handles))
+    order = [k for k in ("Input at low value", "Input at high value") if k in unique]
+    if order:
+        ax.legend([unique[k] for k in order], order, loc="lower right", bbox_to_anchor=(1.0, 1.0), ncol=2,
+                  frameon=False, fontsize=8, labelcolor=_INK_SECONDARY, handlelength=1.2, borderaxespad=0.2)
+
+    b = result.basis
+    footer = [
+        f"{b['material']} | {b['processes']} | volume {b['volume_mm3']:,.0f} mm³ | N = {b['production_qty']:g} | "
+        f"range {b['default_range']}",
+        f"Overrides: {b['overrides']}. Element prices: {b['element_prices']}.",
+    ]
+    extra = []
+    if n_hidden:
+        extra.append(f"{n_hidden} smaller inputs not shown (top {top_n})")
+    if n_zero:
+        extra.append(f"{n_zero} inputs with zero swing not shown")
+    if extra:
+        footer.append("; ".join(extra) + ". Full table: result.rows / to_csv().")
+
+    fig.tight_layout()
+    footer_text = fig.text(0.01, 0.0, "\n".join(footer), ha="left", va="top", fontsize=6.5, color=_INK_MUTED,
+                           transform=fig.transFigure)
+
+    return _save_png(fig, path, facecolor=fig.get_facecolor(), bbox_extra_artists=(footer_text,), bbox_inches="tight")

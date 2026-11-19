@@ -570,6 +570,61 @@
         <p class="hint">Fabrication cost vs. production quantity for each process. Solid lines use this material and this geometry; dashed lines use an ideal material with an ideal geometry (Cmp = Cc = Cs = Ct = Cf = 1, the DFM baseline design). The dotted vertical line marks the entered production quantity.</p>
       </div>
     </section>
+
+    <!-- One-at-a-time sensitivity -->
+    <section class="card">
+      <h2>Sensitivity (one at a time)</h2>
+      <p class="hint">Uses the component, material and processes above. Each input (element prices, composition, density, volume, quantity, Cmp/Cc/Cs/Ct/Cf/Wc, process cost terms, amortization) is swung on its own while every other input stays at its base value. When an element's wt% changes, the remainder element absorbs the difference. DFM coefficients and Wc are not taken below 1 (ideal).</p>
+      <div class="field-row">
+        <div class="field">
+          <label>Output metric</label>
+          <select v-model="sens.metric">
+            <option>Total cost</option>
+            <option>Unit cost</option>
+            <option>Material cost</option>
+            <option>Processing cost</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Range <span class="hint">(± %)</span></label>
+          <input v-model.number="sens.rangePercent" type="number" min="1" max="99" step="1">
+        </div>
+        <div class="field">
+          <label>Bars shown</label>
+          <input v-model.number="sens.topN" type="number" min="1" max="60" step="1">
+        </div>
+        <div class="field">
+          <label><input v-model="sens.levelSteps" type="checkbox"> Also step each cost level ±1</label>
+        </div>
+      </div>
+      <button class="primary" @click="runSensitivity" :disabled="sens.running">
+        {{ sens.running ? 'Running…' : 'Run Sensitivity' }}
+      </button>
+      <button v-if="sens.result" @click="downloadSensitivityCsv">Download CSV</button>
+
+      <div v-if="sens.result" style="margin-top: 1.5rem">
+        <img class="chart" :src="'data:image/png;base64,' + sens.result.tornado_png_base64" alt="Tornado chart of one-at-a-time sensitivity">
+        <p class="hint">Blue bars: output with the input at its low value. Orange bars: input at its high value. The vertical line is the base case. Bars with the same length and a shared note (e.g. Cmp, Cc and Cs on one process) are the same multiplier, not independent drivers.</p>
+        <div class="subheading">All inputs</div>
+        <table>
+          <thead>
+            <tr><th>Input</th><th class="num">Low</th><th class="num">Base</th><th class="num">High</th><th class="num">Output at low</th><th class="num">Output at high</th><th class="num">Swing</th><th>Note</th></tr>
+          </thead>
+          <tbody>
+            <tr v-for="r in sens.result.rows" :key="r.key">
+              <td>{{ r.label }}</td>
+              <td class="num">{{ fmtInput(r.low_input) }}</td>
+              <td class="num">{{ fmtInput(r.base_input) }}</td>
+              <td class="num">{{ fmtInput(r.high_input) }}</td>
+              <td class="num">{{ r.low_output === null ? '–' : r.low_output.toFixed(2) }}</td>
+              <td class="num">{{ r.high_output === null ? '–' : r.high_output.toFixed(2) }}</td>
+              <td class="num">{{ r.swing.toFixed(2) }}</td>
+              <td class="hint">{{ r.note }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
   </main>
 </div>
 
@@ -843,19 +898,82 @@ createApp({
       return { ...base, mode: 'existing', name: proc.name, process_dir: null };
     }
 
+    function buildCalculatePayload() {
+      return {
+        component_name: componentName.value || null,
+        volume_mm3: selectedGeometry.value ? selectedGeometry.value.volume_mm3 : volumeMm3.value,
+        production_qty: productionQty.value,
+        material: buildMaterialPayload(),
+        processes: processes.value.map(buildProcessPayload),
+        geometry: selectedGeometry.value ? { name: selectedGeometryName.value, geometry_dir: null } : null,
+      };
+    }
+
+    const sens = reactive({ metric: 'Total cost', rangePercent: 20, topN: 15, levelSteps: false, running: false, result: null });
+
+    function fmtInput(v) {
+      if (typeof v === 'string') return v;
+      if (v === 0) return '0';
+      const a = Math.abs(v);
+      if (a >= 1e8 || a < 1e-2) return v.toPrecision(3);
+      if (a >= 1e3) return Math.round(v).toLocaleString();
+      return Number(v.toPrecision(4)).toString();
+    }
+
+    async function runSensitivity() {
+      sens.running = true;
+      errorMessage.value = '';
+      sens.result = null;
+      try {
+        const payload = {
+          ...buildCalculatePayload(),
+          metric: sens.metric,
+          rel_range: sens.rangePercent / 100,
+          top_n: sens.topN,
+          level_steps: sens.levelSteps,
+        };
+        const res = await fetch('/api/sensitivity', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) throw new Error(await readError(res));
+        sens.result = await res.json();
+      } catch (e) {
+        errorMessage.value = e.message;
+      } finally {
+        sens.running = false;
+      }
+    }
+
+    function downloadSensitivityCsv() {
+      const r = sens.result;
+      const cols = ['key', 'label', 'group', 'units', 'base_input', 'low_input', 'high_input',
+                    'low_output', 'high_output', 'low_delta', 'high_delta', 'swing', 'note'];
+      const esc = v => {
+        const s = v === null || v === undefined ? '' : String(v);
+        return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+      };
+      const lines = Object.entries(r.basis).map(([k, v]) => `# ${k}: ${v}`);
+      lines.push(cols.join(','));
+      for (const row of r.rows) lines.push(cols.map(c => esc(row[c])).join(','));
+      const blob = new Blob([lines.join('\n') + '\n'], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'tea_sensitivity.csv';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+
     async function calculate() {
       calculating.value = true;
       errorMessage.value = '';
       result.value = null;
       try {
-        const payload = {
-          component_name: componentName.value || null,
-          volume_mm3: selectedGeometry.value ? selectedGeometry.value.volume_mm3 : volumeMm3.value,
-          production_qty: productionQty.value,
-          material: buildMaterialPayload(),
-          processes: processes.value.map(buildProcessPayload),
-          geometry: selectedGeometry.value ? { name: selectedGeometryName.value, geometry_dir: null } : null,
-        };
+        const payload = buildCalculatePayload();
         const res = await fetch('/api/calculate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -930,6 +1048,7 @@ createApp({
       processesList, costLevelData, processes, processByName, materialCmpFor, procAlphaT, procBeta, scheduleProcessPreview, addProcess,
       errorMessage, calculating, result, screening,
       loadMaterials, calculate, screenDirectory,
+      sens, runSensitivity, downloadSensitivityCsv, fmtInput,
     };
   },
 }).mount('#app');
