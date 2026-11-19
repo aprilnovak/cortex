@@ -12,6 +12,7 @@ dependencies = ["matplotlib", "numpy"]
 [project.optional-dependencies]
 webapp = ["fastapi", "uvicorn", "pydantic"]
 notebook = ["pandas", "ipykernel"]
+test = ["pytest"]
 
 # Everything installs under the one `cortex_tea` package. The three
 # databases are folders of plain data files, not subpackages, so they ship as

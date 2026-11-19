@@ -77,6 +77,32 @@ plotting.process_cost_curves_png(component, path="curves.png")
 summary = component.manufacturing_cost()   # same as evaluate()["summary"]
 ```
 
+## Sensitivity (tornado plot)
+
+`cortex_tea.sensitivity` runs a one-at-a-time sensitivity on the same inputs
+as `evaluate`. Every input is swung on its own (default ±20%) while the rest
+stay at base: element prices, composition wt% (the remainder element absorbs
+the change), density, volume, production quantity, Cmp/Cc/Cs/Ct/Cf/Wc per
+process, the process cost terms, and the equipment amortization constants.
+DFM coefficients and Wc are not taken below 1.0 (ideal) unless you override
+them.
+
+```python
+from cortex_tea import sensitivity, plotting
+
+result = sensitivity.one_at_a_time(
+    "EROFER97", ["CNC", "Hot Rolling"], volume_mm3=3_000_000, production_qty=100,
+    metric="Total cost",                     # or "Unit cost", "Material cost", "Processing cost"
+    overrides={"price:W": (30, 70)},         # absolute low/high for any input
+)
+plotting.tornado_png(result, path="tornado.png")
+result.to_csv("tornado.csv")                 # full table, basis in the header
+sensitivity.list_parameters("EROFER97", ["CNC"], 3_000_000, 100)  # every key and its default range
+```
+
+The web GUI has the same analysis in its Sensitivity panel. Tests:
+`pip install -e ".[test]"` then `pytest tests`.
+
 ## Running the web GUI
 
 ```bash
